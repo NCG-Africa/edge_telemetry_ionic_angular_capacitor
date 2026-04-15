@@ -1,0 +1,493 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://edgemetrics.io/schemas/rum-payload/v1",
+  "title": "Edge RUM Ingest Payload",
+  "description": "Payload schema for edge-rum web SDK. Matches the Android SDK batch envelope exactly so the same Kafka processor handles both platforms.",
+  "type": "object",
+  "required": ["timestamp", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 batch flush time. Use new Date().toISOString(). Never Unix ms.",
+      "examples": ["2024-01-15T10:30:00.000Z"]
+    },
+    "data": {
+      "type": "object",
+      "required": ["type", "events"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "batch",
+          "description": "Always the string 'batch'. Matches Android SDK envelope."
+        },
+        "events": {
+          "type": "array",
+          "description": "Array of event objects. All event types mixed together.",
+          "items": { "$ref": "#/definitions/event" },
+          "minItems": 0
+        }
+      }
+    }
+  },
+  "definitions": {
+    "event": {
+      "type": "object",
+      "required": ["type", "eventName", "timestamp", "attributes"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "event",
+          "description": "Always the string 'event' for every item. Matches Android SDK."
+        },
+        "eventName": {
+          "type": "string",
+          "enum": [
+            "screen_view",
+            "network_request",
+            "performance",
+            "app.crash",
+            "custom_event",
+            "custom_metric",
+            "app_lifecycle",
+            "page_load",
+            "screen_timing",
+            "network_change"
+          ],
+          "description": "Discriminator. Backend routes by this value. page_load, screen_timing, network_change are web-only new values — see docs/backend-changes.md."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 event time. Use new Date().toISOString(). Never Unix ms.",
+          "examples": ["2024-01-15T10:30:00.123Z"]
+        },
+        "attributes": {
+          "$ref": "#/definitions/attributes"
+        }
+      }
+    },
+    "attributes": {
+      "type": "object",
+      "description": "Flat key-value object. All values must be primitives — no nested objects, no arrays. Context (app, device, session, user) merged here alongside event-specific fields.",
+      "additionalProperties": {
+        "type": ["string", "number", "boolean"],
+        "description": "Values must be string, number, or boolean. Never null, undefined, object, or array."
+      },
+      "properties": {
+        "app.name": {
+          "type": "string",
+          "description": "App name. From EdgeRumConfig.appName.",
+          "examples": ["MyApp"]
+        },
+        "app.version": {
+          "type": "string",
+          "description": "App version string.",
+          "examples": ["2.1.0"]
+        },
+        "app.package": {
+          "type": "string",
+          "description": "App package / bundle ID.",
+          "examples": ["com.yourco.app"]
+        },
+        "app.environment": {
+          "type": "string",
+          "enum": ["production", "staging", "development"],
+          "examples": ["production"]
+        },
+        "device.id": {
+          "type": "string",
+          "description": "Persistent device identifier. Format: device_{timestampMs}_{8hexchars}_{platform}. Derived from Capacitor Device.getId() (hashed). On web: derived from stored random value.",
+          "pattern": "^device_\\d+_[a-f0-9]{8}_(ios|android|web)$",
+          "examples": ["device_1704067200000_a8b9c2d1_ios", "device_1704067200000_b2c3d4e5_web"]
+        },
+        "device.platform": {
+          "type": "string",
+          "enum": ["ios", "android", "web"],
+          "description": "Platform from Capacitor Device.getInfo().platform. 'web' on browser.",
+          "examples": ["ios"]
+        },
+        "device.model": {
+          "type": "string",
+          "examples": ["iPhone 15 Pro", "Samsung Galaxy S24"]
+        },
+        "device.manufacturer": {
+          "type": "string",
+          "examples": ["Apple", "Samsung"]
+        },
+        "device.os": {
+          "type": "string",
+          "examples": ["ios", "android"]
+        },
+        "device.osVersion": {
+          "type": "string",
+          "examples": ["17.4", "14.0"]
+        },
+        "device.isVirtual": {
+          "type": "boolean",
+          "description": "True if running in simulator or emulator."
+        },
+        "device.screenWidth": {
+          "type": "number",
+          "examples": [390]
+        },
+        "device.screenHeight": {
+          "type": "number",
+          "examples": [844]
+        },
+        "device.pixelRatio": {
+          "type": "number",
+          "examples": [3.0]
+        },
+        "device.batteryLevel": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "examples": [0.82]
+        },
+        "device.batteryCharging": {
+          "type": "boolean"
+        },
+        "network.type": {
+          "type": "string",
+          "enum": ["wifi", "cellular", "none", "unknown"],
+          "examples": ["wifi"]
+        },
+        "network.effectiveType": {
+          "type": "string",
+          "enum": ["4g", "3g", "2g", "slow-2g", "unknown"],
+          "examples": ["4g"]
+        },
+        "network.downlinkMbps": {
+          "type": "number",
+          "examples": [24.5]
+        },
+        "session.id": {
+          "type": "string",
+          "description": "Session ID. Format: session_{timestampMs}_{8hexchars}_{platform}.",
+          "pattern": "^session_\\d+_[a-f0-9]{8}_(ios|android|web)$",
+          "examples": ["session_1704067200000_x9y8z7w6_ios"]
+        },
+        "session.startTime": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 time when this session started.",
+          "examples": ["2024-01-15T10:25:00.000Z"]
+        },
+        "session.sequence": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Monotonic counter. Increments on each successfully sent payload within a session. Backend detects gaps.",
+          "examples": [0, 1, 42]
+        },
+        "user.id": {
+          "type": "string",
+          "description": "User ID. Format: user_{timestampMs}_{8hexchars} for auto-generated. Or your internal opaque user ID after EdgeRum.identify().",
+          "examples": ["user_1704067200000_abcd1234", "u_123"]
+        },
+        "sdk.version": {
+          "type": "string",
+          "description": "edge-rum SDK version.",
+          "examples": ["1.0.0"]
+        },
+        "sdk.platform": {
+          "type": "string",
+          "const": "ionic-angular-capacitor"
+        }
+      }
+    },
+    "screenViewAttributes": {
+      "description": "Extra attributes for eventName: screen_view",
+      "properties": {
+        "navigation.from_screen": {
+          "type": "string",
+          "description": "Previous screen name. Null/absent on first navigation.",
+          "examples": ["HomeScreen"]
+        },
+        "navigation.to_screen": {
+          "type": "string",
+          "description": "Destination screen / normalised route pattern.",
+          "examples": ["ProductDetailScreen", "/products/:id"]
+        },
+        "navigation.method": {
+          "type": "string",
+          "enum": ["push", "pop", "replace", "tab-switch", "initial"],
+          "description": "Matches Android SDK navigation methods.",
+          "examples": ["push"]
+        },
+        "navigation.route_type": {
+          "type": "string",
+          "enum": ["main_flow", "fragment_flow", "deeplink", "modal", "settings", "onboarding"],
+          "description": "Matches Android SDK route type classification.",
+          "examples": ["main_flow"]
+        },
+        "navigation.has_arguments": {
+          "type": "boolean",
+          "description": "True if navigation includes route params or query string.",
+          "examples": [true]
+        },
+        "navigation.timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of navigation. Matches Android SDK field.",
+          "examples": ["2024-01-15T10:30:00.123Z"]
+        },
+        "navigation.duration_ms": {
+          "type": "number",
+          "description": "Navigation transition duration in ms. Web-only field.",
+          "examples": [187]
+        }
+      }
+    },
+    "networkRequestAttributes": {
+      "description": "Extra attributes for eventName: network_request",
+      "properties": {
+        "network.url": {
+          "type": "string",
+          "description": "Request URL with PII query params stripped.",
+          "examples": ["https://api.example.com/products"]
+        },
+        "network.method": {
+          "type": "string",
+          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+          "examples": ["GET"]
+        },
+        "network.status_code": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 599,
+          "examples": [200, 404, 500]
+        },
+        "network.duration_ms": {
+          "type": "number",
+          "description": "Round-trip time in milliseconds.",
+          "examples": [342]
+        },
+        "network.request_body_size": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Request body size in bytes.",
+          "examples": [0, 1024]
+        },
+        "network.response_body_size": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Response body size in bytes.",
+          "examples": [4210]
+        },
+        "network.parent_screen": {
+          "type": "string",
+          "description": "Current screen at time of request. For correlation.",
+          "examples": ["ProductDetailScreen"]
+        },
+        "network.graphql_operation": {
+          "type": "string",
+          "description": "GraphQL operationName if detected in POST body.",
+          "examples": ["GetProducts"]
+        }
+      }
+    },
+    "performanceAttributes": {
+      "description": "Extra attributes for eventName: performance (Web Vitals)",
+      "properties": {
+        "performance.metric_name": {
+          "type": "string",
+          "enum": ["LCP", "INP", "CLS", "FCP", "TTFB"],
+          "examples": ["LCP"]
+        },
+        "performance.value": {
+          "type": "number",
+          "description": "Raw metric value. LCP/INP/FCP/TTFB in ms. CLS is unitless score.",
+          "examples": [1240, 0.12]
+        },
+        "performance.unit": {
+          "type": "string",
+          "enum": ["ms", "score"],
+          "examples": ["ms"]
+        },
+        "performance.rating": {
+          "type": "string",
+          "enum": ["good", "needs-improvement", "poor"],
+          "examples": ["good"]
+        },
+        "performance.screen": {
+          "type": "string",
+          "description": "Screen active at time of measurement.",
+          "examples": ["ProductDetailScreen"]
+        }
+      }
+    },
+    "crashAttributes": {
+      "description": "Extra attributes for eventName: app.crash — aligned to Android SDK v2.0.0 crash structure",
+      "properties": {
+        "exception_type": {
+          "type": "string",
+          "description": "Matches Android SDK field name exactly.",
+          "examples": ["TypeError", "ReferenceError", "UnhandledRejection", "NativeCrash"]
+        },
+        "message": {
+          "type": "string",
+          "description": "Matches Android SDK field name exactly.",
+          "examples": ["Cannot read properties of undefined"]
+        },
+        "stacktrace": {
+          "type": "string",
+          "description": "Matches Android SDK field name exactly. Raw JS stack. Symbolicate server-side."
+        },
+        "is_fatal": {
+          "type": "boolean",
+          "description": "Matches Android SDK field name exactly. False for JS errors, true for native crashes.",
+          "examples": [false]
+        },
+        "handled": {
+          "type": "boolean",
+          "description": "False = uncaught. True = via EdgeRum.captureError().",
+          "examples": [false, true]
+        },
+        "error_context": {
+          "type": "string",
+          "description": "Matches Android SDK field name. Format: 'screen:{ScreenName}'.",
+          "examples": ["screen:ProductDetailScreen"]
+        },
+        "cause": {
+          "type": "string",
+          "description": "Matches Android SDK field name. High-level error classification.",
+          "examples": ["UnhandledError", "PromiseRejection", "AngularError", "NativeCrash"]
+        },
+        "runtime": {
+          "type": "string",
+          "enum": ["webview", "native"],
+          "description": "Web-only extra field. webview = JS. native = Capacitor crash handler.",
+          "examples": ["webview"]
+        }
+      }
+    },
+    "customEventAttributes": {
+      "description": "Extra attributes for eventName: custom_event",
+      "properties": {
+        "event.name": {
+          "type": "string",
+          "description": "Custom event name from EdgeRum.track().",
+          "examples": ["checkout_started", "form_submitted"]
+        }
+      },
+      "additionalProperties": {
+        "type": ["string", "number", "boolean"],
+        "description": "Custom attributes from EdgeRum.track() are prefixed with 'event.' by PayloadBuilder."
+      }
+    },
+    "customMetricAttributes": {
+      "description": "Extra attributes for eventName: custom_metric",
+      "properties": {
+        "metric.name": {
+          "type": "string",
+          "description": "Custom metric name from EdgeRum.time().",
+          "examples": ["image_upload", "checkout_flow"]
+        },
+        "metric.value": {
+          "type": "number",
+          "description": "Duration in ms from EdgeRum.time().end().",
+          "examples": [890]
+        },
+        "metric.unit": {
+          "type": "string",
+          "const": "ms"
+        }
+      },
+      "additionalProperties": {
+        "type": ["string", "number", "boolean"],
+        "description": "Custom attributes from EdgeRum.time().end() are prefixed with 'metric.' by PayloadBuilder."
+      }
+    },
+    "appLifecycleAttributes": {
+      "description": "Extra attributes for eventName: app_lifecycle",
+      "properties": {
+        "lifecycle.event": {
+          "type": "string",
+          "enum": ["foreground", "background"],
+          "examples": ["foreground"]
+        },
+        "lifecycle.cold_start_ms": {
+          "type": "number",
+          "description": "Only present on first foreground after cold start. Module load to foreground delta in ms.",
+          "examples": [1240]
+        }
+      }
+    },
+    "pageLoadAttributes": {
+      "description": "Extra attributes for eventName: page_load — WEB ONLY. New event type. See docs/backend-changes.md.",
+      "properties": {
+        "page.ttfb_ms": {
+          "type": "number",
+          "description": "Time to First Byte in ms.",
+          "examples": [180]
+        },
+        "page.dom_content_loaded_ms": {
+          "type": "number",
+          "description": "DOMContentLoaded in ms.",
+          "examples": [420]
+        },
+        "page.load_duration_ms": {
+          "type": "number",
+          "description": "Full page load duration in ms.",
+          "examples": [980]
+        },
+        "page.resource_count": {
+          "type": "number",
+          "description": "Number of sub-resources loaded.",
+          "examples": [24]
+        },
+        "page.route": {
+          "type": "string",
+          "description": "Normalised route at time of load.",
+          "examples": ["/home"]
+        }
+      }
+    },
+    "screenTimingAttributes": {
+      "description": "Extra attributes for eventName: screen_timing — WEB ONLY. New event type. See docs/backend-changes.md.",
+      "properties": {
+        "screen.name": {
+          "type": "string",
+          "description": "Ionic screen/component name.",
+          "examples": ["ProductDetailScreen"]
+        },
+        "screen.event": {
+          "type": "string",
+          "enum": ["enter", "leave"],
+          "description": "enter = ionViewWillEnter to ionViewDidEnter. leave = ionViewWillLeave to ionViewDidLeave.",
+          "examples": ["enter"]
+        },
+        "screen.duration_ms": {
+          "type": "number",
+          "description": "Duration of the enter or leave transition in ms.",
+          "examples": [95]
+        }
+      }
+    },
+    "networkChangeAttributes": {
+      "description": "Extra attributes for eventName: network_change — WEB ONLY. New event type. See docs/backend-changes.md.",
+      "properties": {
+        "network.connected": {
+          "type": "boolean",
+          "description": "Whether device is connected after the change.",
+          "examples": [true]
+        },
+        "network.type": {
+          "type": "string",
+          "enum": ["wifi", "cellular", "none", "unknown"],
+          "examples": ["wifi"]
+        },
+        "network.previous_type": {
+          "type": "string",
+          "enum": ["wifi", "cellular", "none", "unknown"],
+          "description": "Network type before the change.",
+          "examples": ["cellular"]
+        }
+      }
+    }
+  }
+}

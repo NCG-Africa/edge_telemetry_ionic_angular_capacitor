@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -6,9 +6,11 @@ import { join } from 'node:path';
 const ROOT = new URL('..', import.meta.url).pathname;
 const PACKAGES = ['core', 'angular', 'capacitor'];
 
-const BANNED = /@opentelemetry|\/src\/|\.test\.|tsup\.config|CLAUDE\.md/i;
+const BANNED = /@opentelemetry|(^|\/)src\/|\.test\.|tsup\.config|CLAUDE\.md/i;
 
-const hasAllDist = PACKAGES.every((p) => existsSync(join(ROOT, 'packages', p, 'dist', 'index.mjs')));
+// Opt-out for local pre-build runs only — CI must always exercise this suite
+// against real dist/ artefacts, so a missing build is treated as a test failure.
+const SKIP_DIST_CHECK = process.env.SKIP_DIST_CHECK === '1';
 
 function packFiles(pkg: string): string[] {
   const cwd = join(ROOT, 'packages', pkg);
@@ -18,10 +20,25 @@ function packFiles(pkg: string): string[] {
   return (entry.files ?? []).map((f: { path: string }) => f.path);
 }
 
-describe.skipIf(!hasAllDist)('npm pack audit', () => {
+describe.skipIf(SKIP_DIST_CHECK)('npm pack audit', () => {
+  beforeAll(() => {
+    const missing = PACKAGES.filter(
+      (p) => !existsSync(join(ROOT, 'packages', p, 'dist', 'index.mjs'))
+    );
+    if (missing.length > 0) {
+      throw new Error(
+        `dist/index.mjs missing for: ${missing.join(', ')} — run \`pnpm build\` first, ` +
+          `or set SKIP_DIST_CHECK=1 to skip this suite locally`
+      );
+    }
+  });
+
   for (const pkg of PACKAGES) {
     describe(`@edgemetrics/rum${pkg === 'core' ? '' : `-${pkg}`}`, () => {
-      const files = hasAllDist ? packFiles(pkg) : [];
+      let files: string[] = [];
+      beforeAll(() => {
+        files = packFiles(pkg);
+      });
 
       it('includes dist/index.mjs', () => {
         expect(files).toContain('dist/index.mjs');

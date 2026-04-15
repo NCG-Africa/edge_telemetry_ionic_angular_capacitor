@@ -6,7 +6,7 @@ import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const PACKAGES_DIR = new URL('../packages', import.meta.url).pathname;
-const BANNED = /@opentelemetry|\/src\/|\.test\.|tsup\.config|CLAUDE\.md/i;
+const BANNED = /@opentelemetry|(^|\/)src\/|\.test\.|tsup\.config|CLAUDE\.md/i;
 
 const packages = readdirSync(PACKAGES_DIR).filter((name) => {
   const pkgJson = join(PACKAGES_DIR, name, 'package.json');

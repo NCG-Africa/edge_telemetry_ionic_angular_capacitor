@@ -10,3 +10,4 @@ export {
 } from './EdgeRumModule';
 export { RouterCapture } from './RouterCapture';
 export { EdgeRumErrorCapture } from './ErrorCapture';
+export { IonicLifecycleCapture } from './IonicLifecycleCapture';

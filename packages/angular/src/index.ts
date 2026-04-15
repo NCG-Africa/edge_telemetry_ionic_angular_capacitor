@@ -9,3 +9,4 @@ export {
   edgeRumInitializerFactory,
 } from './EdgeRumModule';
 export { RouterCapture } from './RouterCapture';
+export { EdgeRumErrorCapture } from './ErrorCapture';

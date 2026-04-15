@@ -1,5 +1,6 @@
 import {
   APP_INITIALIZER,
+  ErrorHandler,
   InjectionToken,
   NgModule,
   type ModuleWithProviders,
@@ -7,6 +8,7 @@ import {
 } from '@angular/core';
 import { EdgeRum, type EdgeRumConfig } from '@edgemetrics/rum';
 
+import { EdgeRumErrorCapture } from './ErrorCapture';
 import { EdgeRumService } from './EdgeRumService';
 
 export const EDGE_RUM_CONFIG = new InjectionToken<EdgeRumConfig>('EDGE_RUM_CONFIG');
@@ -27,6 +29,7 @@ function buildProviders(config: EdgeRumConfig): Provider[] {
       deps: [EDGE_RUM_CONFIG],
       multi: true,
     },
+    { provide: ErrorHandler, useClass: EdgeRumErrorCapture },
   ];
 }
 

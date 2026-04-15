@@ -256,7 +256,7 @@ describe('getDeviceContext', () => {
     expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{8}_web$/);
   });
 
-  it('persists the web device suffix across calls via localStorage', async () => {
+  it('persists the full device ID across calls via localStorage', async () => {
     const storage = new FakeStorage();
     const deps = {
       capacitor: nonNativeCapacitor(),
@@ -267,13 +267,11 @@ describe('getDeviceContext', () => {
     };
     const a = await getDeviceContext(deps);
     const b = await getDeviceContext(deps);
-    const suffixA = (a['device.id'] as string).split('_')[2];
-    const suffixB = (b['device.id'] as string).split('_')[2];
-    expect(suffixA).toBe(suffixB);
-    expect(storage.getItem('edge_rum_device_id')).toBe(suffixA);
+    expect(a['device.id']).toBe(b['device.id']);
+    expect(storage.getItem('edge_rum_device_id')).toBe(a['device.id']);
   });
 
-  it('regenerates suffix if stored value is malformed', async () => {
+  it('regenerates device ID if stored value is malformed', async () => {
     const storage = new FakeStorage();
     storage.setItem('edge_rum_device_id', 'not-valid-hex');
     const attrs = await getDeviceContext({
@@ -282,9 +280,8 @@ describe('getDeviceContext', () => {
       getCrypto: () => realCrypto,
       now: () => fixedNow,
     });
-    const suffix = (attrs['device.id'] as string).split('_')[2];
-    expect(suffix).toMatch(/^[0-9a-f]{8}$/);
-    expect(storage.getItem('edge_rum_device_id')).toBe(suffix);
+    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{8}_web$/);
+    expect(storage.getItem('edge_rum_device_id')).toBe(attrs['device.id']);
   });
 
   it('survives localStorage.setItem throwing (quota/private mode)', async () => {

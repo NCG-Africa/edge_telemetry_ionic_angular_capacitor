@@ -232,6 +232,11 @@ export const EdgeRum: EdgeRumRuntime = {
   },
 };
 
+export function __recordEvent(eventName: string, attributes: EventAttributes): void {
+  if (!state.enabled || !state.collector) return;
+  state.collector.recordEvent(eventName, attributes);
+}
+
 export function __setCurrentRoute(route: string): void {
   state.currentRoute = route;
 }

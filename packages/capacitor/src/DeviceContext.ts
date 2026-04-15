@@ -161,14 +161,16 @@ function parseUserAgent(
   return out;
 }
 
-function getOrCreateWebSuffix(
+const DEVICE_ID_PATTERN = /^device_\d+_[0-9a-f]{8}_.+$/;
+
+function getOrCreateDeviceId(
   storage: Storage | undefined,
   generate: () => string,
 ): string {
   if (!storage) return generate();
   try {
     const existing = storage.getItem(DEVICE_ID_STORAGE_KEY);
-    if (existing && /^[0-9a-f]{8}$/.test(existing)) return existing;
+    if (existing && DEVICE_ID_PATTERN.test(existing)) return existing;
     const fresh = generate();
     try {
       storage.setItem(DEVICE_ID_STORAGE_KEY, fresh);
@@ -263,7 +265,7 @@ export async function getDeviceContext(
         const raw = await device.getId();
         const hex8 = await sha256Hex8(raw.identifier, cryptoApi);
         if (hex8) {
-          attrs['device.id'] = `device_${now()}_${hex8}_${platform}`;
+          attrs['device.id'] = getOrCreateDeviceId(storage, () => `device_${now()}_${hex8}_${platform}`);
         }
       } catch {
         // fall through to fallback id below
@@ -282,8 +284,7 @@ export async function getDeviceContext(
   }
 
   if (!('device.id' in attrs)) {
-    const suffix = getOrCreateWebSuffix(storage, randomHex8);
-    attrs['device.id'] = `device_${now()}_${suffix}_${platform}`;
+    attrs['device.id'] = getOrCreateDeviceId(storage, () => `device_${now()}_${randomHex8()}_${platform}`);
   }
 
   addScreenAttributes(attrs, win);

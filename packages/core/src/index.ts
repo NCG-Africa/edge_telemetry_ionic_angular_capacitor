@@ -26,4 +26,4 @@ export interface UserContext {
 export type EventAttributes = Record<string, string | number | boolean>;
 
 export { EdgeRum, type EdgeRumRuntime, type RumTimer } from './EdgeRum';
-export { __setCurrentRoute, __getCollector, __getSession, __getContext, __getPipeline } from './EdgeRum';
+export { __recordEvent, __setCurrentRoute, __getCollector, __getSession, __getContext, __getPipeline } from './EdgeRum';

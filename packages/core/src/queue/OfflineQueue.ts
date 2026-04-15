@@ -144,6 +144,7 @@ export class OfflineQueue {
   private items: string[] = [];
   private loaded = false;
   private loading: Promise<void> | null = null;
+  private opChain: Promise<void> = Promise.resolve();
 
   constructor(options: OfflineQueueOptions = {}) {
     this.storage =
@@ -161,50 +162,77 @@ export class OfflineQueue {
     if (this.loaded) return;
     if (!this.loading) {
       this.loading = (async () => {
-        const existing = await this.storage.load();
-        this.items = existing.slice(-this.maxQueueSize);
+        try {
+          const existing = await this.storage.load();
+          this.items = existing.slice(-this.maxQueueSize);
+        } catch (err) {
+          if (this.debug) {
+            // eslint-disable-next-line no-console
+            console.warn('[edge-rum] offline queue load failed', err);
+          }
+          this.items = [];
+        }
         this.loaded = true;
-      })();
+      })().catch(() => {
+        this.loading = null;
+      });
     }
     await this.loading;
   }
 
-  async push(payload: string): Promise<void> {
-    await this.ensureLoaded();
-    this.items.push(payload);
-    if (this.items.length > this.maxQueueSize) {
-      this.items.splice(0, this.items.length - this.maxQueueSize);
-    }
-    await this.storage.save(this.items);
+  private enqueue<T>(op: () => Promise<T>): Promise<T> {
+    const run = this.opChain.then(op);
+    this.opChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
-  async flush(sendFn: SendFn): Promise<void> {
-    await this.ensureLoaded();
-    while (this.items.length > 0) {
-      const next = this.items[0];
-      if (next === undefined) break;
-      try {
-        await sendFn(next);
-      } catch (err) {
-        if (this.debug) {
-          // eslint-disable-next-line no-console
-          console.warn('[edge-rum] offline queue flush failed', err);
-        }
-        return;
+  push(payload: string): Promise<void> {
+    return this.enqueue(async () => {
+      await this.ensureLoaded();
+      this.items.push(payload);
+      if (this.items.length > this.maxQueueSize) {
+        this.items.splice(0, this.items.length - this.maxQueueSize);
       }
-      this.items.shift();
       await this.storage.save(this.items);
-    }
+    });
   }
 
-  async size(): Promise<number> {
-    await this.ensureLoaded();
-    return this.items.length;
+  flush(sendFn: SendFn): Promise<void> {
+    return this.enqueue(async () => {
+      await this.ensureLoaded();
+      while (this.items.length > 0) {
+        const next = this.items[0];
+        if (next === undefined) break;
+        try {
+          await sendFn(next);
+        } catch (err) {
+          if (this.debug) {
+            // eslint-disable-next-line no-console
+            console.warn('[edge-rum] offline queue flush failed', err);
+          }
+          return;
+        }
+        this.items.shift();
+        await this.storage.save(this.items);
+      }
+    });
   }
 
-  async clear(): Promise<void> {
-    await this.ensureLoaded();
-    this.items = [];
-    await this.storage.save(this.items);
+  size(): Promise<number> {
+    return this.enqueue(async () => {
+      await this.ensureLoaded();
+      return this.items.length;
+    });
+  }
+
+  clear(): Promise<void> {
+    return this.enqueue(async () => {
+      await this.ensureLoaded();
+      this.items = [];
+      await this.storage.save(this.items);
+    });
   }
 }

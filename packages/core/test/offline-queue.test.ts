@@ -202,9 +202,7 @@ describe('OfflineQueue', () => {
       const q = new OfflineQueue({ storage: s, maxQueueSize: 10 });
       await q.push('x');
       await q.push('y');
-      const raw = ls.getItem(OFFLINE_QUEUE_KEY);
-      expect(raw).not.toBeNull();
-      expect(JSON.parse(raw!)).toEqual(['x', 'y']);
+      expect(ls.getItem(OFFLINE_QUEUE_KEY)).toBe(JSON.stringify(['x', 'y']));
     });
 
     it('web path hydrates from existing localStorage value', async () => {
@@ -241,8 +239,7 @@ describe('OfflineQueue', () => {
       const q = new OfflineQueue({ storage: s });
       await q.push('n1');
       await q.push('n2');
-      expect(prefs.store.value).not.toBeNull();
-      expect(JSON.parse(prefs.store.value!)).toEqual(['n1', 'n2']);
+      expect(prefs.store.value).toBe(JSON.stringify(['n1', 'n2']));
     });
 
     it('native path hydrates from preferences value', async () => {

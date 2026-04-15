@@ -7,3 +7,14 @@ export type {
   DeviceContextDeps,
   DevicePlatform,
 } from './DeviceContext';
+
+export { getInitialNetworkContext, startNetworkCapture } from './NetworkCapture';
+export type {
+  NetworkAttributes,
+  NetworkCaptureCallbacks,
+  NetworkCaptureDeps,
+  NetworkCaptureHandle,
+  NetworkConnectionType,
+  NetworkModuleLike,
+  NetworkStatusLike,
+} from './NetworkCapture';

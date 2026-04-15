@@ -18,3 +18,15 @@ export type {
   NetworkModuleLike,
   NetworkStatusLike,
 } from './NetworkCapture';
+
+export { startLifecycleCapture } from './LifecycleCapture';
+export type {
+  AppModuleLike,
+  AppStateLike,
+  LifecycleAttributes,
+  LifecycleCaptureCallbacks,
+  LifecycleCaptureDeps,
+  LifecycleCaptureHandle,
+  LifecycleEvent,
+  LifecycleSessionManagerLike,
+} from './LifecycleCapture';

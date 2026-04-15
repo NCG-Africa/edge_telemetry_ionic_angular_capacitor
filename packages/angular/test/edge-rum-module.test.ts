@@ -1,4 +1,4 @@
-import { APP_INITIALIZER } from '@angular/core';
+import { APP_INITIALIZER, ErrorHandler } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EdgeRum, type EdgeRumConfig } from '@edgemetrics/rum';
@@ -10,7 +10,14 @@ import {
   edgeRumInitializerFactory,
   provideEdgeRum,
 } from '../src/EdgeRumModule';
+import { EdgeRumErrorCapture } from '../src/ErrorCapture';
 import { EdgeRumService } from '../src/EdgeRumService';
+
+type ClassProvider = { provide: unknown; useClass: unknown };
+
+function isClassProvider(p: unknown): p is ClassProvider {
+  return typeof p === 'object' && p !== null && 'useClass' in p;
+}
 
 const VALID_CONFIG: EdgeRumConfig = {
   apiKey: 'edge_test_key',
@@ -64,6 +71,16 @@ describe('EdgeRumModule.forRoot', () => {
 
     expect(cfgProvider).toBeDefined();
     expect(cfgProvider!.useValue).toEqual(VALID_CONFIG);
+  });
+
+  it('registers EdgeRumErrorCapture as the ErrorHandler class provider', () => {
+    const providers = EdgeRumModule.forRoot(VALID_CONFIG).providers!;
+    const errProvider = providers.find(
+      (p) => isClassProvider(p) && p.provide === ErrorHandler,
+    ) as ClassProvider | undefined;
+
+    expect(errProvider).toBeDefined();
+    expect(errProvider!.useClass).toBe(EdgeRumErrorCapture);
   });
 
   it('registers a multi APP_INITIALIZER whose factory calls EdgeRum.init', () => {

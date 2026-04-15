@@ -30,11 +30,11 @@ jobs:
       - name: Type check
         run: pnpm type-check
 
-      - name: Unit tests
-        run: pnpm test
-
       - name: Build
         run: pnpm build
+
+      - name: Unit tests
+        run: pnpm test
 
       - name: Terminology check
         run: pnpm terminology-check
@@ -44,6 +44,9 @@ jobs:
 
       - name: Size check
         run: pnpm size
+
+      - name: Pack audit
+        run: pnpm pack-audit
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium

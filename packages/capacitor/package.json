@@ -1,0 +1,39 @@
+{
+  "name": "@edgemetrics/rum-capacitor",
+  "version": "0.0.1",
+  "description": "Capacitor integration for edge-rum",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@edgemetrics/rum": "workspace:*"
+  },
+  "peerDependencies": {
+    "@capacitor/core": ">=5.0.0",
+    "@capacitor/device": ">=5.0.0",
+    "@capacitor/network": ">=5.0.0",
+    "@capacitor/app": ">=5.0.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.5.4"
+  }
+}

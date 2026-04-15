@@ -45,6 +45,9 @@ jobs:
       - name: Size check
         run: pnpm size
 
+      - name: Pack audit
+        run: pnpm pack-audit
+
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
         if: ${{ hashFiles('playwright.config.ts') != '' }}

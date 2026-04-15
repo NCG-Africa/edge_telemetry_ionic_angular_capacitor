@@ -15,6 +15,7 @@
     "size": "size-limit",
     "terminology-check": "node scripts/terminology-check.mjs",
     "attribute-flatness-check": "node scripts/attribute-flatness-check.mjs",
+    "pack-audit": "node scripts/pack-audit.mjs",
     "changeset": "changeset",
     "release": "pnpm build && changeset publish"
   },

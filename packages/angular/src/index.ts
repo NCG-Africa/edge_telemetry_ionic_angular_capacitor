@@ -8,3 +8,4 @@ export {
   EDGE_RUM_CONFIG,
   edgeRumInitializerFactory,
 } from './EdgeRumModule';
+export { RouterCapture } from './RouterCapture';

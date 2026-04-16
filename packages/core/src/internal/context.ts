@@ -3,6 +3,20 @@ import { SDK_VERSION, SDK_PLATFORM } from '../index';
 import type { SessionManager } from '../session/SessionManager';
 import { generateUserId } from '../session/SessionIdGenerator';
 
+const DEFAULT_ENVIRONMENT = 'production' as const;
+
+const BLOCKED_USER_KEYS = new Set([
+  'email',
+  'phone',
+  'phoneNumber',
+  'name',
+  'firstName',
+  'lastName',
+  'fullName',
+  'username',
+  'password',
+]);
+
 export class ContextManager {
   private appAttributes: EventAttributes = {};
   private deviceAttributes: EventAttributes = {};
@@ -19,7 +33,7 @@ export class ContextManager {
     if (config.appName) this.appAttributes['app.name'] = config.appName;
     if (config.appVersion) this.appAttributes['app.version'] = config.appVersion;
     if (config.appPackage) this.appAttributes['app.package'] = config.appPackage;
-    if (config.environment) this.appAttributes['app.environment'] = config.environment;
+    this.appAttributes['app.environment'] = config.environment ?? DEFAULT_ENVIRONMENT;
   }
 
   setDeviceAttributes(attrs: EventAttributes): void {
@@ -38,7 +52,8 @@ export class ContextManager {
       this.userAttributes['user.id'] = generateUserId();
     }
     for (const [key, value] of Object.entries(user)) {
-      if (key === 'id' || key === 'email') continue;
+      if (key === 'id') continue;
+      if (BLOCKED_USER_KEYS.has(key)) continue;
       if (value !== undefined) {
         this.userAttributes[`user.${key}`] = value;
       }

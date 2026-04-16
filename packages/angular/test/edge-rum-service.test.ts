@@ -19,9 +19,9 @@ describe('EdgeRumService', () => {
     const spy = vi.spyOn(EdgeRum, 'identify');
     const svc = new EdgeRumService();
 
-    svc.identify({ id: 'user_1', email: 'a@b.com' });
+    svc.identify({ id: 'user_1' });
 
-    expect(spy).toHaveBeenCalledWith({ id: 'user_1', email: 'a@b.com' });
+    expect(spy).toHaveBeenCalledWith({ id: 'user_1' });
   });
 
   it('delegates track() to EdgeRum.track', () => {

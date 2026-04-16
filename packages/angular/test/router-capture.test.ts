@@ -8,6 +8,7 @@ import type {
 } from '@angular/router';
 
 import { EdgeRum } from '@edgemetrics/rum';
+import * as rumInternals from '@edgemetrics/rum';
 import { __resetEdgeRumForTests } from '../../core/src/EdgeRum';
 
 import { RouterCapture } from '../src/RouterCapture';
@@ -100,7 +101,7 @@ afterEach(() => {
 
 describe('RouterCapture', () => {
   it('normalises /products/9876 to /products/:id', () => {
-    const trackSpy = vi.spyOn(EdgeRum, 'track');
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
 
@@ -119,7 +120,7 @@ describe('RouterCapture', () => {
   });
 
   it('emits a positive navigation.duration_ms', async () => {
-    const trackSpy = vi.spyOn(EdgeRum, 'track');
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
 
@@ -135,7 +136,7 @@ describe('RouterCapture', () => {
   });
 
   it('sets navigation.method to initial on the first navigation, push afterwards', () => {
-    const trackSpy = vi.spyOn(EdgeRum, 'track');
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
 
@@ -152,7 +153,7 @@ describe('RouterCapture', () => {
   });
 
   it('sets navigation.method to pop when triggered by popstate', () => {
-    const trackSpy = vi.spyOn(EdgeRum, 'track');
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
 
@@ -168,7 +169,7 @@ describe('RouterCapture', () => {
   });
 
   it('sets navigation.method to replace when extras.replaceUrl is true', () => {
-    const trackSpy = vi.spyOn(EdgeRum, 'track');
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
 
@@ -185,7 +186,7 @@ describe('RouterCapture', () => {
   });
 
   it('sets navigation.method to cancel when navigation is cancelled', () => {
-    const trackSpy = vi.spyOn(EdgeRum, 'track');
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
 
@@ -199,7 +200,7 @@ describe('RouterCapture', () => {
   });
 
   it('omits navigation.from_screen on the first navigation and sets it on subsequent navigations', () => {
-    const trackSpy = vi.spyOn(EdgeRum, 'track');
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
 
@@ -216,7 +217,7 @@ describe('RouterCapture', () => {
   });
 
   it('emits an app.crash event with exception_type NavigationError when navigation errors', () => {
-    const trackSpy = vi.spyOn(EdgeRum, 'track');
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
 
@@ -233,7 +234,7 @@ describe('RouterCapture', () => {
   });
 
   it('handles a NavigationError whose error is a string', () => {
-    const trackSpy = vi.spyOn(EdgeRum, 'track');
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
 
@@ -246,7 +247,7 @@ describe('RouterCapture', () => {
   });
 
   it('sets navigation.has_arguments to true when the route has params', () => {
-    const trackSpy = vi.spyOn(EdgeRum, 'track');
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
 
@@ -261,7 +262,7 @@ describe('RouterCapture', () => {
   });
 
   it('sets navigation.has_arguments to true when the url has a query string', () => {
-    const trackSpy = vi.spyOn(EdgeRum, 'track');
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
 
@@ -273,7 +274,7 @@ describe('RouterCapture', () => {
   });
 
   it('emits only primitive attribute values — no nested objects', () => {
-    const trackSpy = vi.spyOn(EdgeRum, 'track');
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
 
@@ -288,7 +289,7 @@ describe('RouterCapture', () => {
   });
 
   it('never leaks OTel terminology in emitted payloads', () => {
-    const trackSpy = vi.spyOn(EdgeRum, 'track');
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
 
@@ -305,7 +306,7 @@ describe('RouterCapture', () => {
   });
 
   it('unsubscribes on destroy so no further events are processed', () => {
-    const trackSpy = vi.spyOn(EdgeRum, 'track');
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     const capture = new RouterCapture(harness.router);
 

@@ -10,7 +10,7 @@ import type {
   Router,
 } from '@angular/router';
 import type { Subscription } from 'rxjs';
-import { EdgeRum, type EventAttributes } from '@edgemetrics/rum';
+import { __recordEvent, type EventAttributes } from '@edgemetrics/rum';
 
 type NavigationMethod = 'push' | 'pop' | 'replace' | 'initial' | 'cancel';
 
@@ -152,7 +152,7 @@ export class RouterCapture implements OnDestroy {
       attrs['navigation.from_screen'] = this.previousRoute;
     }
 
-    EdgeRum.track('screen_view', attrs);
+    __recordEvent('screen_view', attrs);
 
     this.previousRoute = toRoute;
     this.isFirstNavigation = false;
@@ -176,7 +176,7 @@ export class RouterCapture implements OnDestroy {
       runtime: 'webview',
     };
 
-    EdgeRum.track('app.crash', attrs);
+    __recordEvent('app.crash', attrs);
     this.pending = null;
   }
 

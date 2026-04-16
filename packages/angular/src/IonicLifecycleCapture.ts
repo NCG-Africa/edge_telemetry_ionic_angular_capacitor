@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import type { OnDestroy } from '@angular/core';
-import { EdgeRum, type EventAttributes } from '@edgemetrics/rum';
+import { __recordEvent, type EventAttributes } from '@edgemetrics/rum';
 
 type Phase = 'enter' | 'leave';
 
@@ -73,7 +73,7 @@ export class IonicLifecycleCapture implements OnDestroy {
       'screen.duration_ms': durationMs,
     };
 
-    EdgeRum.track('screen_timing', attrs);
+    __recordEvent('screen_timing', attrs);
 
     if (phase === 'enter') {
       this.pendingEnter = null;

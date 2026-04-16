@@ -54,10 +54,12 @@ function defaultLocalStorage(): Storage | undefined {
   }
 }
 
+const PREFERENCES_MODULE = '@capacitor/' + 'preferences';
+
 function defaultLoadPreferences(): () => Promise<PreferencesLike> {
   return async () => {
     const mod = (await import(
-      /* @vite-ignore */ '@capacitor/preferences' as string
+      /* @vite-ignore */ PREFERENCES_MODULE
     )) as unknown as { Preferences: PreferencesLike };
     return mod.Preferences;
   };

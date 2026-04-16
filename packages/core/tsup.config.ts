@@ -9,4 +9,5 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   noExternal: [/@opentelemetry\/.*/],
+  external: [/@capacitor\/.*/],
 });

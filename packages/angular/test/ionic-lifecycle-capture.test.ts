@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EdgeRum, type EdgeRumConfig } from '@edgemetrics/rum';
+import * as rumInternals from '@edgemetrics/rum';
 import { __resetEdgeRumForTests } from '../../core/src/EdgeRum';
 
 import { IonicLifecycleCapture } from '../src/IonicLifecycleCapture';
@@ -38,7 +39,7 @@ afterEach(() => {
 
 describe('IonicLifecycleCapture', () => {
   it('emits screen_timing with screen.event="enter" on ionViewDidEnter', () => {
-    const spy = vi.spyOn(EdgeRum, 'track').mockImplementation(() => undefined);
+    const spy = vi.spyOn(rumInternals, '__recordEvent');
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewWillEnter', 'APP-HOME');
@@ -55,7 +56,7 @@ describe('IonicLifecycleCapture', () => {
   });
 
   it('emits screen_timing with screen.event="leave" on ionViewDidLeave', () => {
-    const spy = vi.spyOn(EdgeRum, 'track').mockImplementation(() => undefined);
+    const spy = vi.spyOn(rumInternals, '__recordEvent');
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewWillLeave', 'APP-HOME');
@@ -72,7 +73,7 @@ describe('IonicLifecycleCapture', () => {
   });
 
   it('produces a non-negative screen.duration_ms', () => {
-    const spy = vi.spyOn(EdgeRum, 'track').mockImplementation(() => undefined);
+    const spy = vi.spyOn(rumInternals, '__recordEvent');
     let now = 1000;
     vi.spyOn(Date, 'now').mockImplementation(() => now);
     const capture = new IonicLifecycleCapture(bus);
@@ -89,7 +90,7 @@ describe('IonicLifecycleCapture', () => {
   });
 
   it('uses the Ionic component tag name as screen.name', () => {
-    const spy = vi.spyOn(EdgeRum, 'track').mockImplementation(() => undefined);
+    const spy = vi.spyOn(rumInternals, '__recordEvent');
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewWillEnter', 'APP-PRODUCT-DETAIL');
@@ -101,7 +102,7 @@ describe('IonicLifecycleCapture', () => {
   });
 
   it('tracks enter and leave independently across interleaved events', () => {
-    const spy = vi.spyOn(EdgeRum, 'track').mockImplementation(() => undefined);
+    const spy = vi.spyOn(rumInternals, '__recordEvent');
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewWillEnter', 'APP-A');
@@ -122,7 +123,7 @@ describe('IonicLifecycleCapture', () => {
   });
 
   it('emits duration 0 when Did fires without a preceding Will', () => {
-    const spy = vi.spyOn(EdgeRum, 'track').mockImplementation(() => undefined);
+    const spy = vi.spyOn(rumInternals, '__recordEvent');
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewDidEnter', 'APP-ORPHAN');
@@ -135,7 +136,7 @@ describe('IonicLifecycleCapture', () => {
   });
 
   it('falls back to "unknown" when the event has no target tagName', () => {
-    const spy = vi.spyOn(EdgeRum, 'track').mockImplementation(() => undefined);
+    const spy = vi.spyOn(rumInternals, '__recordEvent');
     const capture = new IonicLifecycleCapture(bus);
 
     bus.dispatchEvent(new Event('ionViewWillEnter'));
@@ -147,7 +148,7 @@ describe('IonicLifecycleCapture', () => {
   });
 
   it('stops listening after ngOnDestroy', () => {
-    const spy = vi.spyOn(EdgeRum, 'track').mockImplementation(() => undefined);
+    const spy = vi.spyOn(rumInternals, '__recordEvent');
     const capture = new IonicLifecycleCapture(bus);
 
     capture.ngOnDestroy();
@@ -159,7 +160,7 @@ describe('IonicLifecycleCapture', () => {
   });
 
   it('emits attributes that are only primitives and free of OTel identifiers', () => {
-    const spy = vi.spyOn(EdgeRum, 'track').mockImplementation(() => undefined);
+    const spy = vi.spyOn(rumInternals, '__recordEvent');
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewWillEnter', 'APP-CHECK');

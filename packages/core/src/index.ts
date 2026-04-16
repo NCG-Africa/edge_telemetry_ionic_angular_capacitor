@@ -19,7 +19,6 @@ export interface EdgeRumConfig {
 
 export interface UserContext {
   id?: string;
-  email?: string;
   [key: string]: string | number | boolean | undefined;
 }
 

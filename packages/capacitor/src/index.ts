@@ -19,6 +19,7 @@ export type {
   NetworkStatusLike,
 } from './NetworkCapture';
 
+export { startCapacitorCapture, type CapacitorCaptureHandle } from './bootstrap';
 export { startLifecycleCapture } from './LifecycleCapture';
 export type {
   AppModuleLike,

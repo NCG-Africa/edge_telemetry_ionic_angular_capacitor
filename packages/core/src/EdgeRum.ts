@@ -9,6 +9,8 @@ import { registerErrorCapture } from './instrumentation/errors';
 import type { ErrorsHandle } from './instrumentation/errors';
 import { registerVitalsCapture } from './instrumentation/vitals';
 import { registerPageLoadCapture } from './instrumentation/pageload';
+import { registerRequestCapture } from './instrumentation/requests';
+import type { RequestsHandle } from './instrumentation/requests';
 
 export interface RumTimer {
   end: (attributes?: EventAttributes) => void;
@@ -38,6 +40,7 @@ interface InternalState {
   pipeline: Pipeline | null;
   queue: OfflineQueue | null;
   errorsHandle: ErrorsHandle | null;
+  requestsHandle: RequestsHandle | null;
   enabled: boolean;
   initialized: boolean;
   currentRoute: string;
@@ -51,6 +54,7 @@ const state: InternalState = {
   pipeline: null,
   queue: null,
   errorsHandle: null,
+  requestsHandle: null,
   enabled: true,
   initialized: false,
   currentRoute: '/',
@@ -138,6 +142,13 @@ export const EdgeRum: EdgeRumRuntime = {
     registerPageLoadCapture({
       recordEvent: (eventName, attributes) => collector.recordEvent(eventName, attributes),
       getRoute: () => state.currentRoute,
+    });
+
+    state.requestsHandle = registerRequestCapture({
+      recordEvent: (eventName, attributes) => collector.recordEvent(eventName, attributes),
+      getCurrentRoute: () => state.currentRoute,
+      ignoreUrls: config.ignoreUrls,
+      sanitizeUrl: config.sanitizeUrl,
     });
 
     pipeline.start();
@@ -260,6 +271,7 @@ export function __getPipeline(): Pipeline | null {
 export function __resetEdgeRumForTests(): void {
   state.pipeline?.stop();
   state.errorsHandle?.dispose();
+  state.requestsHandle?.dispose();
   state.config = null;
   state.session = null;
   state.context = null;
@@ -267,6 +279,7 @@ export function __resetEdgeRumForTests(): void {
   state.pipeline = null;
   state.queue = null;
   state.errorsHandle = null;
+  state.requestsHandle = null;
   state.enabled = true;
   state.initialized = false;
   state.currentRoute = '/';

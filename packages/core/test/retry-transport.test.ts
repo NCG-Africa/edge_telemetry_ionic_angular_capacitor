@@ -59,18 +59,24 @@ describe('RetryTransport', () => {
 
   it('retries on 503 up to 4 attempts then throws', async () => {
     fetchFn.mockResolvedValue(mockResponse(503));
-    const promise = transport.send('test');
+    // Attach the rejection handler BEFORE advancing timers so the promise
+    // is never transiently unhandled while fake timers fast-forward.
+    const caught = transport.send('test').catch((err: unknown) => err);
     // Advance through all retry delays: 0, 2000, 8000, 30000
     await vi.advanceTimersByTimeAsync(40000);
-    await expect(promise).rejects.toThrow();
+    const err = await caught;
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/HTTP 503/);
     expect(fetchFn).toHaveBeenCalledTimes(4);
   });
 
   it('retries on network error', async () => {
     fetchFn.mockRejectedValue(new Error('network error'));
-    const promise = transport.send('test');
+    const caught = transport.send('test').catch((err: unknown) => err);
     await vi.advanceTimersByTimeAsync(40000);
-    await expect(promise).rejects.toThrow('network error');
+    const err = await caught;
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe('network error');
     expect(fetchFn).toHaveBeenCalledTimes(4);
   });
 

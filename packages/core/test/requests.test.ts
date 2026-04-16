@@ -121,6 +121,35 @@ describe('registerRequestCapture', () => {
     expect(recorded[0]?.attrs['network.url']).toBe('https://api.example.com/users/:id');
   });
 
+  it('strips default sensitive query params even without a user sanitizer', async () => {
+    const handle = registerRequestCapture(deps);
+
+    await target.fetch('https://api.example.com/s?q=hats&token=abc123&password=x');
+    handle.dispose();
+
+    expect(recorded).toHaveLength(1);
+    const url = recorded[0]?.attrs['network.url'] as string;
+    expect(url).toBe('https://api.example.com/s?q=hats');
+    expect(url).not.toContain('token');
+    expect(url).not.toContain('password');
+    expect(url).not.toContain('abc123');
+  });
+
+  it('runs the default sanitizer before a user-provided sanitizer', async () => {
+    const handle = registerRequestCapture({
+      ...deps,
+      sanitizeUrl: (url) => url.replace(/\/users\/\d+/, '/users/:id'),
+    });
+
+    await target.fetch('https://api.example.com/users/12345?token=abc&q=hats');
+    handle.dispose();
+
+    // token stripped (default) AND /users/12345 normalised (user)
+    expect(recorded[0]?.attrs['network.url']).toBe(
+      'https://api.example.com/users/:id?q=hats',
+    );
+  });
+
   it('restores original fetch on dispose', async () => {
     const beforePatch = target.fetch;
     const handle = registerRequestCapture(deps);

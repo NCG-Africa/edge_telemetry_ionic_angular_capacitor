@@ -8,8 +8,52 @@ All notable changes to the edge-rum SDK are documented here. The format follows
 
 ### Added
 
-- Quick start, configuration reference, backend integration, and privacy documentation.
-- `CHANGELOG.md` at the repo root.
+- Transport layer: `PayloadBuilder`, `RetryTransport` with `X-API-Key` auth and
+  exponential backoff (immediate / 2s / 8s / 30s → offline queue), `SessionManager`
+  with 30-minute inactivity expiry, `ContextManager` merging app / device / network /
+  session / user / sdk attributes into every event.
+- Internal `pipeline` and `collector` connecting capture hooks to the
+  transport. `EdgeRum.init()` now wires and starts all capture automatically.
+- HTTP request capture via `fetch` monkey-patch producing `network_request` events.
+- `startCapacitorCapture()` convenience function that wires device context,
+  network capture, and lifecycle capture (including session timeout / renewal)
+  to the core pipeline in a single call.
+- Default URL sanitiser runs automatically on every captured URL: strips
+  `token`, `email`, `phone`, `key`, `secret`, `password`, `auth` query params
+  (case-insensitive). User-supplied `sanitizeUrl` runs on top of the default,
+  never replacing it.
+- PII guardrails: `ContextManager` blocks `email`, `phone`, `phoneNumber`,
+  `name`, `firstName`, `lastName`, `fullName`, `username`, `password` keys
+  from being promoted to `user.*` attributes even if passed through the
+  index signature to `identify()`.
+- Playwright end-to-end test suite running against a local mock ingest server.
+  Covers envelope shape, auth headers, OTel absence, attribute flatness, and
+  every event type end-to-end.
+
+### Changed
+
+- `app.environment` now defaults to `"production"` when not specified.
+- `device.id` is persisted as a full ID in `localStorage` (not just the hex
+  suffix), so it remains stable across calls and app restarts.
+- `RouterCapture` and `IonicLifecycleCapture` now route `screen_view` and
+  `screen_timing` events through an internal `recordEvent` path, so they are
+  sent with their correct `eventName` instead of being wrapped as
+  `custom_event`.
+- The configured `endpoint` is automatically added to `ignoreUrls` so request
+  capture never records the SDK's own send requests.
+
+### Removed
+
+- `email` field from the `UserContext` type. The field was already stripped
+  from transmitted data; removing it from the type prevents autocomplete from
+  suggesting it.
+
+### Fixed
+
+- `@capacitor/preferences` declared as an optional peer dependency in core
+  (was previously dynamically imported but not declared).
+- Test suite no longer emits unhandled promise rejections under fake timers
+  (retry-transport tests).
 
 ## [0.1.0] — 2026-04-15
 

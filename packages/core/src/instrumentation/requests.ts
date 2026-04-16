@@ -1,3 +1,5 @@
+import { composeSanitizeUrl } from './url-sanitizer';
+
 export type NetworkRequestAttributes = {
   'network.url': string;
   'network.method': string;
@@ -50,7 +52,7 @@ export function registerRequestCapture(deps: RequestsDeps): RequestsHandle {
 
   const originalFetch = target.fetch.bind(target);
   const ignoreUrls = deps.ignoreUrls ?? [];
-  const sanitizeUrl = deps.sanitizeUrl ?? ((u: string) => u);
+  const sanitizeUrl = composeSanitizeUrl(deps.sanitizeUrl);
 
   const patchedFetch: typeof fetch = async (input, init) => {
     const url = typeof input === 'string'

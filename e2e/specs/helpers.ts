@@ -131,5 +131,5 @@ export function assertEnvelope(payload: BatchPayload): void {
 }
 
 export function allEvents(payloads: BatchPayload[]): EventPayload[] {
-  return payloads.flatMap((p) => p.data.events);
+  return payloads.flatMap((p) => (p && p.data && Array.isArray(p.data.events) ? p.data.events : []));
 }

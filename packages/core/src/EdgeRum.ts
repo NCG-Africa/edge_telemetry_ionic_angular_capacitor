@@ -144,10 +144,16 @@ export const EdgeRum: EdgeRumRuntime = {
       getRoute: () => state.currentRoute,
     });
 
+    // Always exclude the SDK's own telemetry endpoint so request capture
+    // never records its own POSTs — prevents an infinite self-capture loop
+    // and removes a quiet footgun for consumers.
+    const endpoint = config.endpoint ?? DEFAULT_ENDPOINT;
+    const effectiveIgnoreUrls = [endpoint, ...(config.ignoreUrls ?? [])];
+
     state.requestsHandle = registerRequestCapture({
       recordEvent: (eventName, attributes) => collector.recordEvent(eventName, attributes),
       getCurrentRoute: () => state.currentRoute,
-      ignoreUrls: config.ignoreUrls,
+      ignoreUrls: effectiveIgnoreUrls,
       sanitizeUrl: config.sanitizeUrl,
     });
 

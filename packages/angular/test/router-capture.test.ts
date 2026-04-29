@@ -7,8 +7,8 @@ import type {
   Router,
 } from '@angular/router';
 
-import { EdgeRum } from '@edgemetrics/rum';
-import * as rumInternals from '@edgemetrics/rum';
+import { EdgeRum } from '@nathanclaire/rum';
+import * as rumInternals from '@nathanclaire/rum';
 import { __resetEdgeRumForTests } from '../../core/src/EdgeRum';
 
 import { RouterCapture } from '../src/RouterCapture';

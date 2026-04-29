@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { EdgeRum, type EdgeRumConfig } from '@edgemetrics/rum';
-import * as rumInternals from '@edgemetrics/rum';
+import { EdgeRum, type EdgeRumConfig } from '@nathanclaire/rum';
+import * as rumInternals from '@nathanclaire/rum';
 import { __resetEdgeRumForTests } from '../../core/src/EdgeRum';
 
 import { IonicLifecycleCapture } from '../src/IonicLifecycleCapture';

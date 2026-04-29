@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { EdgeRum } from '@edgemetrics/rum';
+import { EdgeRum } from '@nathanclaire/rum';
 import { __resetEdgeRumForTests } from '../../core/src/EdgeRum';
 
 import { EdgeRumService } from '../src/EdgeRumService';

@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import type { OnDestroy } from '@angular/core';
-import { __recordEvent, type EventAttributes } from '@edgemetrics/rum';
+import { __recordEvent, type EventAttributes } from '@nathanclaire/rum';
 
 type Phase = 'enter' | 'leave';
 

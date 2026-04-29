@@ -1,5 +1,5 @@
 {
-  "name": "@edgemetrics/rum-angular",
+  "name": "@nathanclaire/rum-angular",
   "version": "1.0.0",
   "description": "Angular integration for edge-rum",
   "license": "MIT",
@@ -25,7 +25,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@edgemetrics/rum": "workspace:*"
+    "@nathanclaire/rum": "workspace:*"
   },
   "peerDependencies": {
     "@angular/common": ">=16.0.0",

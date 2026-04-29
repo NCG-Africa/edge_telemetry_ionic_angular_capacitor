@@ -1,5 +1,5 @@
 {
-  "name": "@edgemetrics/rum",
+  "name": "@nathanclaire/rum",
   "version": "1.0.0",
   "description": "Real User Monitoring SDK core for Ionic Angular Capacitor apps",
   "license": "MIT",

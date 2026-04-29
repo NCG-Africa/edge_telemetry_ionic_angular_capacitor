@@ -10,7 +10,7 @@ import type {
   Router,
 } from '@angular/router';
 import type { Subscription } from 'rxjs';
-import { __recordEvent, type EventAttributes } from '@edgemetrics/rum';
+import { __recordEvent, type EventAttributes } from '@nathanclaire/rum';
 
 type NavigationMethod = 'push' | 'pop' | 'replace' | 'initial' | 'cancel';
 

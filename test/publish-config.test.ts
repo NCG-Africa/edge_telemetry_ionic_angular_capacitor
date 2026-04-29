@@ -34,7 +34,7 @@ describe.skipIf(SKIP_DIST_CHECK)('npm publish --dry-run', () => {
   });
 
   for (const pkg of PACKAGES) {
-    describe(`@edgemetrics/rum${pkg === 'core' ? '' : `-${pkg}`}`, () => {
+    describe(`@nathanclaire/rum${pkg === 'core' ? '' : `-${pkg}`}`, () => {
       const cwd = join(ROOT, 'packages', pkg);
       let files: string[] = [];
 

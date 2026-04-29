@@ -1,5 +1,5 @@
-export { SDK_PLATFORM, SDK_VERSION } from '@edgemetrics/rum';
-export type { EdgeRumConfig, EventAttributes, UserContext, RumTimer } from '@edgemetrics/rum';
+export { SDK_PLATFORM, SDK_VERSION } from '@nathanclaire/rum';
+export type { EdgeRumConfig, EventAttributes, UserContext, RumTimer } from '@nathanclaire/rum';
 
 export { EdgeRumService } from './EdgeRumService';
 export {

@@ -1,5 +1,5 @@
 {
-  "name": "@edgemetrics/rum-capacitor",
+  "name": "@nathanclaire/rum-capacitor",
   "version": "1.0.0",
   "description": "Capacitor integration for edge-rum",
   "license": "MIT",
@@ -25,7 +25,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@edgemetrics/rum": "workspace:*"
+    "@nathanclaire/rum": "workspace:*"
   },
   "peerDependencies": {
     "@capacitor/core": ">=5.0.0",

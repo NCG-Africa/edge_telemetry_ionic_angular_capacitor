@@ -6,7 +6,7 @@ import {
   type ModuleWithProviders,
   type Provider,
 } from '@angular/core';
-import { EdgeRum, type EdgeRumConfig } from '@edgemetrics/rum';
+import { EdgeRum, type EdgeRumConfig } from '@nathanclaire/rum';
 
 import { EdgeRumErrorCapture } from './ErrorCapture';
 import { EdgeRumService } from './EdgeRumService';

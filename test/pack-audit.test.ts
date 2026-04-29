@@ -34,7 +34,7 @@ describe.skipIf(SKIP_DIST_CHECK)('npm pack audit', () => {
   });
 
   for (const pkg of PACKAGES) {
-    describe(`@edgemetrics/rum${pkg === 'core' ? '' : `-${pkg}`}`, () => {
+    describe(`@nathanclaire/rum${pkg === 'core' ? '' : `-${pkg}`}`, () => {
       let files: string[] = [];
       beforeAll(() => {
         files = packFiles(pkg);

@@ -3,7 +3,7 @@
   "changelog": "@changesets/cli/changelog",
   "commit": false,
   "fixed": [],
-  "linked": [["@edgemetrics/rum", "@edgemetrics/rum-angular", "@edgemetrics/rum-capacitor"]],
+  "linked": [["@nathanclaire/rum", "@nathanclaire/rum-angular", "@nathanclaire/rum-capacitor"]],
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",

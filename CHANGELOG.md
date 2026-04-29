@@ -57,8 +57,8 @@ All notable changes to the edge-rum SDK are documented here. The format follows
 
 ## [0.1.0] — 2026-04-15
 
-Initial public preview of `@edgemetrics/rum`, `@edgemetrics/rum-angular`, and
-`@edgemetrics/rum-capacitor`.
+Initial public preview of `@nathanclaire/rum`, `@nathanclaire/rum-angular`, and
+`@nathanclaire/rum-capacitor`.
 
 ### Added
 

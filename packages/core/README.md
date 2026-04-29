@@ -1,13 +1,13 @@
-# @edgemetrics/rum
+# @nathanclaire/rum
 
 Core Real User Monitoring SDK for Ionic Angular Capacitor apps.
 
-This is the core package that handles event capture, batching, offline queuing, and transport. For most apps, you'll also want [`@edgemetrics/rum-angular`](https://www.npmjs.com/package/@edgemetrics/rum-angular) and [`@edgemetrics/rum-capacitor`](https://www.npmjs.com/package/@edgemetrics/rum-capacitor).
+This is the core package that handles event capture, batching, offline queuing, and transport. For most apps, you'll also want [`@nathanclaire/rum-angular`](https://www.npmjs.com/package/@nathanclaire/rum-angular) and [`@nathanclaire/rum-capacitor`](https://www.npmjs.com/package/@nathanclaire/rum-capacitor).
 
 ## Install
 
 ```bash
-npm install @edgemetrics/rum @edgemetrics/rum-angular @edgemetrics/rum-capacitor
+npm install @nathanclaire/rum @nathanclaire/rum-angular @nathanclaire/rum-capacitor
 ```
 
 ## Usage

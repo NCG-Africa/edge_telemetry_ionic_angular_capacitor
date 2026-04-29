@@ -1,12 +1,12 @@
 [
   {
-    "name": "@edgemetrics/rum (core)",
+    "name": "@nathanclaire/rum (core)",
     "path": "packages/core/dist/index.mjs",
     "limit": "90 KB",
     "gzip": true
   },
   {
-    "name": "@edgemetrics/rum-angular",
+    "name": "@nathanclaire/rum-angular",
     "path": "packages/angular/dist/index.mjs",
     "limit": "60 KB",
     "gzip": true,
@@ -19,7 +19,7 @@
     ]
   },
   {
-    "name": "@edgemetrics/rum-capacitor",
+    "name": "@nathanclaire/rum-capacitor",
     "path": "packages/capacitor/dist/index.mjs",
     "limit": "60 KB",
     "gzip": true,

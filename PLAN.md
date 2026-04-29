@@ -1,7 +1,7 @@
 # edge-rum SDK — Build Plan
 
 > Real User Monitoring SDK for Ionic Angular Capacitor apps.
-> Distributed as `@edgemetrics/rum`. Ships events to the same backend as the Android SDK,
+> Distributed as `@nathanclaire/rum`. Ships events to the same backend as the Android SDK,
 > using the identical batch envelope so the existing Kafka processor handles both platforms
 > without modification.
 
@@ -58,11 +58,11 @@ Read these before implementing any phase:
 
 | Package | Version | Required by |
 |---|---|---|
-| `@capacitor/core` | `^6.x` | `@edgemetrics/rum-capacitor` |
-| `@capacitor/device` | `^6.x` | `@edgemetrics/rum-capacitor` |
-| `@capacitor/network` | `^6.x` | `@edgemetrics/rum-capacitor` |
-| `@capacitor/app` | `^6.x` | `@edgemetrics/rum-capacitor` |
-| `@angular/core` | `>=17.0.0` | `@edgemetrics/rum-angular` |
+| `@capacitor/core` | `^6.x` | `@nathanclaire/rum-capacitor` |
+| `@capacitor/device` | `^6.x` | `@nathanclaire/rum-capacitor` |
+| `@capacitor/network` | `^6.x` | `@nathanclaire/rum-capacitor` |
+| `@capacitor/app` | `^6.x` | `@nathanclaire/rum-capacitor` |
+| `@angular/core` | `>=17.0.0` | `@nathanclaire/rum-angular` |
 
 ---
 
@@ -154,7 +154,7 @@ X-API-Key: edge_your_key_here
 ```
 edge-rum/
 ├── packages/
-│   ├── core/                            # @edgemetrics/rum
+│   ├── core/                            # @nathanclaire/rum
 │   │   ├── src/
 │   │   │   ├── index.ts                 ← PUBLIC BOUNDARY — EdgeRum + types only
 │   │   │   ├── EdgeRum.ts               ← Public singleton
@@ -179,7 +179,7 @@ edge-rum/
 │   │   │       └── OfflineQueue.ts      ← @capacitor/preferences or localStorage
 │   │   ├── tsup.config.ts
 │   │   └── package.json
-│   ├── angular/                         # @edgemetrics/rum-angular
+│   ├── angular/                         # @nathanclaire/rum-angular
 │   │   ├── src/
 │   │   │   ├── index.ts                 ← PUBLIC BOUNDARY
 │   │   │   ├── EdgeRumModule.ts         ← NgModule + forRoot() + APP_INITIALIZER
@@ -189,7 +189,7 @@ edge-rum/
 │   │   │   └── IonicLifecycleCapture.ts ← Ionic DOM events → screen_timing
 │   │   ├── tsup.config.ts
 │   │   └── package.json
-│   └── capacitor/                       # @edgemetrics/rum-capacitor
+│   └── capacitor/                       # @nathanclaire/rum-capacitor
 │       ├── src/
 │       │   ├── index.ts                 ← PUBLIC BOUNDARY
 │       │   ├── DeviceContext.ts         ← Device.getInfo() → device.* attributes
@@ -246,7 +246,7 @@ can send data to the real backend. Until then, use `demo/docker-compose.yml`.
 
 ## Phase 1 — Foundation: JSON batch events to backend
 
-**Goal:** Developer installs `@edgemetrics/rum`, calls `EdgeRum.init()`, and `network_request`
+**Goal:** Developer installs `@nathanclaire/rum`, calls `EdgeRum.init()`, and `network_request`
 events appear at the backend in the correct Android-compatible batch envelope.
 
 ---
@@ -297,7 +297,7 @@ events appear at the backend in the correct Android-compatible batch envelope.
 6. Add `@changesets/cli` for versioned releases.
 
 7. Add `size-limit` config:
-   - `@edgemetrics/rum` core: < 90KB gzipped
+   - `@nathanclaire/rum` core: < 90KB gzipped
    - Full stack (core + angular + capacitor): < 200KB gzipped
 
 8. Create `.github/workflows/ci.yml` with stages:
@@ -996,7 +996,7 @@ captured with the correct `eventName` values.
 
 #### Steps
 
-1. Final package names: `@edgemetrics/rum`, `@edgemetrics/rum-angular`, `@edgemetrics/rum-capacitor`.
+1. Final package names: `@nathanclaire/rum`, `@nathanclaire/rum-angular`, `@nathanclaire/rum-capacitor`.
 2. `publishConfig: { "access": "public" }` on each.
 3. `.npmignore`: exclude `src/`, `test/`, `demo/`, `*.test.ts`, `tsup.config.ts`, `CLAUDE.md`.
 4. GitHub Actions: publish on `v*.*.*` tag.
@@ -1012,12 +1012,12 @@ Never mention OpenTelemetry, spans, traces, OTLP, or metrics.
 **Quick start:**
 
 ```bash
-npm install @edgemetrics/rum @edgemetrics/rum-angular @edgemetrics/rum-capacitor
+npm install @nathanclaire/rum @nathanclaire/rum-angular @nathanclaire/rum-capacitor
 ```
 
 ```typescript
 // app.module.ts
-import { EdgeRumModule } from '@edgemetrics/rum-angular';
+import { EdgeRumModule } from '@nathanclaire/rum-angular';
 
 @NgModule({
   imports: [
@@ -1124,4 +1124,4 @@ Full details in `docs/backend-changes.md`.
 | M3 | Device model, OS, battery, network, lifecycle on all events | Phase 3 |
 | M4 | Angular route changes as `screen_view` events | Phase 4 |
 | M5 | Zero event loss after 10-minute offline simulation | Phase 5 |
-| M6 | `npm install @edgemetrics/rum` works end-to-end against production backend | Phase 6 |
+| M6 | `npm install @nathanclaire/rum` works end-to-end against production backend | Phase 6 |

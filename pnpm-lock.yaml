@@ -56,7 +56,7 @@ importers:
       '@angular/router':
         specifier: '>=16.0.0'
         version: 21.2.8(@angular/common@21.2.8(@angular/core@21.2.8(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.8(rxjs@7.8.2))(@angular/platform-browser@21.2.8(@angular/common@21.2.8(@angular/core@21.2.8(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.8(rxjs@7.8.2)))(rxjs@7.8.2)
-      '@edgemetrics/rum':
+      '@nathanclaire/rum':
         specifier: workspace:*
         version: link:../core
       rxjs:
@@ -84,7 +84,7 @@ importers:
       '@capacitor/network':
         specifier: '>=5.0.0'
         version: 8.0.1(@capacitor/core@8.3.0)
-      '@edgemetrics/rum':
+      '@nathanclaire/rum':
         specifier: workspace:*
         version: link:../core
     devDependencies:

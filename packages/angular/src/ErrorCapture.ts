@@ -1,5 +1,5 @@
 import { ErrorHandler, Injectable } from '@angular/core';
-import { EdgeRum } from '@edgemetrics/rum';
+import { EdgeRum } from '@nathanclaire/rum';
 
 const TEMPLATE_PATTERN = /([A-Z][A-Za-z0-9_]*)_Template_/;
 const HOST_BINDING_PATTERN = /([A-Z][A-Za-z0-9_]*)_HostBindings/;

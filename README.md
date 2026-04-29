@@ -6,19 +6,19 @@ Real User Monitoring SDK for **Ionic Angular Capacitor** apps. Captures performa
 
 | Package | Description |
 |---|---|
-| [`@edgemetrics/rum`](./packages/core) | Core SDK — event capture, batching, transport |
-| [`@edgemetrics/rum-angular`](./packages/angular) | Angular integration — module, service, route and error capture |
-| [`@edgemetrics/rum-capacitor`](./packages/capacitor) | Capacitor integration — device info, network, lifecycle |
+| [`@nathanclaire/rum`](./packages/core) | Core SDK — event capture, batching, transport |
+| [`@nathanclaire/rum-angular`](./packages/angular) | Angular integration — module, service, route and error capture |
+| [`@nathanclaire/rum-capacitor`](./packages/capacitor) | Capacitor integration — device info, network, lifecycle |
 
 ## Quick start
 
 ```bash
-npm install @edgemetrics/rum @edgemetrics/rum-angular @edgemetrics/rum-capacitor
+npm install @nathanclaire/rum @nathanclaire/rum-angular @nathanclaire/rum-capacitor
 ```
 
 ```typescript
 // app.module.ts
-import { EdgeRumModule } from '@edgemetrics/rum-angular';
+import { EdgeRumModule } from '@nathanclaire/rum-angular';
 
 @NgModule({
   imports: [
@@ -50,7 +50,7 @@ That's it. The SDK automatically captures HTTP requests, route changes, web vita
 ## Custom events
 
 ```typescript
-import { EdgeRumService } from '@edgemetrics/rum-angular';
+import { EdgeRumService } from '@nathanclaire/rum-angular';
 
 // Track a custom event
 this.rum.track('checkout_started', { value: 49.99, currency: 'GBP' });

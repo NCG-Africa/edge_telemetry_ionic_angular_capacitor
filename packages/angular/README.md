@@ -1,18 +1,18 @@
-# @edgemetrics/rum-angular
+# @nathanclaire/rum-angular
 
 Angular integration for the edge-rum SDK. Provides an Angular module, DI service, and automatic capture of route changes, errors, and Ionic page lifecycle.
 
 ## Install
 
 ```bash
-npm install @edgemetrics/rum @edgemetrics/rum-angular @edgemetrics/rum-capacitor
+npm install @nathanclaire/rum @nathanclaire/rum-angular @nathanclaire/rum-capacitor
 ```
 
 ## Setup
 
 ```typescript
 // app.module.ts
-import { EdgeRumModule } from '@edgemetrics/rum-angular';
+import { EdgeRumModule } from '@nathanclaire/rum-angular';
 
 @NgModule({
   imports: [
@@ -36,7 +36,7 @@ export class AppModule {}
 ## Using the service
 
 ```typescript
-import { EdgeRumService } from '@edgemetrics/rum-angular';
+import { EdgeRumService } from '@nathanclaire/rum-angular';
 
 constructor(private rum: EdgeRumService) {}
 

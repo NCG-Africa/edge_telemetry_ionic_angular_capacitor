@@ -1,11 +1,11 @@
-# @edgemetrics/rum-capacitor
+# @nathanclaire/rum-capacitor
 
 Capacitor integration for the edge-rum SDK. Collects native device information, monitors network connectivity, and tracks app lifecycle events.
 
 ## Install
 
 ```bash
-npm install @edgemetrics/rum @edgemetrics/rum-angular @edgemetrics/rum-capacitor
+npm install @nathanclaire/rum @nathanclaire/rum-angular @nathanclaire/rum-capacitor
 ```
 
 ## What it provides
@@ -16,10 +16,10 @@ npm install @edgemetrics/rum @edgemetrics/rum-angular @edgemetrics/rum-capacitor
 
 ## Usage
 
-If you're using `EdgeRumModule.forRoot()` from `@edgemetrics/rum-angular`, Capacitor capture is wired automatically. For manual setup:
+If you're using `EdgeRumModule.forRoot()` from `@nathanclaire/rum-angular`, Capacitor capture is wired automatically. For manual setup:
 
 ```typescript
-import { startCapacitorCapture } from '@edgemetrics/rum-capacitor';
+import { startCapacitorCapture } from '@nathanclaire/rum-capacitor';
 
 await startCapacitorCapture();
 ```

@@ -1,4 +1,4 @@
-import { __getSession, __getCollector, __getContext, __getPipeline } from '@edgemetrics/rum';
+import { __getSession, __getCollector, __getContext, __getPipeline } from '@nathanclaire/rum';
 import { getDeviceContext } from './DeviceContext';
 import { startNetworkCapture, getInitialNetworkContext } from './NetworkCapture';
 import { startLifecycleCapture } from './LifecycleCapture';

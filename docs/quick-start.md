@@ -5,7 +5,7 @@ Get edge-rum capturing data from your Ionic Angular Capacitor app in under five 
 ## 1. Install
 
 ```bash
-npm install @edgemetrics/rum @edgemetrics/rum-angular @edgemetrics/rum-capacitor
+npm install @nathanclaire/rum @nathanclaire/rum-angular @nathanclaire/rum-capacitor
 ```
 
 ## 2. Initialise in your Angular app module
@@ -13,7 +13,7 @@ npm install @edgemetrics/rum @edgemetrics/rum-angular @edgemetrics/rum-capacitor
 ```typescript
 // app.module.ts
 import { NgModule } from '@angular/core';
-import { EdgeRumModule } from '@edgemetrics/rum-angular';
+import { EdgeRumModule } from '@nathanclaire/rum-angular';
 
 @NgModule({
   imports: [
@@ -45,7 +45,7 @@ That is all you need. From this point on, edge-rum automatically captures:
 After a user signs in, attach a stable, opaque ID so sessions can be grouped.
 
 ```typescript
-import { EdgeRumService } from '@edgemetrics/rum-angular';
+import { EdgeRumService } from '@nathanclaire/rum-angular';
 
 constructor(private rum: EdgeRumService) {}
 

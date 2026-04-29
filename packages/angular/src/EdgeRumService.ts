@@ -4,7 +4,7 @@ import {
   type EventAttributes,
   type RumTimer,
   type UserContext,
-} from '@edgemetrics/rum';
+} from '@nathanclaire/rum';
 
 @Injectable({ providedIn: 'root' })
 export class EdgeRumService {

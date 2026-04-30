@@ -1,6 +1,6 @@
 {
   "name": "@nathanclaire/rum-capacitor",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Capacitor integration for edge-rum",
   "license": "MIT",
   "type": "module",

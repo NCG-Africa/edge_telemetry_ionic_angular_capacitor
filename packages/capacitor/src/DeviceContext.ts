@@ -54,7 +54,14 @@ function defaultCapacitor(): CapacitorLike {
 function defaultLoadDevice(): () => Promise<DeviceModuleLike> {
   return async () => {
     const mod = (await import('@capacitor/device')) as unknown as { Device: DeviceModuleLike };
-    return mod.Device;
+    const plugin = mod.Device;
+    // Capacitor 8 proxies have a .then() that throws on Android.
+    // Return a plain object so `await` won't treat it as a thenable.
+    return {
+      getInfo: () => plugin.getInfo(),
+      getBatteryInfo: () => plugin.getBatteryInfo(),
+      getId: () => plugin.getId(),
+    };
   };
 }
 

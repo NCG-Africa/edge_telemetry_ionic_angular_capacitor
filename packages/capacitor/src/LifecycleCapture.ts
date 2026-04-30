@@ -98,7 +98,12 @@ function defaultCapacitor(): LifecycleCapacitorLike {
 function defaultLoadApp(): () => Promise<AppModuleLike> {
   return async () => {
     const mod = (await import('@capacitor/app')) as unknown as { App: AppModuleLike };
-    return mod.App;
+    const plugin = mod.App;
+    // Capacitor 8 proxies have a .then() that throws on Android.
+    // Return a plain object so `await` won't treat it as a thenable.
+    return {
+      addListener: (name, cb) => plugin.addListener(name, cb),
+    };
   };
 }
 

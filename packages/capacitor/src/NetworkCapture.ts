@@ -64,7 +64,13 @@ function defaultCapacitor(): NetworkCapacitorLike {
 function defaultLoadNetwork(): () => Promise<NetworkModuleLike> {
   return async () => {
     const mod = (await import('@capacitor/network')) as unknown as { Network: NetworkModuleLike };
-    return mod.Network;
+    const plugin = mod.Network;
+    // Capacitor 8 proxies have a .then() that throws on Android.
+    // Return a plain object so `await` won't treat it as a thenable.
+    return {
+      getStatus: () => plugin.getStatus(),
+      addListener: (name, cb) => plugin.addListener(name, cb),
+    };
   };
 }
 

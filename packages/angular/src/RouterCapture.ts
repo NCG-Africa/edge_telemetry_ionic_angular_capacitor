@@ -1,5 +1,5 @@
-import { Injectable } from '@angular/core';
-import type { OnDestroy } from '@angular/core';
+import { Injectable, type OnDestroy } from '@angular/core';
+import { Router } from '@angular/router';
 import type {
   ActivatedRouteSnapshot,
   Event as RouterEvent,
@@ -7,7 +7,6 @@ import type {
   NavigationEnd,
   NavigationError,
   NavigationStart,
-  Router,
 } from '@angular/router';
 import type { Subscription } from 'rxjs';
 import { __recordEvent, type EventAttributes } from '@nathanclaire/rum';

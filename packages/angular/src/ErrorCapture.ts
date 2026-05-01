@@ -1,5 +1,7 @@
-import { ErrorHandler, Injectable } from '@angular/core';
+import { ErrorHandler, Inject, Injectable, InjectionToken, Optional } from '@angular/core';
 import { EdgeRum } from '@nathanclaire/rum';
+
+export const ERROR_ROUTE_PROVIDER = new InjectionToken<() => string>('ERROR_ROUTE_PROVIDER');
 
 const TEMPLATE_PATTERN = /([A-Z][A-Za-z0-9_]*)_Template_/;
 const HOST_BINDING_PATTERN = /([A-Z][A-Za-z0-9_]*)_HostBindings/;
@@ -49,9 +51,11 @@ function currentRoute(): string {
 export class EdgeRumErrorCapture extends ErrorHandler {
   private readonly routeProvider: () => string;
 
-  constructor(routeProvider: () => string = currentRoute) {
+  constructor(
+    @Optional() @Inject(ERROR_ROUTE_PROVIDER) routeProvider?: (() => string) | null,
+  ) {
     super();
-    this.routeProvider = routeProvider;
+    this.routeProvider = routeProvider ?? currentRoute;
   }
 
   override handleError(error: unknown): void {

@@ -9,5 +9,5 @@ export {
   edgeRumInitializerFactory,
 } from './EdgeRumModule';
 export { RouterCapture } from './RouterCapture';
-export { EdgeRumErrorCapture } from './ErrorCapture';
-export { IonicLifecycleCapture } from './IonicLifecycleCapture';
+export { EdgeRumErrorCapture, ERROR_ROUTE_PROVIDER } from './ErrorCapture';
+export { IonicLifecycleCapture, LIFECYCLE_EVENT_SOURCE } from './IonicLifecycleCapture';

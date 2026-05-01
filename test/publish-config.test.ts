@@ -8,6 +8,13 @@ const PACKAGES = ['core', 'angular', 'capacitor'] as const;
 
 const SKIP_DIST_CHECK = process.env.SKIP_DIST_CHECK === '1';
 
+function distEntryExists(pkg: string): boolean {
+  if (pkg === 'angular') {
+    return existsSync(join(ROOT, 'packages', pkg, 'dist', 'fesm2022', 'nathanclaire-rum-angular.mjs'));
+  }
+  return existsSync(join(ROOT, 'packages', pkg, 'dist', 'index.mjs'));
+}
+
 describe('publishConfig on all packages', () => {
   for (const pkg of PACKAGES) {
     it(`${pkg} sets publishConfig.access = 'public'`, () => {
@@ -22,12 +29,10 @@ describe('publishConfig on all packages', () => {
 
 describe.skipIf(SKIP_DIST_CHECK)('npm publish --dry-run', () => {
   beforeAll(() => {
-    const missing = PACKAGES.filter(
-      (p) => !existsSync(join(ROOT, 'packages', p, 'dist', 'index.mjs'))
-    );
+    const missing = PACKAGES.filter((p) => !distEntryExists(p));
     if (missing.length > 0) {
       throw new Error(
-        `dist/index.mjs missing for: ${missing.join(', ')} — run \`pnpm build\` first, ` +
+        `dist missing for: ${missing.join(', ')} — run \`pnpm build\` first, ` +
           `or set SKIP_DIST_CHECK=1 to skip this suite locally`
       );
     }

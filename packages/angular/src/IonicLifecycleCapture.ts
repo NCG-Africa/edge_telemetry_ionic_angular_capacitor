@@ -1,6 +1,7 @@
-import { Injectable } from '@angular/core';
-import type { OnDestroy } from '@angular/core';
+import { Inject, Injectable, InjectionToken, Optional, type OnDestroy } from '@angular/core';
 import { __recordEvent, type EventAttributes } from '@nathanclaire/rum';
+
+export const LIFECYCLE_EVENT_SOURCE = new InjectionToken<EventTarget>('LIFECYCLE_EVENT_SOURCE');
 
 type Phase = 'enter' | 'leave';
 
@@ -32,7 +33,9 @@ export class IonicLifecycleCapture implements OnDestroy {
   private pendingEnter: PendingTiming | null = null;
   private pendingLeave: PendingTiming | null = null;
 
-  constructor(source?: EventTarget) {
+  constructor(
+    @Optional() @Inject(LIFECYCLE_EVENT_SOURCE) source?: EventTarget | null,
+  ) {
     this.source = source ?? (typeof document !== 'undefined' ? document : null);
     if (this.source) {
       this.source.addEventListener(WILL_ENTER, this.willEnter);

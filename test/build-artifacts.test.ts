@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = new URL('..', import.meta.url).pathname;
@@ -56,7 +56,6 @@ describe.skipIf(!hasAnyDist)('build artifacts', () => {
     });
 
     it('contains Ivy partial definitions', () => {
-      const { readFileSync } = require('node:fs');
       const content = readFileSync(
         join(dist, 'fesm2022', 'nathanclaire-rum-angular.mjs'),
         'utf-8',

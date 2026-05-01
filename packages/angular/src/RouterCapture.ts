@@ -1,4 +1,5 @@
 import { Injectable, type OnDestroy } from '@angular/core';
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports -- Router must be a value import for Angular DI injection
 import { Router } from '@angular/router';
 import type {
   ActivatedRouteSnapshot,

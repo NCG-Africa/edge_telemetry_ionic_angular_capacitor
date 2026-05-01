@@ -151,8 +151,9 @@ describe.skipIf(!hasDist)('DI token wiring in compiled output', () => {
       /type: RouterCapture.*?ɵɵFactoryTarget/s,
     );
     expect(routerCaptureFactory).not.toBeNull();
-    expect(routerCaptureFactory![0]).toContain('token:');
-    expect(routerCaptureFactory![0]).toContain('Router');
+    const match = routerCaptureFactory?.[0] ?? '';
+    expect(match).toContain('token:');
+    expect(match).toContain('Router');
   });
 
   it('EdgeRumErrorCapture factory declares optional dependency on ERROR_ROUTE_PROVIDER', () => {
@@ -160,8 +161,9 @@ describe.skipIf(!hasDist)('DI token wiring in compiled output', () => {
       /type: EdgeRumErrorCapture.*?ɵɵFactoryTarget/s,
     );
     expect(errorFactory).not.toBeNull();
-    expect(errorFactory![0]).toContain('token: ERROR_ROUTE_PROVIDER');
-    expect(errorFactory![0]).toContain('optional: true');
+    const match = errorFactory?.[0] ?? '';
+    expect(match).toContain('token: ERROR_ROUTE_PROVIDER');
+    expect(match).toContain('optional: true');
   });
 
   it('IonicLifecycleCapture factory declares optional dependency on LIFECYCLE_EVENT_SOURCE', () => {
@@ -169,8 +171,9 @@ describe.skipIf(!hasDist)('DI token wiring in compiled output', () => {
       /type: IonicLifecycleCapture.*?ɵɵFactoryTarget/s,
     );
     expect(lifecycleFactory).not.toBeNull();
-    expect(lifecycleFactory![0]).toContain('token: LIFECYCLE_EVENT_SOURCE');
-    expect(lifecycleFactory![0]).toContain('optional: true');
+    const match = lifecycleFactory?.[0] ?? '';
+    expect(match).toContain('token: LIFECYCLE_EVENT_SOURCE');
+    expect(match).toContain('optional: true');
   });
 
   it('EdgeRumService factory has zero dependencies (no constructor params)', () => {

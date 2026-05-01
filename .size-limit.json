@@ -7,7 +7,7 @@
   },
   {
     "name": "@nathanclaire/rum-angular",
-    "path": "packages/angular/dist/index.mjs",
+    "path": "packages/angular/dist/fesm2022/nathanclaire-rum-angular.mjs",
     "limit": "60 KB",
     "gzip": true,
     "ignore": [
@@ -34,7 +34,7 @@
     "name": "full stack (core + angular + capacitor)",
     "path": [
       "packages/core/dist/index.mjs",
-      "packages/angular/dist/index.mjs",
+      "packages/angular/dist/fesm2022/nathanclaire-rum-angular.mjs",
       "packages/capacitor/dist/index.mjs"
     ],
     "limit": "200 KB",

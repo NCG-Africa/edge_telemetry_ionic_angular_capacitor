@@ -4,7 +4,7 @@
   "title": "Edge RUM Ingest Payload",
   "description": "Payload schema for edge-rum web SDK. Matches the Android SDK batch envelope exactly so the same Kafka processor handles both platforms.",
   "type": "object",
-  "required": ["timestamp", "data"],
+  "required": ["timestamp", "type", "events"],
   "additionalProperties": false,
   "properties": {
     "timestamp": {
@@ -13,23 +13,16 @@
       "description": "ISO 8601 batch flush time. Use new Date().toISOString(). Never Unix ms.",
       "examples": ["2024-01-15T10:30:00.000Z"]
     },
-    "data": {
-      "type": "object",
-      "required": ["type", "events"],
-      "additionalProperties": false,
-      "properties": {
-        "type": {
-          "type": "string",
-          "const": "batch",
-          "description": "Always the string 'batch'. Matches Android SDK envelope."
-        },
-        "events": {
-          "type": "array",
-          "description": "Array of event objects. All event types mixed together.",
-          "items": { "$ref": "#/definitions/event" },
-          "minItems": 0
-        }
-      }
+    "type": {
+      "type": "string",
+      "const": "batch",
+      "description": "Always the string 'batch'. Identifies this as a batch payload."
+    },
+    "events": {
+      "type": "array",
+      "description": "Array of event objects. All event types mixed together.",
+      "items": { "$ref": "#/definitions/event" },
+      "minItems": 0
     }
   },
   "definitions": {

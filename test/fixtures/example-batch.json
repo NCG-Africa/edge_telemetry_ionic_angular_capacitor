@@ -1,27 +1,25 @@
 {
   "timestamp": "2024-01-15T10:30:00.000Z",
-  "data": {
-    "type": "batch",
-    "events": [
-      {
-        "type": "event",
-        "eventName": "screen_view",
-        "timestamp": "2024-01-15T10:30:00.123Z",
-        "attributes": {
-          "app.name": "MyApp",
-          "app.version": "2.1.0",
-          "app.environment": "production",
-          "device.id": "device_1704067200000_a8b9c2d1_web",
-          "device.platform": "web",
-          "device.isVirtual": false,
-          "device.screenWidth": 390,
-          "device.pixelRatio": 3.0,
-          "session.id": "session_1704067200000_x9y8z7w6_web",
-          "session.sequence": 1,
-          "sdk.platform": "ionic-angular-capacitor",
-          "sdk.version": "0.0.1"
-        }
+  "type": "batch",
+  "events": [
+    {
+      "type": "event",
+      "eventName": "screen_view",
+      "timestamp": "2024-01-15T10:30:00.123Z",
+      "attributes": {
+        "app.name": "MyApp",
+        "app.version": "2.1.0",
+        "app.environment": "production",
+        "device.id": "device_1704067200000_a8b9c2d1_web",
+        "device.platform": "web",
+        "device.isVirtual": false,
+        "device.screenWidth": 390,
+        "device.pixelRatio": 3.0,
+        "session.id": "session_1704067200000_x9y8z7w6_web",
+        "session.sequence": 1,
+        "sdk.platform": "ionic-angular-capacitor",
+        "sdk.version": "0.0.1"
       }
-    ]
-  }
+    }
+  ]
 }

@@ -40,8 +40,8 @@ describe('PayloadBuilder', () => {
       const events = [buildEventPayload('screen_view', {}, {})];
       const payload = buildBatchPayload(events);
       expect(payload.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-      expect(payload.data.type).toBe('batch');
-      expect(payload.data.events).toHaveLength(1);
+      expect(payload.type).toBe('batch');
+      expect(payload.events).toHaveLength(1);
     });
 
     it('produces valid JSON with no nested objects in attributes', () => {
@@ -51,8 +51,8 @@ describe('PayloadBuilder', () => {
       const payload = buildBatchPayload(events);
       const json = JSON.stringify(payload);
       const parsed = JSON.parse(json);
-      expect(parsed.data.type).toBe('batch');
-      parsed.data.events.forEach((ev: Record<string, unknown>) => {
+      expect(parsed.type).toBe('batch');
+      parsed.events.forEach((ev: Record<string, unknown>) => {
         const attrs = ev.attributes as Record<string, unknown>;
         Object.values(attrs).forEach((v) => {
           expect(typeof v).toMatch(/^(string|number|boolean)$/);

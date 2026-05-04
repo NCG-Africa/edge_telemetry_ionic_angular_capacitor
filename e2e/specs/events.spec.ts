@@ -123,8 +123,8 @@ test.describe('event types', () => {
     await waitForPayloads(request, { minCount: 2 });
 
     const payloads = await waitForPayloads(request, { minCount: 2 });
-    const firstBatchEvents = payloads[0]!.data.events;
-    const secondBatchEvents = payloads[payloads.length - 1]!.data.events;
+    const firstBatchEvents = payloads[0]!.events;
+    const secondBatchEvents = payloads[payloads.length - 1]!.events;
 
     const firstSeq = firstBatchEvents[0]!.attributes['session.sequence'];
     const secondSeq = secondBatchEvents[0]!.attributes['session.sequence'];

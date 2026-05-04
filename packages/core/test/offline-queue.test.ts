@@ -57,23 +57,21 @@ function fakePreferences(initial: string | null = null): PreferencesLike & { sto
 const batchPayload = (i: number): string =>
   JSON.stringify({
     timestamp: `2024-01-15T10:30:0${i % 10}.000Z`,
-    data: {
-      type: 'batch',
-      events: [
-        {
-          type: 'event',
-          eventName: 'custom_event',
-          timestamp: `2024-01-15T10:30:0${i % 10}.000Z`,
-          attributes: {
-            'session.id': 'session_1_aaaaaaaa_web',
-            'device.id': 'device_1_aaaaaaaa_web',
-            'sdk.platform': 'ionic-angular-capacitor',
-            'event.name': `checkout_${i}`,
-            'event.value': i,
-          },
+    type: 'batch',
+    events: [
+      {
+        type: 'event',
+        eventName: 'custom_event',
+        timestamp: `2024-01-15T10:30:0${i % 10}.000Z`,
+        attributes: {
+          'session.id': 'session_1_aaaaaaaa_web',
+          'device.id': 'device_1_aaaaaaaa_web',
+          'sdk.platform': 'ionic-angular-capacitor',
+          'event.name': `checkout_${i}`,
+          'event.value': i,
         },
-      ],
-    },
+      },
+    ],
   });
 
 describe('OfflineQueue', () => {
@@ -181,9 +179,9 @@ describe('OfflineQueue', () => {
       expect(raw).not.toMatch(/instrumentationScope/i);
       expect(raw).not.toMatch(/opentelemetry/i);
       const parsed = JSON.parse(raw) as {
-        data: { events: { attributes: Record<string, unknown> }[] };
+        events: { attributes: Record<string, unknown> }[];
       };
-      for (const event of parsed.data.events) {
+      for (const event of parsed.events) {
         for (const v of Object.values(event.attributes)) {
           expect(['string', 'number', 'boolean']).toContain(typeof v);
           expect(Array.isArray(v)).toBe(false);

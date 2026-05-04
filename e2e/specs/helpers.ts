@@ -13,10 +13,8 @@ export interface EventPayload {
 
 export interface BatchPayload {
   timestamp: string;
-  data: {
-    type: 'batch';
-    events: EventPayload[];
-  };
+  type: 'batch';
+  events: EventPayload[];
 }
 
 export interface RecordedRequest {
@@ -93,11 +91,11 @@ export function assertEnvelope(payload: BatchPayload): void {
   if (!/^\d{4}-\d{2}-\d{2}T/.test(payload.timestamp)) {
     throw new Error(`payload.timestamp is not ISO 8601: ${payload.timestamp}`);
   }
-  if (payload.data?.type !== 'batch') {
-    throw new Error(`data.type must be 'batch', got ${payload.data?.type}`);
+  if (payload.type !== 'batch') {
+    throw new Error(`type must be 'batch', got ${payload.type}`);
   }
-  if (!Array.isArray(payload.data.events)) {
-    throw new Error('data.events must be an array');
+  if (!Array.isArray(payload.events)) {
+    throw new Error('events must be an array');
   }
 
   const serialised = JSON.stringify(payload);
@@ -107,7 +105,7 @@ export function assertEnvelope(payload: BatchPayload): void {
     }
   }
 
-  for (const event of payload.data.events) {
+  for (const event of payload.events) {
     if (event.type !== 'event') throw new Error(`event.type must be 'event', got ${event.type}`);
     if (typeof event.eventName !== 'string' || event.eventName.length === 0) {
       throw new Error('event.eventName missing');
@@ -131,5 +129,5 @@ export function assertEnvelope(payload: BatchPayload): void {
 }
 
 export function allEvents(payloads: BatchPayload[]): EventPayload[] {
-  return payloads.flatMap((p) => (p && p.data && Array.isArray(p.data.events) ? p.data.events : []));
+  return payloads.flatMap((p) => (p && Array.isArray(p.events) ? p.events : []));
 }

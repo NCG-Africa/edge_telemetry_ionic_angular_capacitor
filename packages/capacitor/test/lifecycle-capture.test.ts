@@ -392,7 +392,8 @@ describe('startLifecycleCapture', () => {
         url: 'https://edgetelemetry.ncgafrica.com/collector/telemetry?k=edge_abc',
         body: JSON.stringify({
           timestamp: '2026-04-15T10:00:00.000Z',
-          data: { type: 'batch', events: [{ type: 'event', eventName: 'custom_event', timestamp: '2026-04-15T10:00:00.000Z', attributes: { 'sdk.platform': 'ionic-angular-capacitor' } }] },
+          type: 'batch',
+          events: [{ type: 'event', eventName: 'custom_event', timestamp: '2026-04-15T10:00:00.000Z', attributes: { 'sdk.platform': 'ionic-angular-capacitor' } }],
         }),
         headers: { 'X-API-Key': 'edge_abc' },
       };
@@ -428,10 +429,10 @@ describe('startLifecycleCapture', () => {
 
       // Assert envelope shape and no OTel keys / nested attributes
       const parsed = JSON.parse(bodyText);
-      expect(parsed.data.type).toBe('batch');
-      expect(parsed.data.events).toBeInstanceOf(Array);
+      expect(parsed.type).toBe('batch');
+      expect(parsed.events).toBeInstanceOf(Array);
       assertNoOtelKeys(parsed);
-      for (const ev of parsed.data.events) {
+      for (const ev of parsed.events) {
         for (const v of Object.values(ev.attributes)) {
           expect(['string', 'number', 'boolean']).toContain(typeof v);
         }
@@ -444,7 +445,7 @@ describe('startLifecycleCapture', () => {
       const { factory, calls } = makeXhrFactory();
       const payload: BeaconPayload = {
         url: 'https://edgetelemetry.ncgafrica.com/collector/telemetry',
-        body: '{"timestamp":"2026-04-15T10:00:00.000Z","data":{"type":"batch","events":[]}}',
+        body: '{"timestamp":"2026-04-15T10:00:00.000Z","type":"batch","events":[]}',
         headers: { 'X-API-Key': 'edge_xyz' },
       };
       const cb: LifecycleCaptureCallbacks = {

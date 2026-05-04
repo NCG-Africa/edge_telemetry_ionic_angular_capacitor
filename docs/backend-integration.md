@@ -29,31 +29,29 @@ Every request body is JSON. The shape is an envelope containing one or more even
 ```json
 {
   "timestamp": "2024-01-15T10:30:00.000Z",
-  "data": {
-    "type": "batch",
-    "events": [
-      {
-        "type": "event",
-        "eventName": "screen_view",
-        "timestamp": "2024-01-15T10:30:00.123Z",
-        "attributes": {
-          "app.name": "MyApp",
-          "app.version": "2.1.0",
-          "device.platform": "ios",
-          "session.id": "session_1704067200000_x9y8z7w6_ios",
-          "sdk.platform": "ionic-angular-capacitor"
-        }
+  "type": "batch",
+  "events": [
+    {
+      "type": "event",
+      "eventName": "screen_view",
+      "timestamp": "2024-01-15T10:30:00.123Z",
+      "attributes": {
+        "app.name": "MyApp",
+        "app.version": "2.1.0",
+        "device.platform": "ios",
+        "session.id": "session_1704067200000_x9y8z7w6_ios",
+        "sdk.platform": "ionic-angular-capacitor"
       }
-    ]
-  }
+    }
+  ]
 }
 ```
 
 ### Envelope rules
 
 - `timestamp` — ISO 8601 string marking when the send was built. Never Unix milliseconds.
-- `data.type` — always the literal string `"batch"`.
-- `data.events` — array of event objects. Never empty for a send.
+- `type` — always the literal string `"batch"`.
+- `events` — array of event objects. Never empty for a send.
 
 ### Event rules
 
@@ -125,10 +123,10 @@ docker compose -f demo/docker-compose.yml up
 const body = JSON.parse(request.body);
 
 expect(body.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-expect(body.data.type).toBe('batch');
-expect(body.data.events).toBeInstanceOf(Array);
+expect(body.type).toBe('batch');
+expect(body.events).toBeInstanceOf(Array);
 
-for (const event of body.data.events) {
+for (const event of body.events) {
   expect(event.type).toBe('event');
   expect(event.eventName).toBeDefined();
   for (const value of Object.values(event.attributes)) {

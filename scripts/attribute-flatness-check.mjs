@@ -52,7 +52,7 @@ for (const file of files) {
   } catch {
     continue;
   }
-  const events = data?.data?.events;
+  const events = data?.events;
   if (!Array.isArray(events)) continue;
   total++;
   totalViolations += checkAttributes(file, events);

@@ -1,5 +1,13 @@
 # @nathanclaire/rum-angular
 
+## 1.0.4
+
+### Patch Changes
+
+- fix: include device_id at batch payload root level for collector server compatibility
+- Updated dependencies
+  - @nathanclaire/rum@1.0.4
+
 ## 1.0.3
 
 ### Patch Changes

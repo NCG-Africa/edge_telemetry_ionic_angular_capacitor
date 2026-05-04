@@ -97,4 +97,46 @@ describe('Pipeline', () => {
     await pipeline.flushOfflineQueue();
     expect(queue.flush).toHaveBeenCalledTimes(1);
   });
+
+  describe('deferReady', () => {
+    let deferredPipeline: Pipeline;
+
+    beforeEach(() => {
+      deferredPipeline = new Pipeline({
+        transport,
+        queue,
+        session,
+        batchSize: 3,
+        flushIntervalMs: 60000,
+        deferReady: true,
+        debug: false,
+      });
+    });
+
+    it('does not flush until markReady is called', async () => {
+      deferredPipeline.push(buildEventPayload('test', {}, {}));
+      // Start flush but don't await — it blocks on readyPromise
+      void deferredPipeline.flush();
+      await new Promise((r) => setTimeout(r, 50));
+      expect(transport.send).not.toHaveBeenCalled();
+      // Now unblock
+      deferredPipeline.markReady();
+      await new Promise((r) => setTimeout(r, 50));
+      expect(transport.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('flushes buffered events after markReady', async () => {
+      deferredPipeline.push(buildEventPayload('test', { 'device.id': 'device_1_abcd1234_web' }, {}));
+      deferredPipeline.markReady();
+      await deferredPipeline.flush();
+      expect(transport.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('default pipeline (no deferReady) flushes immediately', async () => {
+      // uses the non-deferred pipeline from the outer beforeEach
+      pipeline.push(buildEventPayload('test', {}, {}));
+      await pipeline.flush();
+      expect(transport.send).toHaveBeenCalledTimes(1);
+    });
+  });
 });

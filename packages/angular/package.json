@@ -20,13 +20,11 @@
     "clean": "rm -rf dist",
     "type-check": "tsc --noEmit -p tsconfig.json"
   },
-  "dependencies": {
-    "@nathanclaire/rum": "workspace:*"
-  },
   "peerDependencies": {
     "@angular/common": ">=16.0.0",
     "@angular/core": ">=16.0.0",
     "@angular/router": ">=16.0.0",
+    "@nathanclaire/rum": "^1.0.0",
     "rxjs": ">=7.0.0"
   },
   "devDependencies": {

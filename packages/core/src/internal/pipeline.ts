@@ -10,6 +10,7 @@ export interface PipelineOptions {
   session: SessionManager;
   batchSize: number;
   flushIntervalMs: number;
+  deferReady?: boolean;
   debug?: boolean;
 }
 
@@ -23,6 +24,8 @@ export class Pipeline {
   private buffer: EventPayload[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private flushing = false;
+  private readonly readyPromise: Promise<void>;
+  private readyResolve: (() => void) | null = null;
 
   constructor(options: PipelineOptions) {
     this.transport = options.transport;
@@ -31,6 +34,21 @@ export class Pipeline {
     this.batchSize = options.batchSize;
     this.flushIntervalMs = options.flushIntervalMs;
     this.debug = options.debug ?? false;
+
+    if (options.deferReady) {
+      this.readyPromise = new Promise<void>((resolve) => {
+        this.readyResolve = resolve;
+      });
+    } else {
+      this.readyPromise = Promise.resolve();
+    }
+  }
+
+  markReady(): void {
+    if (this.readyResolve) {
+      this.readyResolve();
+      this.readyResolve = null;
+    }
   }
 
   start(): void {
@@ -61,6 +79,7 @@ export class Pipeline {
 
   async flush(): Promise<void> {
     if (this.flushing || this.buffer.length === 0) return;
+    await this.readyPromise;
     this.flushing = true;
 
     try {

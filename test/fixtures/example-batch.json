@@ -1,6 +1,7 @@
 {
   "timestamp": "2024-01-15T10:30:00.000Z",
   "type": "batch",
+  "device_id": "device_1704067200000_a8b9c2d1_web",
   "events": [
     {
       "type": "event",

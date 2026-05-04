@@ -14,6 +14,7 @@ export interface EventPayload {
 export interface BatchPayload {
   timestamp: string;
   type: 'batch';
+  device_id?: string;
   events: EventPayload[];
 }
 
@@ -96,6 +97,9 @@ export function assertEnvelope(payload: BatchPayload): void {
   }
   if (!Array.isArray(payload.events)) {
     throw new Error('events must be an array');
+  }
+  if (payload.device_id !== undefined && !/^device_/.test(payload.device_id)) {
+    throw new Error(`device_id must match device_ prefix, got ${payload.device_id}`);
   }
 
   const serialised = JSON.stringify(payload);

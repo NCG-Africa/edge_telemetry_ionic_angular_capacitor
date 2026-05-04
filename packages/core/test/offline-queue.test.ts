@@ -58,6 +58,7 @@ const batchPayload = (i: number): string =>
   JSON.stringify({
     timestamp: `2024-01-15T10:30:0${i % 10}.000Z`,
     type: 'batch',
+    device_id: 'device_1_aaaaaaaa_web',
     events: [
       {
         type: 'event',

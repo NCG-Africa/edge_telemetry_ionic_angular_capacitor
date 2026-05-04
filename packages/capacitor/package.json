@@ -1,6 +1,6 @@
 {
   "name": "@nathanclaire/rum-capacitor",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "Capacitor integration for edge-rum",
   "license": "MIT",
   "type": "module",
@@ -14,7 +14,10 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "sideEffects": false,
   "publishConfig": {
     "access": "public"

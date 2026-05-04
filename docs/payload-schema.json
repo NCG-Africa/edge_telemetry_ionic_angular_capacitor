@@ -18,6 +18,12 @@
       "const": "batch",
       "description": "Always the string 'batch'. Identifies this as a batch payload."
     },
+    "device_id": {
+      "type": "string",
+      "description": "Device identifier extracted from event attributes. Format: device_{timestampMs}_{8hexchars}_{platform}.",
+      "pattern": "^device_\\d+_[a-f0-9]{8}_(ios|android|web)$",
+      "examples": ["device_1704067200000_a8b9c2d1_web"]
+    },
     "events": {
       "type": "array",
       "description": "Array of event objects. All event types mixed together.",

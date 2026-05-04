@@ -10,6 +10,7 @@ export interface EventPayload {
 export interface BatchPayload {
   timestamp: string;
   type: 'batch';
+  device_id?: string;
   events: EventPayload[];
 }
 
@@ -27,9 +28,11 @@ export function buildEventPayload(
 }
 
 export function buildBatchPayload(events: EventPayload[]): BatchPayload {
+  const deviceId = events[0]?.attributes?.['device.id'];
   return {
     timestamp: new Date().toISOString(),
     type: 'batch',
+    ...(typeof deviceId === 'string' ? { device_id: deviceId } : {}),
     events,
   };
 }

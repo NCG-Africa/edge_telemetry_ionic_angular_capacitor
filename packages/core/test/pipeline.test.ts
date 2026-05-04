@@ -76,7 +76,7 @@ describe('Pipeline', () => {
   });
 
   it('sends JSON with the correct envelope', async () => {
-    pipeline.push(buildEventPayload('screen_view', { 'sdk.platform': 'ionic-angular-capacitor' }, {}));
+    pipeline.push(buildEventPayload('screen_view', { 'sdk.platform': 'ionic-angular-capacitor', 'device.id': 'device_1_abcd1234_web' }, {}));
     await pipeline.flush();
     const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
     expect(body.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);

@@ -6,6 +6,7 @@ const fixture = JSON.parse(
 ) as {
   timestamp: string;
   type: string;
+  device_id?: string;
   events: Array<{ type: string; eventName: string; timestamp: string; attributes: Record<string, unknown> }>;
 };
 
@@ -32,6 +33,10 @@ describe('Android-aligned batch envelope', () => {
         expect(typeof v).toMatch(/^(string|number|boolean)$/);
       }
     }
+  });
+
+  it('has device_id at root level matching device_ prefix', () => {
+    expect(fixture.device_id).toMatch(/^device_/);
   });
 
   it('contains context attributes with correct ID prefixes', () => {

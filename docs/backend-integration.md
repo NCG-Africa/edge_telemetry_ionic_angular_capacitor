@@ -30,6 +30,7 @@ Every request body is JSON. The shape is an envelope containing one or more even
 {
   "timestamp": "2024-01-15T10:30:00.000Z",
   "type": "batch",
+  "device_id": "device_1704067200000_a8b9c2d1_ios",
   "events": [
     {
       "type": "event",
@@ -51,6 +52,7 @@ Every request body is JSON. The shape is an envelope containing one or more even
 
 - `timestamp` — ISO 8601 string marking when the send was built. Never Unix milliseconds.
 - `type` — always the literal string `"batch"`.
+- `device_id` — device identifier extracted from event attributes. Format: `device_{ts}_{hex}_{platform}`.
 - `events` — array of event objects. Never empty for a send.
 
 ### Event rules

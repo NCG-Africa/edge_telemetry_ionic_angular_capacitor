@@ -37,11 +37,17 @@ describe('PayloadBuilder', () => {
 
   describe('buildBatchPayload', () => {
     it('wraps events in the correct envelope structure', () => {
-      const events = [buildEventPayload('screen_view', {}, {})];
+      const events = [buildEventPayload('screen_view', { 'device.id': 'device_1_abcd1234_web' }, {})];
       const payload = buildBatchPayload(events);
       expect(payload.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(payload.type).toBe('batch');
+      expect(payload.device_id).toBe('device_1_abcd1234_web');
       expect(payload.events).toHaveLength(1);
+    });
+
+    it('omits device_id when events array is empty', () => {
+      const payload = buildBatchPayload([]);
+      expect(payload.device_id).toBeUndefined();
     });
 
     it('produces valid JSON with no nested objects in attributes', () => {

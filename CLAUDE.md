@@ -73,12 +73,14 @@ the same envelope structure** so the Kafka processor handles both without change
 {
   "timestamp": "2024-01-15T10:30:00Z",
   "type": "batch",
+  "device_id": "device_1704067200000_a8b9c2d1_web",
   "events": [ ...events ]
 }
 ```
 
 - `timestamp`: ISO 8601 string of the batch flush time — **NOT Unix ms**. Use `new Date().toISOString()`.
 - `type`: always the string `"batch"` — never changes.
+- `device_id`: device identifier extracted from `events[0].attributes["device.id"]`. Required by the collector server.
 - `events`: array of event objects.
 
 ### Individual event structure (matches Android exactly)
@@ -192,6 +194,7 @@ the backend can process both platforms in the same pipeline.
 {
   "timestamp": "2024-01-15T10:30:00.000Z",
   "type": "batch",
+  "device_id": "device_1704067200000_a8b9c2d1_web",
   "events": [
 
     // ── screen_view (Angular route change) ──────────────────────────────
@@ -466,7 +469,7 @@ Because every event carries the full context (app, device, session, user) as fla
 1. Maintain a `contextAttributes` object in `SessionManager` — updated once on init and
    on any change (user identify, network change, etc.).
 2. On each event, call `{ ...contextAttributes, ...eventAttributes }` to merge flat.
-3. Build the outer envelope: `{ timestamp: new Date().toISOString(), type: "batch", events: [...] }`.
+3. Build the outer envelope: `{ timestamp: new Date().toISOString(), type: "batch", device_id: events[0].attributes["device.id"], events: [...] }`.
 4. Never nest objects inside `attributes` — all values must be primitives
    (`string | number | boolean`). Flatten any nested data with dot-notation keys.
 
@@ -597,6 +600,7 @@ const payload = JSON.parse(body);
 // Envelope shape
 expect(payload.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);   // ISO 8601
 expect(payload.type).toBe('batch');
+expect(payload.device_id).toMatch(/^device_/);
 expect(payload.events).toBeInstanceOf(Array);
 
 // Each event

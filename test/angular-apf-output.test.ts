@@ -334,9 +334,9 @@ describe.skipIf(!hasDist)('dist/package.json manifest', () => {
     expect(peers['@angular/router']).toBeDefined();
   });
 
-  it('has @nathanclaire/rum as a dependency (not peer)', () => {
-    const deps = distPkg.dependencies as Record<string, string>;
-    expect(deps['@nathanclaire/rum']).toBeDefined();
+  it('has @nathanclaire/rum as a peer dependency', () => {
+    const peers = distPkg.peerDependencies as Record<string, string>;
+    expect(peers['@nathanclaire/rum']).toBeDefined();
   });
 
   it('does NOT include devDependencies (stripped by ng-packagr)', () => {

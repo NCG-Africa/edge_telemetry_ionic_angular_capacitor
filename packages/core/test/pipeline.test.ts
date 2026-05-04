@@ -52,8 +52,8 @@ describe('Pipeline', () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(transport.send).toHaveBeenCalledTimes(1);
     const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
-    expect(body.data.type).toBe('batch');
-    expect(body.data.events).toHaveLength(3);
+    expect(body.type).toBe('batch');
+    expect(body.events).toHaveLength(3);
   });
 
   it('increments session sequence on successful send', async () => {
@@ -80,8 +80,8 @@ describe('Pipeline', () => {
     await pipeline.flush();
     const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
     expect(body.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(body.data.type).toBe('batch');
-    body.data.events.forEach((ev: Record<string, unknown>) => {
+    expect(body.type).toBe('batch');
+    body.events.forEach((ev: Record<string, unknown>) => {
       expect(ev.type).toBe('event');
       const attrs = ev.attributes as Record<string, unknown>;
       Object.values(attrs).forEach((v) => {

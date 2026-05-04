@@ -67,21 +67,19 @@ All data sent to the backend must be:
 The backend already processes payloads from the Android SDK. The web SDK **must produce
 the same envelope structure** so the Kafka processor handles both without changes.
 
-### Envelope structure (matches Android exactly)
+### Envelope structure (matches collector server)
 
 ```json
 {
   "timestamp": "2024-01-15T10:30:00Z",
-  "data": {
-    "type": "batch",
-    "events": [ ...events ]
-  }
+  "type": "batch",
+  "events": [ ...events ]
 }
 ```
 
 - `timestamp`: ISO 8601 string of the batch flush time — **NOT Unix ms**. Use `new Date().toISOString()`.
-- `data.type`: always the string `"batch"` — never changes.
-- `data.events`: array of event objects.
+- `type`: always the string `"batch"` — never changes.
+- `events`: array of event objects.
 
 ### Individual event structure (matches Android exactly)
 
@@ -193,11 +191,10 @@ the backend can process both platforms in the same pipeline.
 
 {
   "timestamp": "2024-01-15T10:30:00.000Z",
-  "data": {
-    "type": "batch",
-    "events": [
+  "type": "batch",
+  "events": [
 
-      // ── screen_view (Angular route change) ──────────────────────────────
+    // ── screen_view (Angular route change) ──────────────────────────────
       {
         "type": "event",
         "eventName": "screen_view",
@@ -455,8 +452,7 @@ the backend can process both platforms in the same pipeline.
         }
       }
 
-    ]
-  }
+  ]
 }
 ```
 
@@ -470,7 +466,7 @@ Because every event carries the full context (app, device, session, user) as fla
 1. Maintain a `contextAttributes` object in `SessionManager` — updated once on init and
    on any change (user identify, network change, etc.).
 2. On each event, call `{ ...contextAttributes, ...eventAttributes }` to merge flat.
-3. Build the outer envelope: `{ timestamp: new Date().toISOString(), data: { type: "batch", events: [...] } }`.
+3. Build the outer envelope: `{ timestamp: new Date().toISOString(), type: "batch", events: [...] }`.
 4. Never nest objects inside `attributes` — all values must be primitives
    (`string | number | boolean`). Flatten any nested data with dot-notation keys.
 
@@ -600,11 +596,11 @@ const payload = JSON.parse(body);
 
 // Envelope shape
 expect(payload.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);   // ISO 8601
-expect(payload.data.type).toBe('batch');
-expect(payload.data.events).toBeInstanceOf(Array);
+expect(payload.type).toBe('batch');
+expect(payload.events).toBeInstanceOf(Array);
 
 // Each event
-payload.data.events.forEach(event => {
+payload.events.forEach(event => {
   expect(event.type).toBe('event');
   expect(event.eventName).toBeDefined();
   expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);

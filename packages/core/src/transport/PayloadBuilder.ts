@@ -9,10 +9,8 @@ export interface EventPayload {
 
 export interface BatchPayload {
   timestamp: string;
-  data: {
-    type: 'batch';
-    events: EventPayload[];
-  };
+  type: 'batch';
+  events: EventPayload[];
 }
 
 export function buildEventPayload(
@@ -31,9 +29,7 @@ export function buildEventPayload(
 export function buildBatchPayload(events: EventPayload[]): BatchPayload {
   return {
     timestamp: new Date().toISOString(),
-    data: {
-      type: 'batch',
-      events,
-    },
+    type: 'batch',
+    events,
   };
 }

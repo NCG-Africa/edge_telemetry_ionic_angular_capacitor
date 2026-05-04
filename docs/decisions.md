@@ -47,9 +47,9 @@ OTel collector. Protobuf would require `pako` for browser gzip and makes payload
 Kafka processor. We could design a separate web endpoint with a cleaner format, or align
 to the Android SDK structure.
 
-**Decision:** Match the Android SDK envelope exactly:
+**Decision:** Match the collector server's expected envelope:
 ```json
-{ "timestamp": "<ISO8601>", "data": { "type": "batch", "events": [...] } }
+{ "timestamp": "<ISO8601>", "type": "batch", "events": [...] }
 ```
 Each event: `{ "type": "event", "eventName": "...", "timestamp": "<ISO8601>", "attributes": {...} }`.
 

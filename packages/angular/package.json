@@ -1,6 +1,6 @@
 {
   "name": "@nathanclaire/rum-angular",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Angular integration for edge-rum",
   "license": "MIT",
   "type": "module",

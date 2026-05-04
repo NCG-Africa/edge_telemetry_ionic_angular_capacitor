@@ -1,5 +1,11 @@
 # @nathanclaire/rum-angular
 
+## 1.0.6
+
+### Patch Changes
+
+- fix: force-instantiate RouterCapture and IonicLifecycleCapture via APP_INITIALIZER deps to emit screen_view and screen_timing events
+
 ## 1.0.5
 
 ### Patch Changes

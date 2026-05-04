@@ -48,8 +48,8 @@ importers:
   packages/angular:
     dependencies:
       '@nathanclaire/rum':
-        specifier: workspace:*
-        version: link:../core
+        specifier: ^1.0.0
+        version: 1.0.4(@capacitor/preferences@8.0.1(@capacitor/core@8.3.0))
     devDependencies:
       '@angular/common':
         specifier: ^18.0.0
@@ -1251,6 +1251,14 @@ packages:
   '@napi-rs/nice@1.1.1':
     resolution: {integrity: sha512-xJIPs+bYuc9ASBl+cvGsKbGrJmS6fAKaSZCnT0lhahT5rhA2VVy9/EcIgd2JhtEuFOJNx7UHNn/qiTPTY4nrQw==}
     engines: {node: '>= 10'}
+
+  '@nathanclaire/rum@1.0.4':
+    resolution: {integrity: sha512-gfiAhwxB18wNE2kNyXH7WhqrNYZ31092HbFEUS6giVP6wzNdStzqskAc3dVcXPKr6aNkVk8J+nTyTQay7Tt9xQ==}
+    peerDependencies:
+      '@capacitor/preferences': '>=5.0.0'
+    peerDependenciesMeta:
+      '@capacitor/preferences':
+        optional: true
 
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
@@ -3955,6 +3963,12 @@ snapshots:
       '@napi-rs/nice-win32-ia32-msvc': 1.1.1
       '@napi-rs/nice-win32-x64-msvc': 1.1.1
     optional: true
+
+  '@nathanclaire/rum@1.0.4(@capacitor/preferences@8.0.1(@capacitor/core@8.3.0))':
+    dependencies:
+      web-vitals: 4.2.4
+    optionalDependencies:
+      '@capacitor/preferences': 8.0.1(@capacitor/core@8.3.0)
 
   '@nodelib/fs.scandir@2.1.5':
     dependencies:

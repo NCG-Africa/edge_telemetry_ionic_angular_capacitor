@@ -23,6 +23,8 @@ export async function startCapacitorCapture(): Promise<CapacitorCaptureHandle> {
   const networkAttrs = await getInitialNetworkContext();
   context.setNetworkAttributes(networkAttrs);
 
+  pipeline.markReady();
+
   const networkHandle = await startNetworkCapture({
     recordEvent: (eventName, attrs) => collector.recordEvent(eventName, attrs),
     setOnline: (online: boolean) => {

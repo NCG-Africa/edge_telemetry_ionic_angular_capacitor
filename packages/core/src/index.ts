@@ -14,6 +14,7 @@ export interface EdgeRumConfig {
   flushIntervalMs?: number;
   batchSize?: number;
   sanitizeUrl?: (url: string) => string;
+  deferFlush?: boolean;
   debug?: boolean;
 }
 

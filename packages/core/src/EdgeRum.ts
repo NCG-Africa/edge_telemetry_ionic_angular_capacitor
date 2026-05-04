@@ -112,6 +112,7 @@ export const EdgeRum: EdgeRumRuntime = {
       session,
       batchSize: config.batchSize ?? DEFAULT_BATCH_SIZE,
       flushIntervalMs: config.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS,
+      deferReady: config.deferFlush,
       debug: config.debug,
     });
     state.pipeline = pipeline;

@@ -1,5 +1,13 @@
 # @nathanclaire/rum-angular
 
+## 1.0.5
+
+### Patch Changes
+
+- fix: move @nathanclaire/rum to peerDependencies in rum-angular; add deferFlush config and Pipeline.markReady() to prevent first-batch device_id race condition
+- Updated dependencies
+  - @nathanclaire/rum@1.0.5
+
 ## 1.0.4
 
 ### Patch Changes

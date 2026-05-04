@@ -92,9 +92,10 @@ describe('EdgeRumModule.forRoot', () => {
 
     expect(appInit).toBeDefined();
     expect(appInit!.multi).toBe(true);
-    expect(appInit!.deps).toEqual([EDGE_RUM_CONFIG]);
+    expect(appInit!.deps).toHaveLength(3);
+    expect(appInit!.deps![0]).toBe(EDGE_RUM_CONFIG);
 
-    const initializer = appInit!.useFactory(VALID_CONFIG) as () => void;
+    const initializer = appInit!.useFactory(VALID_CONFIG, {} as never, null) as () => void;
     initializer();
 
     expect(initSpy).toHaveBeenCalledTimes(1);
@@ -141,21 +142,21 @@ describe('provideEdgeRum', () => {
 describe('edgeRumInitializerFactory', () => {
   it('propagates EdgeRum.init errors on invalid config (empty apiKey)', () => {
     const badConfig = { apiKey: '' } as unknown as EdgeRumConfig;
-    const fn = edgeRumInitializerFactory(badConfig);
+    const fn = edgeRumInitializerFactory(badConfig, {} as never, null);
 
     expect(fn).toThrowError(/apiKey is required/);
   });
 
   it('propagates EdgeRum.init errors when apiKey lacks "edge_" prefix', () => {
     const badConfig = { apiKey: 'wrong_prefix' } as unknown as EdgeRumConfig;
-    const fn = edgeRumInitializerFactory(badConfig);
+    const fn = edgeRumInitializerFactory(badConfig, {} as never, null);
 
     expect(fn).toThrowError(/must start with "edge_"/);
   });
 
   it('returns a no-arg function that successfully calls EdgeRum.init on valid config', () => {
     const initSpy = vi.spyOn(EdgeRum, 'init');
-    const fn = edgeRumInitializerFactory(VALID_CONFIG);
+    const fn = edgeRumInitializerFactory(VALID_CONFIG, {} as never, null);
 
     expect(fn.length).toBe(0);
     fn();

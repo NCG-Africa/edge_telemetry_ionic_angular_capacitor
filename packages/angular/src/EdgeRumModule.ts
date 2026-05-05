@@ -18,8 +18,9 @@ export const EDGE_RUM_CONFIG = new InjectionToken<EdgeRumConfig>('EDGE_RUM_CONFI
 
 export function edgeRumInitializerFactory(
   config: EdgeRumConfig,
-  _router: RouterCapture,
-  _lifecycle: IonicLifecycleCapture | null,
+  // Injected to force instantiation — constructors subscribe to Router/Ionic events
+  _router: RouterCapture, // eslint-disable-line @typescript-eslint/no-unused-vars
+  _lifecycle: IonicLifecycleCapture | null, // eslint-disable-line @typescript-eslint/no-unused-vars
 ): () => void {
   return () => {
     EdgeRum.init(config);

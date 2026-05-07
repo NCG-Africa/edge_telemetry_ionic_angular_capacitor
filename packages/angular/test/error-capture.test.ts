@@ -8,6 +8,7 @@ import { EdgeRumErrorCapture } from '../src/ErrorCapture';
 
 const VALID_CONFIG: EdgeRumConfig = {
   apiKey: 'edge_test_key',
+  endpoint: 'https://example.com/collector/telemetry',
   appName: 'TestApp',
   appVersion: '1.0.0',
 };

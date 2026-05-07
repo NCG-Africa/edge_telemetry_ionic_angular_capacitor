@@ -27,7 +27,6 @@ export interface EdgeRumRuntime {
   getSessionId: () => string;
 }
 
-const DEFAULT_ENDPOINT = 'https://edgetelemetry.ncgafrica.com/collector/telemetry';
 const DEFAULT_BATCH_SIZE = 30;
 const DEFAULT_FLUSH_INTERVAL_MS = 5000;
 const DEFAULT_MAX_QUEUE_SIZE = 200;
@@ -80,6 +79,9 @@ function validateConfig(config: EdgeRumConfig): void {
   if (!config.apiKey.startsWith('edge_')) {
     throw new Error('edge-rum: apiKey must start with "edge_"');
   }
+  if (!config.endpoint || typeof config.endpoint !== 'string' || config.endpoint.length === 0) {
+    throw new Error('edge-rum: endpoint is required');
+  }
 }
 
 export const EdgeRum: EdgeRumRuntime = {
@@ -101,7 +103,7 @@ export const EdgeRum: EdgeRumRuntime = {
     state.queue = queue;
 
     const transport = new RetryTransport({
-      endpoint: config.endpoint ?? DEFAULT_ENDPOINT,
+      endpoint: config.endpoint,
       apiKey: config.apiKey,
       debug: config.debug,
     });
@@ -148,8 +150,7 @@ export const EdgeRum: EdgeRumRuntime = {
     // Always exclude the SDK's own telemetry endpoint so request capture
     // never records its own POSTs — prevents an infinite self-capture loop
     // and removes a quiet footgun for consumers.
-    const endpoint = config.endpoint ?? DEFAULT_ENDPOINT;
-    const effectiveIgnoreUrls = [endpoint, ...(config.ignoreUrls ?? [])];
+    const effectiveIgnoreUrls = [config.endpoint, ...(config.ignoreUrls ?? [])];
 
     state.requestsHandle = registerRequestCapture({
       recordEvent: (eventName, attributes) => collector.recordEvent(eventName, attributes),
@@ -163,7 +164,7 @@ export const EdgeRum: EdgeRumRuntime = {
     state.initialized = true;
     state.enabled = true;
 
-    debug('initialized', { endpoint: config.endpoint ?? DEFAULT_ENDPOINT });
+    debug('initialized', { endpoint: config.endpoint });
   },
 
   identify(user: UserContext): void {

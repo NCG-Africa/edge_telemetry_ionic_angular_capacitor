@@ -3,7 +3,7 @@ export const SDK_PLATFORM = 'ionic-angular-capacitor' as const;
 
 export interface EdgeRumConfig {
   apiKey: string;
-  endpoint?: string;
+  endpoint: string;
   appName?: string;
   appVersion?: string;
   appPackage?: string;

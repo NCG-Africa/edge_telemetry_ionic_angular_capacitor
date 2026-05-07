@@ -18,6 +18,7 @@ import { EdgeRumModule } from '@nathanclaire/rum-angular';
   imports: [
     EdgeRumModule.forRoot({
       apiKey: 'edge_your_api_key_here',
+      endpoint: 'https://your-collector.example.com/collector/telemetry',
       appName: 'MyApp',
       appVersion: '1.0.0',
       appPackage: 'com.yourco.app',

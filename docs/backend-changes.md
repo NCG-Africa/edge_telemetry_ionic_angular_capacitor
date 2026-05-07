@@ -213,7 +213,7 @@ Origins used by Capacitor/Ionic:
 **Backend actions:**
 - [ ] Add CORS headers to `/collector/telemetry`
 - [ ] Handle OPTIONS preflight (HTTP 200, CORS headers, empty body)
-- [ ] Test from a browser: `fetch('https://edgetelemetry.ncgafrica.com/collector/telemetry', { method: 'OPTIONS' })` should return 200
+- [ ] Test from a browser: `fetch('https://<your-host>/collector/telemetry', { method: 'OPTIONS' })` should return 200
 
 ---
 

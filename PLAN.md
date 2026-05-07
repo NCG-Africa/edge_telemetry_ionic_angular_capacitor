@@ -543,7 +543,7 @@ This is not configurable — it is always enabled.
    ```typescript
    interface EdgeRumConfig {
      apiKey: string;                // required — must start with "edge_"
-     endpoint?: string;             // default: https://edgetelemetry.ncgafrica.com/collector/telemetry
+     endpoint: string;              // required — no default, must be provided by the developer
      appName?: string;              // app.name in all events
      appVersion?: string;           // app.version in all events
      appPackage?: string;           // app.package e.g. "com.yourco.app"

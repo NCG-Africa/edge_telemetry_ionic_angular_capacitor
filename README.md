@@ -31,6 +31,7 @@ import { EdgeRumModule } from '@nathanclaire/rum-angular';
   imports: [
     EdgeRumModule.forRoot({
       apiKey: 'edge_your_api_key_here',
+      endpoint: 'https://your-collector.example.com/collector/telemetry',
       appName: 'MyApp',
       appVersion: '1.0.0',
       appPackage: 'com.yourco.app',
@@ -51,6 +52,7 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideEdgeRum({
       apiKey: 'edge_your_api_key_here',
+      endpoint: 'https://your-collector.example.com/collector/telemetry',
       appName: 'MyApp',
       appVersion: '1.0.0',
       appPackage: 'com.yourco.app',
@@ -168,7 +170,7 @@ this.rum.identify({
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `apiKey` | `string` | *required* | API key. Must start with `"edge_"` |
-| `endpoint` | `string` | `https://edgetelemetry.ncgafrica.com/collector/telemetry` | Collector endpoint URL |
+| `endpoint` | `string` | *required* | Collector endpoint URL |
 | `appName` | `string` | — | App name attached to all events |
 | `appVersion` | `string` | — | App version string |
 | `appPackage` | `string` | — | Bundle ID, e.g. `com.yourco.app` |

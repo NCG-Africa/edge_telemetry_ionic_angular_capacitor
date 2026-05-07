@@ -92,7 +92,7 @@ function navError(id: number, url: string, error: unknown): RouterEvent {
 
 beforeEach(() => {
   __resetEdgeRumForTests();
-  EdgeRum.init({ apiKey: 'edge_test_key' });
+  EdgeRum.init({ apiKey: 'edge_test_key', endpoint: 'https://example.com/collector/telemetry' });
 });
 
 afterEach(() => {

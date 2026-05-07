@@ -5,7 +5,7 @@ Every option accepted by `EdgeRum.init()` and `EdgeRumModule.forRoot()`.
 ```typescript
 interface EdgeRumConfig {
   apiKey: string;
-  endpoint?: string;
+  endpoint: string;
   appName?: string;
   appVersion?: string;
   appPackage?: string;
@@ -31,12 +31,11 @@ Authenticates every request to your backend. Sent as the `X-API-Key` header. Tre
 a secret in production builds — do not commit it to source control. Use environment
 variables or a build-time secret injector.
 
-### `endpoint`
+### `endpoint` (required)
 
 - Type: `string`
-- Default: `https://edgetelemetry.ncgafrica.com/collector/telemetry`
 
-Full URL your data is sent to. Override if you run a self-hosted backend.
+Full URL your data is sent to. Must be provided during initialization.
 
 ### `appName`
 

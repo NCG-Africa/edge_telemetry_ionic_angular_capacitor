@@ -9,7 +9,7 @@ backend, verifying the contract in tests, or reviewing data at ingestion.
 POST /collector/telemetry
 ```
 
-Default host: `https://edgetelemetry.ncgafrica.com`. Override via the `endpoint` option.
+There is no default host. You must provide the full endpoint URL via the `endpoint` config option.
 
 ## Headers
 

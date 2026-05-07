@@ -549,7 +549,7 @@ edge-rum/
 ```typescript
 interface EdgeRumConfig {
   apiKey: string;                    // sent as X-API-Key header — must start with "edge_"
-  endpoint?: string;                 // default: https://edgetelemetry.ncgafrica.com/collector/telemetry
+  endpoint: string;                   // required — no default, must be provided by the developer
   appName?: string;                  // used as app.name in all events
   appVersion?: string;               // used as app.version
   appPackage?: string;               // used as app.package (e.g. "com.yourco.app")

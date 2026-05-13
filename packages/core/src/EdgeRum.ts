@@ -3,7 +3,7 @@ import { SessionManager } from './session/SessionManager';
 import { ContextManager } from './internal/context';
 import { Collector } from './internal/collector';
 import { Pipeline } from './internal/pipeline';
-import { RetryTransport } from './transport/RetryTransport';
+import { RetryTransport, type FetchLike } from './transport/RetryTransport';
 import { OfflineQueue } from './queue/OfflineQueue';
 import { registerErrorCapture } from './instrumentation/errors';
 import type { ErrorsHandle } from './instrumentation/errors';
@@ -37,6 +37,7 @@ interface InternalState {
   context: ContextManager | null;
   collector: Collector | null;
   pipeline: Pipeline | null;
+  transport: RetryTransport | null;
   queue: OfflineQueue | null;
   errorsHandle: ErrorsHandle | null;
   requestsHandle: RequestsHandle | null;
@@ -51,6 +52,7 @@ const state: InternalState = {
   context: null,
   collector: null,
   pipeline: null,
+  transport: null,
   queue: null,
   errorsHandle: null,
   requestsHandle: null,
@@ -107,6 +109,7 @@ export const EdgeRum: EdgeRumRuntime = {
       apiKey: config.apiKey,
       debug: config.debug,
     });
+    state.transport = transport;
 
     const pipeline = new Pipeline({
       transport,
@@ -276,6 +279,10 @@ export function __getPipeline(): Pipeline | null {
   return state.pipeline;
 }
 
+export function __setTransportFetch(fetchFn: FetchLike): void {
+  state.transport?.setFetchFn(fetchFn);
+}
+
 export function __resetEdgeRumForTests(): void {
   state.pipeline?.stop();
   state.errorsHandle?.dispose();
@@ -285,6 +292,7 @@ export function __resetEdgeRumForTests(): void {
   state.context = null;
   state.collector = null;
   state.pipeline = null;
+  state.transport = null;
   state.queue = null;
   state.errorsHandle = null;
   state.requestsHandle = null;

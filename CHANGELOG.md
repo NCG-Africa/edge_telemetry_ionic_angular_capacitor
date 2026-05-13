@@ -4,6 +4,25 @@ All notable changes to the edge-rum SDK are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] — 2026-05-13
+
+### Fixed
+
+- Telemetry POSTs from native Capacitor platforms now bypass the webview
+  fetch + CORS preflight by routing through `CapacitorHttp.request` instead
+  of `globalThis.fetch`. The SDK no longer depends on the consumer's
+  `plugins.CapacitorHttp.enabled` setting in `capacitor.config.ts` to work
+  on iOS/Android. Web and PWA continue to use `fetch`.
+
+### Added
+
+- `createCapacitorHttpFetch()` exported from `@nathanclaire/rum-capacitor`
+  for advanced consumers who want to wire the native HTTP transport
+  manually. Not required for the default flow — `startCapacitorCapture()`
+  installs it automatically on native platforms.
+- `FetchLike` type re-exported from `@nathanclaire/rum` so adapter
+  packages can type custom transport implementations.
+
 ## [1.0.0] — 2026-04-24
 
 ### Added

@@ -99,4 +99,12 @@ describe('RetryTransport', () => {
     expect(headers['Authorization']).toBeUndefined();
     expect(headers['Content-Type']).toBe('application/json');
   });
+
+  it('setFetchFn swaps the active fetch implementation', async () => {
+    const replacement = vi.fn().mockResolvedValueOnce(mockResponse(200));
+    transport.setFetchFn(replacement as unknown as (input: string, init?: RequestInit) => Promise<Response>);
+    await transport.send('{"swapped":true}');
+    expect(replacement).toHaveBeenCalledTimes(1);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
 });

@@ -8,7 +8,7 @@ const RETRY_DELAYS_MS = [0, 2000, 8000, 30000] as const;
 
 const RETRYABLE_STATUS = new Set([0, 429, 503]);
 
-interface FetchLike {
+export interface FetchLike {
   (input: string, init?: RequestInit): Promise<Response>;
 }
 
@@ -36,13 +36,17 @@ export class RetryTransport {
   private readonly endpoint: string;
   private readonly apiKey: string;
   private readonly debug: boolean;
-  private readonly fetchFn: FetchLike;
+  private fetchFn: FetchLike;
 
   constructor(options: RetryTransportOptions, fetchFn?: FetchLike) {
     this.endpoint = options.endpoint;
     this.apiKey = options.apiKey;
     this.debug = options.debug ?? false;
     this.fetchFn = fetchFn ?? getFetch();
+  }
+
+  setFetchFn(fetchFn: FetchLike): void {
+    this.fetchFn = fetchFn;
   }
 
   async send(body: string): Promise<void> {

@@ -20,6 +20,14 @@ export type {
 } from './NetworkCapture';
 
 export { startCapacitorCapture, type CapacitorCaptureHandle } from './bootstrap';
+export { createCapacitorHttpFetch } from './capacitor-http-fetch';
+export type {
+  CapacitorHttpFetchDeps,
+  CapacitorHttpLike,
+  CapacitorHttpRequestOptions,
+  CapacitorHttpResponseLike,
+} from './capacitor-http-fetch';
+export type { FetchLike } from '@nathanclaire/rum';
 export { startLifecycleCapture } from './LifecycleCapture';
 export type {
   AppModuleLike,

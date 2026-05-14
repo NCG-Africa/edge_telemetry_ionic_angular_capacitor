@@ -4,7 +4,7 @@
   "title": "Edge RUM Ingest Payload",
   "description": "Payload schema for edge-rum web SDK. Matches the Android SDK batch envelope exactly so the same Kafka processor handles both platforms.",
   "type": "object",
-  "required": ["timestamp", "type", "events"],
+  "required": ["timestamp", "type", "batch_size", "events"],
   "additionalProperties": false,
   "properties": {
     "timestamp": {
@@ -24,10 +24,16 @@
       "pattern": "^device_\\d+_[a-f0-9]{8}_(ios|android|web)$",
       "examples": ["device_1704067200000_a8b9c2d1_web"]
     },
+    "batch_size": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of items in the events array. Server uses this as a sanity check.",
+      "examples": [3]
+    },
     "events": {
       "type": "array",
-      "description": "Array of event objects. All event types mixed together.",
-      "items": { "$ref": "#/definitions/event" },
+      "description": "Array of event and metric items. Server discriminates by item.type ('event' | 'metric').",
+      "items": { "oneOf": [{ "$ref": "#/definitions/event" }, { "$ref": "#/definitions/metric" }] },
       "minItems": 0
     }
   },
@@ -40,29 +46,58 @@
         "type": {
           "type": "string",
           "const": "event",
-          "description": "Always the string 'event' for every item. Matches Android SDK."
+          "description": "Always the string 'event' for an event item. Matches Android SDK."
         },
         "eventName": {
           "type": "string",
           "enum": [
             "screen_view",
+            "navigation",
             "network_request",
             "performance",
             "app.crash",
             "custom_event",
-            "custom_metric",
             "app_lifecycle",
             "page_load",
             "screen_timing",
             "network_change"
           ],
-          "description": "Discriminator. Backend routes by this value. page_load, screen_timing, network_change are web-only new values — see docs/backend-changes.md."
+          "description": "Discriminator. Backend routes by this value. 'navigation' is keyed by a dedicated server handler. Metric events use the separate 'metric' item shape (no eventName). page_load, screen_timing, network_change are web-only — see docs/backend-changes.md."
         },
         "timestamp": {
           "type": "string",
           "format": "date-time",
           "description": "ISO 8601 event time. Use new Date().toISOString(). Never Unix ms.",
           "examples": ["2024-01-15T10:30:00.123Z"]
+        },
+        "attributes": {
+          "$ref": "#/definitions/attributes"
+        }
+      }
+    },
+    "metric": {
+      "type": "object",
+      "required": ["type", "metricName", "value", "timestamp", "attributes"],
+      "additionalProperties": false,
+      "description": "Metric item. metricName and value are at the event root, NOT inside attributes. Produced by EdgeRum.time().end().",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "metric"
+        },
+        "metricName": {
+          "type": "string",
+          "description": "Custom metric name from EdgeRum.time().",
+          "examples": ["image_upload", "checkout_flow"]
+        },
+        "value": {
+          "type": "number",
+          "description": "Numeric value (typically duration in ms when produced by EdgeRum.time().end()).",
+          "examples": [890]
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
         },
         "attributes": {
           "$ref": "#/definitions/attributes"
@@ -87,10 +122,15 @@
           "description": "App version string.",
           "examples": ["2.1.0"]
         },
-        "app.package": {
+        "app.package_name": {
           "type": "string",
-          "description": "App package / bundle ID.",
+          "description": "App package / bundle ID. From EdgeRumConfig.appPackage.",
           "examples": ["com.yourco.app"]
+        },
+        "app.build_number": {
+          "type": "string",
+          "description": "App build number. Sourced from Capacitor App.getInfo().build on native; empty string on web.",
+          "examples": ["42", ""]
         },
         "app.environment": {
           "type": "string",
@@ -121,8 +161,9 @@
           "type": "string",
           "examples": ["ios", "android"]
         },
-        "device.osVersion": {
+        "device.platform_version": {
           "type": "string",
+          "description": "OS version. Sourced from Capacitor Device.getInfo().osVersion.",
           "examples": ["17.4", "14.0"]
         },
         "device.isVirtual": {
@@ -170,7 +211,7 @@
           "pattern": "^session_\\d+_[a-f0-9]{8}_(ios|android|web)$",
           "examples": ["session_1704067200000_x9y8z7w6_ios"]
         },
-        "session.startTime": {
+        "session.start_time": {
           "type": "string",
           "format": "date-time",
           "description": "ISO 8601 time when this session started.",
@@ -199,11 +240,21 @@
       }
     },
     "screenViewAttributes": {
-      "description": "Extra attributes for eventName: screen_view",
+      "description": "Extra attributes for eventName: screen_view. The SDK now emits screen_view as a stripped 'screen identity' event carrying only navigation.to_screen. The full navigation payload is on the sibling eventName: navigation event.",
+      "properties": {
+        "navigation.to_screen": {
+          "type": "string",
+          "description": "Destination screen / normalised route pattern.",
+          "examples": ["ProductDetailScreen", "/products/:id"]
+        }
+      }
+    },
+    "navigationAttributes": {
+      "description": "Extra attributes for eventName: navigation. Emitted alongside screen_view on every route change. Server has a dedicated handler keyed on eventName == 'navigation'.",
       "properties": {
         "navigation.from_screen": {
           "type": "string",
-          "description": "Previous screen name. Null/absent on first navigation.",
+          "description": "Previous screen name. Absent on first navigation.",
           "examples": ["HomeScreen"]
         },
         "navigation.to_screen": {
@@ -213,25 +264,22 @@
         },
         "navigation.method": {
           "type": "string",
-          "enum": ["push", "pop", "replace", "tab-switch", "initial"],
+          "enum": ["push", "pop", "replace", "tab-switch", "initial", "cancel"],
           "description": "Matches Android SDK navigation methods.",
           "examples": ["push"]
         },
         "navigation.route_type": {
           "type": "string",
           "enum": ["main_flow", "fragment_flow", "deeplink", "modal", "settings", "onboarding"],
-          "description": "Matches Android SDK route type classification.",
           "examples": ["main_flow"]
         },
         "navigation.has_arguments": {
           "type": "boolean",
-          "description": "True if navigation includes route params or query string.",
           "examples": [true]
         },
         "navigation.timestamp": {
           "type": "string",
           "format": "date-time",
-          "description": "ISO 8601 timestamp of navigation. Matches Android SDK field.",
           "examples": ["2024-01-15T10:30:00.123Z"]
         },
         "navigation.duration_ms": {
@@ -378,27 +426,16 @@
         "description": "Custom attributes from EdgeRum.track() are prefixed with 'event.' by PayloadBuilder."
       }
     },
-    "customMetricAttributes": {
-      "description": "Extra attributes for eventName: custom_metric",
+    "metricAttributes": {
+      "description": "Extra attributes for type: metric items. metricName and value live at the item root (see #/definitions/metric); 'metric.unit' and any user-supplied attributes from EdgeRum.time().end() are flattened into attributes.",
       "properties": {
-        "metric.name": {
-          "type": "string",
-          "description": "Custom metric name from EdgeRum.time().",
-          "examples": ["image_upload", "checkout_flow"]
-        },
-        "metric.value": {
-          "type": "number",
-          "description": "Duration in ms from EdgeRum.time().end().",
-          "examples": [890]
-        },
         "metric.unit": {
           "type": "string",
           "const": "ms"
         }
       },
       "additionalProperties": {
-        "type": ["string", "number", "boolean"],
-        "description": "Custom attributes from EdgeRum.time().end() are prefixed with 'metric.' by PayloadBuilder."
+        "type": ["string", "number", "boolean"]
       }
     },
     "appLifecycleAttributes": {

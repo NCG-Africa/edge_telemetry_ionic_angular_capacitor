@@ -83,7 +83,7 @@ describe('getDeviceContext', () => {
 
     expect(attrs['device.platform']).toBe('web');
     expect(attrs['device.os']).toBe('ios');
-    expect(attrs['device.osVersion']).toBe('17.4');
+    expect(attrs['device.platform_version']).toBe('17.4');
     expect(attrs['device.manufacturer']).toBe('Apple');
     expect(attrs['device.isVirtual']).toBe(false);
     expect(attrs['device.screenWidth']).toBe(1440);
@@ -131,7 +131,7 @@ describe('getDeviceContext', () => {
     expect(attrs['device.os']).toBe('ios');
     expect(attrs['device.platform']).toBe('ios');
     expect(attrs['device.manufacturer']).toBe('Apple');
-    expect(attrs['device.osVersion']).toBe('17.4');
+    expect(attrs['device.platform_version']).toBe('17.4');
     expect(attrs['device.isVirtual']).toBe(false);
   });
 
@@ -348,7 +348,7 @@ describe('getDeviceContext', () => {
       now: () => fixedNow,
     });
     expect(attrs['device.os']).toBe('android');
-    expect(attrs['device.osVersion']).toBe('14');
+    expect(attrs['device.platform_version']).toBe('14');
     expect(attrs['device.model']).toBe('Pixel 8 Pro');
   });
 

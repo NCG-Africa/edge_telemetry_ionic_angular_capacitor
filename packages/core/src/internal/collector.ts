@@ -1,7 +1,7 @@
 import type { EventAttributes } from '../index';
 import type { ContextManager } from './context';
 import type { Pipeline } from './pipeline';
-import { buildEventPayload } from '../transport/PayloadBuilder';
+import { buildEventPayload, buildMetricPayload } from '../transport/PayloadBuilder';
 
 const ERROR_EVENT_NAMES = new Set(['app.crash']);
 
@@ -46,6 +46,24 @@ export class Collector {
     } else {
       this.pipeline.push(event);
     }
+  }
+
+  recordMetric(metricName: string, value: number, eventAttributes: EventAttributes = {}): void {
+    if (!this.enabled) return;
+
+    if (this.sampleRate < 1.0 && Math.random() >= this.sampleRate) {
+      return;
+    }
+
+    const contextAttributes = this.context.getContextAttributes();
+    const metric = buildMetricPayload(metricName, value, contextAttributes, eventAttributes);
+
+    if (this.debug) {
+      // eslint-disable-next-line no-console
+      console.warn('[edge-rum] recordMetric', metricName, value, metric.attributes);
+    }
+
+    this.pipeline.push(metric);
   }
 
   setEnabled(enabled: boolean): void {

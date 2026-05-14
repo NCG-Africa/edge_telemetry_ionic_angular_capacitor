@@ -1,4 +1,4 @@
-import type { EventPayload } from '../transport/PayloadBuilder';
+import type { BatchItem } from '../transport/PayloadBuilder';
 import { buildBatchPayload } from '../transport/PayloadBuilder';
 import type { RetryTransport } from '../transport/RetryTransport';
 import type { OfflineQueue } from '../queue/OfflineQueue';
@@ -21,7 +21,7 @@ export class Pipeline {
   private readonly batchSize: number;
   private readonly flushIntervalMs: number;
   private readonly debug: boolean;
-  private buffer: EventPayload[] = [];
+  private buffer: BatchItem[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private flushing = false;
   private readonly readyPromise: Promise<void>;
@@ -65,14 +65,14 @@ export class Pipeline {
     }
   }
 
-  push(event: EventPayload): void {
+  push(event: BatchItem): void {
     this.buffer.push(event);
     if (this.buffer.length >= this.batchSize) {
       void this.flush();
     }
   }
 
-  pushImmediate(event: EventPayload): void {
+  pushImmediate(event: BatchItem): void {
     this.buffer.push(event);
     void this.flush();
   }

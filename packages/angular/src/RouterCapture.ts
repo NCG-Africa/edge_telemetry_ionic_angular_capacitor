@@ -102,12 +102,12 @@ export class RouterCapture implements OnDestroy {
       }
       case EVENT_TYPE.NavigationEnd: {
         const end = event as NavigationEnd;
-        this.emitScreenView(this.methodForEnd(), end.id);
+        this.emitRouteChange(this.methodForEnd(), end.id);
         return;
       }
       case EVENT_TYPE.NavigationCancel: {
         const cancel = event as NavigationCancel;
-        this.emitScreenView('cancel', cancel.id);
+        this.emitRouteChange('cancel', cancel.id);
         return;
       }
       case EVENT_TYPE.NavigationError: {
@@ -132,7 +132,7 @@ export class RouterCapture implements OnDestroy {
     return 'push';
   }
 
-  private emitScreenView(method: NavigationMethod, navId: number): void {
+  private emitRouteChange(method: NavigationMethod, navId: number): void {
     const endTime = this.now();
     const root = this.router.routerState.snapshot.root;
     const toRoute = normaliseRoute(root);
@@ -140,7 +140,7 @@ export class RouterCapture implements OnDestroy {
     const durationMs = Math.max(0, endTime - startTime);
     const url = this.router.routerState.snapshot.url;
 
-    const attrs: EventAttributes = {
+    const navAttrs: EventAttributes = {
       'navigation.to_screen': toRoute,
       'navigation.method': method,
       'navigation.route_type': classifyRoute(toRoute),
@@ -149,10 +149,11 @@ export class RouterCapture implements OnDestroy {
       'navigation.duration_ms': durationMs,
     };
     if (this.previousRoute !== null) {
-      attrs['navigation.from_screen'] = this.previousRoute;
+      navAttrs['navigation.from_screen'] = this.previousRoute;
     }
 
-    __recordEvent('screen_view', attrs);
+    __recordEvent('navigation', navAttrs);
+    __recordEvent('screen_view', { 'navigation.to_screen': toRoute });
 
     this.previousRoute = toRoute;
     this.isFirstNavigation = false;

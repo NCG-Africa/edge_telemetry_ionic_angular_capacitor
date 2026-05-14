@@ -8,20 +8,35 @@ Android SDK. Most of the pipeline requires zero changes. Only the items listed h
 
 ---
 
+## EdgeTelemetryProcessor alignment (2026-05)
+
+The web SDK now matches the EdgeTelemetryProcessor wire contract that the Android SDK
+already produces:
+
+- Envelope carries `batch_size` (= `events.length`) alongside `timestamp`, `type`, `device_id`.
+- Attribute keys use snake_case: `app.package_name`, `session.start_time`, `device.platform_version`.
+- Every event carries `app.build_number` (Capacitor `App.getInfo().build` on native; `""` on web).
+- `EdgeRum.time().end()` produces a top-level metric item: `{ type: "metric", metricName, value, timestamp, attributes }`. `metricName` and `value` live at the item root, not nested in `attributes`. The processor's metric handler keys on `type === "metric"`.
+- Every Angular route change emits two items: a `navigation` event (carrying all `navigation.*` attributes) and a stripped `screen_view` event (carrying only `navigation.to_screen`). The processor's navigation handler keys on `eventName === "navigation"`.
+
+Backend already accepts these — no further server changes required for SDK alignment.
+
+---
+
 ## What does NOT need to change
 
 - Endpoint URL: `POST /collector/telemetry` — identical
 - Auth: `X-API-Key` header — identical
-- Outer envelope: `{ timestamp, data: { type: "batch", events: [] } }` — identical
-- Individual event shape: `{ type: "event", eventName, timestamp, attributes }` — identical
+- Outer envelope: `{ timestamp, type: "batch", device_id, batch_size, events: [] }` — items are now a union of event and metric shapes (server discriminates on `item.type`)
 - Existing `eventName` values the Kafka processor already handles:
-  - `screen_view` — used for Angular route changes
+  - `screen_view` — used for Angular route changes (now stripped to just `navigation.to_screen`; pair with the `navigation` event)
+  - `navigation` — full route-change payload with `navigation.*` attributes
   - `network_request` — used for HTTP captures
   - `performance` — used for Web Vitals
   - `app.crash` — used for JS errors and native crashes
   - `custom_event` — used for EdgeRum.track()
-  - `custom_metric` — used for EdgeRum.time()
   - `app_lifecycle` — used for foreground/background events
+- Metric items (replacing the old `custom_metric` event): `{ type: "metric", metricName, value, timestamp, attributes }`
 
 ---
 

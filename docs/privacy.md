@@ -8,10 +8,10 @@ What edge-rum captures, what it never captures, and how to give your users contr
 
 Attached to every event:
 
-- `app.name`, `app.version`, `app.package`, `app.environment`
+- `app.name`, `app.version`, `app.package_name`, `app.build_number`, `app.environment`
 - `device.id` — an opaque, SHA-256 derived identifier. Never the raw OS device ID.
 - `device.platform` — `ios`, `android`, or `web`
-- `device.model`, `device.manufacturer`, `device.os`, `device.osVersion`
+- `device.model`, `device.manufacturer`, `device.os`, `device.platform_version`
 - `device.isVirtual`, `device.screenWidth`, `device.screenHeight`, `device.pixelRatio`
 - `device.batteryLevel`, `device.batteryCharging`
 - `network.type`, `network.effectiveType`, `network.downlinkMbps`
@@ -19,7 +19,7 @@ Attached to every event:
 ### Session info
 
 - `session.id` — an opaque identifier that rotates after 30 minutes of inactivity.
-- `session.startTime`, `session.sequence`
+- `session.start_time`, `session.sequence`
 - `user.id` — present only if you call `EdgeRum.identify()`.
 
 ### Automatically captured events

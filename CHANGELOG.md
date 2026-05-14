@@ -4,6 +4,42 @@ All notable changes to the edge-rum SDK are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-05-14
+
+### Changed
+
+- **Wire format aligned with `EdgeTelemetryProcessor`.** Three attribute keys
+  renamed to snake_case: `app.package` → `app.package_name`,
+  `session.startTime` → `session.start_time`,
+  `device.osVersion` → `device.platform_version`. The old keys are no longer
+  emitted. Required for the backend to stop silently dropping events.
+- `EdgeRum.time().end()` now produces a top-level metric item
+  (`{ type: "metric", metricName, value, timestamp, attributes }`) instead of
+  a `custom_metric` event with `metric.name`/`metric.value` nested in
+  attributes. The processor's metric handler keys on `type === "metric"`. The
+  user-facing `EdgeRum.time(name).end()` API is unchanged.
+- Angular route changes now emit two items per navigation: a `navigation`
+  event carrying all `navigation.*` attributes (the processor's navigation
+  handler keys on `eventName === "navigation"`), and a stripped `screen_view`
+  event carrying only `navigation.to_screen`.
+
+### Added
+
+- Batch envelope now includes `batch_size` (= `events.length`) at the root.
+- Every event carries `app.build_number`. Sourced from Capacitor
+  `App.getInfo().build` on native platforms; empty string on web.
+- `MetricPayload` and `BatchItem` types exported from `@nathanclaire/rum` for
+  consumers wiring custom transports.
+
+### Fixed
+
+- Event-batch POSTs from native Capacitor platforms now bypass the webview
+  fetch + CORS preflight by routing through `CapacitorHttp.request` instead
+  of `globalThis.fetch`. The SDK no longer depends on the consumer's
+  `plugins.CapacitorHttp.enabled` setting in `capacitor.config.ts` to work
+  on iOS/Android. Web and PWA continue to use `fetch`.
+  (Previously prepared as 1.1.1; included here as 1.1.1 was never published.)
+
 ## [1.0.0] — 2026-04-24
 
 ### Added

@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 
+type FixtureItem =
+  | { type: 'event'; eventName: string; timestamp: string; attributes: Record<string, unknown> }
+  | { type: 'metric'; metricName: string; value: number; timestamp: string; attributes: Record<string, unknown> };
+
 const fixture = JSON.parse(
   readFileSync(new URL('./fixtures/example-batch.json', import.meta.url), 'utf8'),
 ) as {
   timestamp: string;
   type: string;
   device_id?: string;
-  events: Array<{ type: string; eventName: string; timestamp: string; attributes: Record<string, unknown> }>;
+  batch_size: number;
+  events: FixtureItem[];
 };
 
 describe('Android-aligned batch envelope', () => {
@@ -23,13 +28,19 @@ describe('Android-aligned batch envelope', () => {
     expect(Array.isArray(fixture.events)).toBe(true);
   });
 
-  it('every event has type === "event", eventName, ISO timestamp, flat attributes', () => {
-    for (const ev of fixture.events) {
-      expect(ev.type).toBe('event');
-      expect(typeof ev.eventName).toBe('string');
-      expect(ev.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-      expect(ev.attributes).toBeDefined();
-      for (const [, v] of Object.entries(ev.attributes)) {
+  it('every item is "event" or "metric", with the right discriminated fields and flat attributes', () => {
+    for (const item of fixture.events) {
+      if (item.type === 'event') {
+        expect(typeof item.eventName).toBe('string');
+      } else if (item.type === 'metric') {
+        expect(typeof item.metricName).toBe('string');
+        expect(typeof item.value).toBe('number');
+      } else {
+        throw new Error(`unexpected item.type: ${(item as { type: string }).type}`);
+      }
+      expect(item.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(item.attributes).toBeDefined();
+      for (const [, v] of Object.entries(item.attributes)) {
         expect(typeof v).toMatch(/^(string|number|boolean)$/);
       }
     }
@@ -37,6 +48,11 @@ describe('Android-aligned batch envelope', () => {
 
   it('has device_id at root level matching device_ prefix', () => {
     expect(fixture.device_id).toMatch(/^device_/);
+  });
+
+  it('has batch_size at root level equal to events.length', () => {
+    expect(typeof fixture.batch_size).toBe('number');
+    expect(fixture.batch_size).toBe(fixture.events.length);
   });
 
   it('contains context attributes with correct ID prefixes', () => {

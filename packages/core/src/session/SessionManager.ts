@@ -62,7 +62,7 @@ export class SessionManager {
   getSessionAttributes(): Record<string, string | number | boolean> {
     return {
       'session.id': this.sessionId,
-      'session.startTime': this.startTime,
+      'session.start_time': this.startTime,
       'session.sequence': this.sequence,
     };
   }

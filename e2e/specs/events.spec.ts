@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
   allEvents,
+  allMetrics,
   assertEnvelope,
   initHarness,
   resetIngest,
@@ -48,7 +49,7 @@ test.describe('event types', () => {
     expect(crash!.attributes['cause']).toBe('ManualCapture');
   });
 
-  test('EdgeRum.time().end() produces custom_metric with metric.name, metric.value, metric.unit', async ({ page, request }) => {
+  test('EdgeRum.time().end() produces a top-level metric event with metricName + value', async ({ page, request }) => {
     await initHarness(page);
     await page.evaluate(async () => {
       const h = (window as unknown as { __edgeRumHarness: { time: (n: string, ms: number) => void } }).__edgeRumHarness;
@@ -58,13 +59,16 @@ test.describe('event types', () => {
 
     const payloads = await waitForPayloads(request);
     for (const p of payloads) assertEnvelope(p);
-    const events = allEvents(payloads);
-    const metric = events.find((e) => e.eventName === 'custom_metric');
+    const metrics = allMetrics(payloads);
+    const metric = metrics.find((m) => m.metricName === 'image_upload');
     expect(metric).toBeDefined();
-    expect(metric!.attributes['metric.name']).toBe('image_upload');
+    expect(metric!.type).toBe('metric');
+    expect(typeof metric!.value).toBe('number');
+    expect(metric!.value).toBeGreaterThanOrEqual(0);
     expect(metric!.attributes['metric.unit']).toBe('ms');
-    expect(typeof metric!.attributes['metric.value']).toBe('number');
-    expect(metric!.attributes['metric.value']).toBeGreaterThanOrEqual(0);
+    // metric.name and metric.value must NOT be in attributes anymore
+    expect(metric!.attributes['metric.name']).toBeUndefined();
+    expect(metric!.attributes['metric.value']).toBeUndefined();
   });
 
   test('unhandled window error produces app.crash with handled:false', async ({ page, request }) => {

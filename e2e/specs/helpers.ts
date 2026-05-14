@@ -11,11 +11,22 @@ export interface EventPayload {
   attributes: Record<string, string | number | boolean>;
 }
 
+export interface MetricPayload {
+  type: 'metric';
+  metricName: string;
+  value: number;
+  timestamp: string;
+  attributes: Record<string, string | number | boolean>;
+}
+
+export type BatchItem = EventPayload | MetricPayload;
+
 export interface BatchPayload {
   timestamp: string;
   type: 'batch';
   device_id?: string;
-  events: EventPayload[];
+  batch_size: number;
+  events: BatchItem[];
 }
 
 export interface RecordedRequest {
@@ -101,6 +112,9 @@ export function assertEnvelope(payload: BatchPayload): void {
   if (payload.device_id !== undefined && !/^device_/.test(payload.device_id)) {
     throw new Error(`device_id must match device_ prefix, got ${payload.device_id}`);
   }
+  if (typeof payload.batch_size !== 'number' || payload.batch_size !== payload.events.length) {
+    throw new Error(`batch_size must equal events.length, got ${payload.batch_size} vs ${payload.events.length}`);
+  }
 
   const serialised = JSON.stringify(payload);
   for (const banned of OTEL_FORBIDDEN) {
@@ -109,18 +123,28 @@ export function assertEnvelope(payload: BatchPayload): void {
     }
   }
 
-  for (const event of payload.events) {
-    if (event.type !== 'event') throw new Error(`event.type must be 'event', got ${event.type}`);
-    if (typeof event.eventName !== 'string' || event.eventName.length === 0) {
-      throw new Error('event.eventName missing');
+  for (const item of payload.events) {
+    if (item.type === 'event') {
+      if (typeof item.eventName !== 'string' || item.eventName.length === 0) {
+        throw new Error('event.eventName missing');
+      }
+    } else if (item.type === 'metric') {
+      if (typeof item.metricName !== 'string' || item.metricName.length === 0) {
+        throw new Error('metric.metricName missing');
+      }
+      if (typeof item.value !== 'number') {
+        throw new Error(`metric.value must be a number, got ${typeof item.value}`);
+      }
+    } else {
+      throw new Error(`item.type must be 'event' or 'metric', got ${(item as { type: string }).type}`);
     }
-    if (!/^\d{4}-\d{2}-\d{2}T/.test(event.timestamp)) {
-      throw new Error(`event.timestamp is not ISO 8601: ${event.timestamp}`);
+    if (!/^\d{4}-\d{2}-\d{2}T/.test(item.timestamp)) {
+      throw new Error(`item.timestamp is not ISO 8601: ${item.timestamp}`);
     }
-    if (!event.attributes || typeof event.attributes !== 'object') {
-      throw new Error('event.attributes missing');
+    if (!item.attributes || typeof item.attributes !== 'object') {
+      throw new Error('item.attributes missing');
     }
-    for (const [key, value] of Object.entries(event.attributes)) {
+    for (const [key, value] of Object.entries(item.attributes)) {
       const t = typeof value;
       if (t !== 'string' && t !== 'number' && t !== 'boolean') {
         throw new Error(`attributes.${key} is ${t} — must be string | number | boolean`);
@@ -133,5 +157,17 @@ export function assertEnvelope(payload: BatchPayload): void {
 }
 
 export function allEvents(payloads: BatchPayload[]): EventPayload[] {
+  return payloads.flatMap((p) =>
+    p && Array.isArray(p.events) ? p.events.filter((it): it is EventPayload => it.type === 'event') : [],
+  );
+}
+
+export function allMetrics(payloads: BatchPayload[]): MetricPayload[] {
+  return payloads.flatMap((p) =>
+    p && Array.isArray(p.events) ? p.events.filter((it): it is MetricPayload => it.type === 'metric') : [],
+  );
+}
+
+export function allItems(payloads: BatchPayload[]): BatchItem[] {
   return payloads.flatMap((p) => (p && Array.isArray(p.events) ? p.events : []));
 }

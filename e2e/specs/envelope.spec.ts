@@ -51,13 +51,17 @@ test.describe('envelope and auth', () => {
 
     for (const event of events) {
       expect(event.attributes['session.id']).toMatch(/^session_\d+_[0-9a-f]{8}_web$/);
-      expect(event.attributes['session.startTime']).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(event.attributes['session.start_time']).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(event.attributes['sdk.platform']).toBe('ionic-angular-capacitor');
       expect(event.attributes['sdk.version']).toMatch(/^\d/);
       expect(event.attributes['app.name']).toBe('IntegrationHarness');
       expect(event.attributes['app.version']).toBe('0.0.0-test');
-      expect(event.attributes['app.package']).toBe('com.edgemetrics.test');
+      expect(event.attributes['app.package_name']).toBe('com.edgemetrics.test');
       expect(event.attributes['app.environment']).toBe('development');
+      expect(event.attributes['app.build_number']).toBe('');
+      // Old keys must be gone after the rename
+      expect(event.attributes['app.package']).toBeUndefined();
+      expect(event.attributes['session.startTime']).toBeUndefined();
     }
   });
 

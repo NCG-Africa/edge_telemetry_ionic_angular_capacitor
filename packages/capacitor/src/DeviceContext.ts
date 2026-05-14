@@ -255,7 +255,7 @@ export async function getDeviceContext(
         attrs['device.model'] = info.model;
         attrs['device.manufacturer'] = info.manufacturer;
         attrs['device.os'] = info.operatingSystem;
-        attrs['device.osVersion'] = info.osVersion;
+        attrs['device.platform_version'] = info.osVersion;
         attrs['device.isVirtual'] = info.isVirtual;
       } catch {
         // leave defaults; fall through
@@ -286,7 +286,7 @@ export async function getDeviceContext(
     attrs['device.model'] = parsed.model;
     attrs['device.manufacturer'] = parsed.manufacturer;
     attrs['device.os'] = parsed.os;
-    attrs['device.osVersion'] = parsed.osVersion;
+    attrs['device.platform_version'] = parsed.osVersion;
     attrs['device.isVirtual'] = false;
   }
 

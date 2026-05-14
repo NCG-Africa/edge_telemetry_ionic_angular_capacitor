@@ -57,7 +57,7 @@ build pipeline so you can correlate issues to a release.
 - Type: `string`
 - Default: `undefined`
 
-Bundle / package identifier, e.g. `"com.yourco.app"`. Attached as `app.package`.
+Bundle / package identifier, e.g. `"com.yourco.app"`. Attached as `app.package_name`.
 
 ### `environment`
 

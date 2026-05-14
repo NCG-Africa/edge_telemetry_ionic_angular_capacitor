@@ -7,7 +7,7 @@ import type {
   Router,
 } from '@angular/router';
 
-import { EdgeRum } from '@nathanclaire/rum';
+import { EdgeRum, type EventAttributes } from '@nathanclaire/rum';
 import * as rumInternals from '@nathanclaire/rum';
 import { __resetEdgeRumForTests } from '../../core/src/EdgeRum';
 
@@ -90,6 +90,12 @@ function navError(id: number, url: string, error: unknown): RouterEvent {
   return { type: EVENT_TYPE.NavigationError, id, url, error } as unknown as RouterEvent;
 }
 
+type SpyCall = [string, EventAttributes | undefined];
+
+function callsByName(spy: ReturnType<typeof vi.spyOn>, name: string): SpyCall[] {
+  return (spy.mock.calls as unknown as SpyCall[]).filter(([n]) => n === name);
+}
+
 beforeEach(() => {
   __resetEdgeRumForTests();
   EdgeRum.init({ apiKey: 'edge_test_key', endpoint: 'https://example.com/collector/telemetry' });
@@ -112,11 +118,41 @@ describe('RouterCapture', () => {
     harness.events.next(navStart(1, '/products/9876'));
     harness.events.next(navEnd(1, '/products/9876'));
 
-    expect(trackSpy).toHaveBeenCalledTimes(1);
-    const [name, attrs] = trackSpy.mock.calls[0]!;
-    expect(name).toBe('screen_view');
-    expect(attrs!['navigation.to_screen']).toBe('/products/:id');
-    expect(String(attrs!['navigation.to_screen'])).not.toContain('9876');
+    expect(trackSpy).toHaveBeenCalledTimes(2);
+    const navCall = callsByName(trackSpy, 'navigation')[0]!;
+    const screenCall = callsByName(trackSpy, 'screen_view')[0]!;
+    expect(navCall[1]!['navigation.to_screen']).toBe('/products/:id');
+    expect(screenCall[1]!['navigation.to_screen']).toBe('/products/:id');
+    expect(String(navCall[1]!['navigation.to_screen'])).not.toContain('9876');
+  });
+
+  it('emits each route change as a navigation event followed by a screen_view event', () => {
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
+    const harness = createFakeRouter();
+    new RouterCapture(harness.router);
+
+    harness.setRoute('/home', makeSnapshot({ path: 'home' }));
+    harness.events.next(navStart(1, '/home'));
+    harness.events.next(navEnd(1, '/home'));
+
+    expect(trackSpy).toHaveBeenCalledTimes(2);
+    expect(trackSpy.mock.calls[0]![0]).toBe('navigation');
+    expect(trackSpy.mock.calls[1]![0]).toBe('screen_view');
+  });
+
+  it('emits a stripped screen_view carrying only the screen identity', () => {
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
+    const harness = createFakeRouter();
+    new RouterCapture(harness.router);
+
+    harness.setRoute('/home', makeSnapshot({ path: 'home' }));
+    harness.events.next(navStart(1, '/home'));
+    harness.events.next(navEnd(1, '/home'));
+
+    const screenCall = callsByName(trackSpy, 'screen_view')[0]!;
+    const screenAttrs = screenCall[1]!;
+    expect(screenAttrs['navigation.to_screen']).toBe('/home');
+    expect(Object.keys(screenAttrs)).toEqual(['navigation.to_screen']);
   });
 
   it('emits a positive navigation.duration_ms', async () => {
@@ -129,8 +165,8 @@ describe('RouterCapture', () => {
     await new Promise((r) => setTimeout(r, 5));
     harness.events.next(navEnd(1, '/home'));
 
-    const [, attrs] = trackSpy.mock.calls[0]!;
-    const duration = attrs!['navigation.duration_ms'];
+    const navCall = callsByName(trackSpy, 'navigation')[0]!;
+    const duration = navCall[1]!['navigation.duration_ms'];
     expect(typeof duration).toBe('number');
     expect(duration).toBeGreaterThan(0);
   });
@@ -148,8 +184,9 @@ describe('RouterCapture', () => {
     harness.events.next(navStart(2, '/about'));
     harness.events.next(navEnd(2, '/about'));
 
-    expect(trackSpy.mock.calls[0]![1]!['navigation.method']).toBe('initial');
-    expect(trackSpy.mock.calls[1]![1]!['navigation.method']).toBe('push');
+    const navCalls = callsByName(trackSpy, 'navigation');
+    expect(navCalls[0]![1]!['navigation.method']).toBe('initial');
+    expect(navCalls[1]![1]!['navigation.method']).toBe('push');
   });
 
   it('sets navigation.method to pop when triggered by popstate', () => {
@@ -165,7 +202,8 @@ describe('RouterCapture', () => {
     harness.events.next(navStart(2, '/about', 'popstate'));
     harness.events.next(navEnd(2, '/about'));
 
-    expect(trackSpy.mock.calls[1]![1]!['navigation.method']).toBe('pop');
+    const navCalls = callsByName(trackSpy, 'navigation');
+    expect(navCalls[1]![1]!['navigation.method']).toBe('pop');
   });
 
   it('sets navigation.method to replace when extras.replaceUrl is true', () => {
@@ -182,7 +220,8 @@ describe('RouterCapture', () => {
     harness.events.next(navStart(2, '/about'));
     harness.events.next(navEnd(2, '/about'));
 
-    expect(trackSpy.mock.calls[1]![1]!['navigation.method']).toBe('replace');
+    const navCalls = callsByName(trackSpy, 'navigation');
+    expect(navCalls[1]![1]!['navigation.method']).toBe('replace');
   });
 
   it('sets navigation.method to cancel when navigation is cancelled', () => {
@@ -194,9 +233,8 @@ describe('RouterCapture', () => {
     harness.events.next(navStart(1, '/home'));
     harness.events.next(navCancel(1, '/home', 'blocked by guard'));
 
-    const [name, attrs] = trackSpy.mock.calls[0]!;
-    expect(name).toBe('screen_view');
-    expect(attrs!['navigation.method']).toBe('cancel');
+    const navCall = callsByName(trackSpy, 'navigation')[0]!;
+    expect(navCall[1]!['navigation.method']).toBe('cancel');
   });
 
   it('omits navigation.from_screen on the first navigation and sets it on subsequent navigations', () => {
@@ -212,8 +250,9 @@ describe('RouterCapture', () => {
     harness.events.next(navStart(2, '/about'));
     harness.events.next(navEnd(2, '/about'));
 
-    expect(trackSpy.mock.calls[0]![1]!['navigation.from_screen']).toBeUndefined();
-    expect(trackSpy.mock.calls[1]![1]!['navigation.from_screen']).toBe('/home');
+    const navCalls = callsByName(trackSpy, 'navigation');
+    expect(navCalls[0]![1]!['navigation.from_screen']).toBeUndefined();
+    expect(navCalls[1]![1]!['navigation.from_screen']).toBe('/home');
   });
 
   it('emits an app.crash event with exception_type NavigationError when navigation errors', () => {
@@ -258,7 +297,8 @@ describe('RouterCapture', () => {
     harness.events.next(navStart(1, '/products/42'));
     harness.events.next(navEnd(1, '/products/42'));
 
-    expect(trackSpy.mock.calls[0]![1]!['navigation.has_arguments']).toBe(true);
+    const navCall = callsByName(trackSpy, 'navigation')[0]!;
+    expect(navCall[1]!['navigation.has_arguments']).toBe(true);
   });
 
   it('sets navigation.has_arguments to true when the url has a query string', () => {
@@ -270,7 +310,8 @@ describe('RouterCapture', () => {
     harness.events.next(navStart(1, '/search?q=abc'));
     harness.events.next(navEnd(1, '/search?q=abc'));
 
-    expect(trackSpy.mock.calls[0]![1]!['navigation.has_arguments']).toBe(true);
+    const navCall = callsByName(trackSpy, 'navigation')[0]!;
+    expect(navCall[1]!['navigation.has_arguments']).toBe(true);
   });
 
   it('emits only primitive attribute values — no nested objects', () => {
@@ -282,9 +323,10 @@ describe('RouterCapture', () => {
     harness.events.next(navStart(1, '/home'));
     harness.events.next(navEnd(1, '/home'));
 
-    const [, attrs] = trackSpy.mock.calls[0]!;
-    for (const value of Object.values(attrs!)) {
-      expect(['string', 'number', 'boolean']).toContain(typeof value);
+    for (const [, attrs] of trackSpy.mock.calls as unknown as SpyCall[]) {
+      for (const value of Object.values(attrs!)) {
+        expect(['string', 'number', 'boolean']).toContain(typeof value);
+      }
     }
   });
 

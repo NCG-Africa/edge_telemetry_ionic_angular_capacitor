@@ -101,7 +101,7 @@ The SDK now automatically captures:
 
 | What | Event Name | How |
 |---|---|---|
-| Angular route changes | `screen_view` | Angular Router subscription |
+| Angular route changes | `navigation` (full) + `screen_view` (screen identity) | Angular Router subscription |
 | HTTP requests | `network_request` | Fetch/XHR interception |
 | JS errors | `app.crash` | Angular `ErrorHandler` |
 | Web Vitals (LCP, INP, CLS, FCP, TTFB) | `performance` | `web-vitals` library |
@@ -140,7 +140,8 @@ this.rum.track('checkout_started', {
 const timer = this.rum.time('image_upload');
 await uploadImage(file);
 timer.end({ 'metric.file_size_kb': file.size / 1024 });
-// Records a custom_metric event with elapsed time in milliseconds
+// Records a metric item ({ type: "metric", metricName, value, attributes })
+// with elapsed time in milliseconds as the value.
 ```
 
 ### Capture a handled error
@@ -191,7 +192,7 @@ this.rum.identify({
 | Method | Description |
 |---|---|
 | `track(name, attributes?)` | Record a custom event (`custom_event`) |
-| `time(name)` | Start a timer. Returns `{ end(attributes?) }` (`custom_metric`) |
+| `time(name)` | Start a timer. Returns `{ end(attributes?) }`. Emits a metric item with top-level `metricName` and `value` (duration in ms) |
 | `captureError(error, context?)` | Manually capture an error (`app.crash` with `handled: true`) |
 | `identify(user)` | Set user identity and custom attributes |
 | `disable()` | Stop capturing and clear the offline queue |

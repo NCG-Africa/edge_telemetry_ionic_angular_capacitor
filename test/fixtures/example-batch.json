@@ -2,6 +2,7 @@
   "timestamp": "2024-01-15T10:30:00.000Z",
   "type": "batch",
   "device_id": "device_1704067200000_a8b9c2d1_web",
+  "batch_size": 2,
   "events": [
     {
       "type": "event",
@@ -10,16 +11,42 @@
       "attributes": {
         "app.name": "MyApp",
         "app.version": "2.1.0",
+        "app.package_name": "com.yourco.app",
+        "app.build_number": "42",
         "app.environment": "production",
         "device.id": "device_1704067200000_a8b9c2d1_web",
         "device.platform": "web",
+        "device.platform_version": "17.4",
         "device.isVirtual": false,
         "device.screenWidth": 390,
         "device.pixelRatio": 3.0,
         "session.id": "session_1704067200000_x9y8z7w6_web",
+        "session.start_time": "2024-01-15T10:25:00.000Z",
         "session.sequence": 1,
         "sdk.platform": "ionic-angular-capacitor",
         "sdk.version": "0.0.1"
+      }
+    },
+    {
+      "type": "metric",
+      "metricName": "image_upload",
+      "value": 890,
+      "timestamp": "2024-01-15T10:30:04.000Z",
+      "attributes": {
+        "app.name": "MyApp",
+        "app.version": "2.1.0",
+        "app.package_name": "com.yourco.app",
+        "app.build_number": "42",
+        "app.environment": "production",
+        "device.id": "device_1704067200000_a8b9c2d1_web",
+        "device.platform": "web",
+        "device.platform_version": "17.4",
+        "session.id": "session_1704067200000_x9y8z7w6_web",
+        "session.start_time": "2024-01-15T10:25:00.000Z",
+        "session.sequence": 1,
+        "sdk.platform": "ionic-angular-capacitor",
+        "sdk.version": "0.0.1",
+        "metric.unit": "ms"
       }
     }
   ]

@@ -24,7 +24,7 @@ describe('ContextManager', () => {
       expect(attrs['app.environment']).toBe('staging');
     });
 
-    it('sets app.name, app.version, app.package when provided', () => {
+    it('sets app.name, app.version, app.package_name when provided', () => {
       context.setAppAttributes({
         apiKey: 'edge_x',
         endpoint: 'https://example.com/collector/telemetry',
@@ -35,15 +35,31 @@ describe('ContextManager', () => {
       const attrs = context.getContextAttributes();
       expect(attrs['app.name']).toBe('MyApp');
       expect(attrs['app.version']).toBe('2.1.0');
-      expect(attrs['app.package']).toBe('com.example.myapp');
+      expect(attrs['app.package_name']).toBe('com.example.myapp');
+      expect(attrs['app.package']).toBeUndefined();
     });
 
-    it('omits app.name, app.version, app.package when not provided', () => {
+    it('omits app.name, app.version, app.package_name when not provided', () => {
       context.setAppAttributes({ apiKey: 'edge_x', endpoint: 'https://example.com/collector/telemetry' });
       const attrs = context.getContextAttributes();
       expect(attrs['app.name']).toBeUndefined();
       expect(attrs['app.version']).toBeUndefined();
-      expect(attrs['app.package']).toBeUndefined();
+      expect(attrs['app.package_name']).toBeUndefined();
+    });
+
+    it('initializes app.build_number to "" so web events always carry the key', () => {
+      context.setAppAttributes({ apiKey: 'edge_x', endpoint: 'https://example.com/collector/telemetry' });
+      const attrs = context.getContextAttributes();
+      expect(attrs['app.build_number']).toBe('');
+    });
+  });
+
+  describe('setAppBuildNumber', () => {
+    it('overlays app.build_number after setAppAttributes', () => {
+      context.setAppAttributes({ apiKey: 'edge_x', endpoint: 'https://example.com/collector/telemetry' });
+      context.setAppBuildNumber('42');
+      const attrs = context.getContextAttributes();
+      expect(attrs['app.build_number']).toBe('42');
     });
   });
 

@@ -53,7 +53,7 @@ describe('SessionManager', () => {
   it('getSessionAttributes returns flat primitives', () => {
     const attrs = session.getSessionAttributes();
     expect(attrs['session.id']).toMatch(/^session_/);
-    expect(attrs['session.startTime']).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(attrs['session.start_time']).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(attrs['session.sequence']).toBe(0);
     Object.values(attrs).forEach((v) => {
       expect(typeof v).toMatch(/^(string|number|boolean)$/);

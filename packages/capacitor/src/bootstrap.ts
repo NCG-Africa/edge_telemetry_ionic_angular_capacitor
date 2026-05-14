@@ -8,9 +8,30 @@ export interface CapacitorCaptureHandle {
   stop: () => Promise<void>;
 }
 
+interface AppInfoLike {
+  build: string;
+}
+
+interface AppGetInfoLike {
+  getInfo: () => Promise<AppInfoLike>;
+}
+
 function detectNativePlatform(): boolean {
   const g = globalThis as unknown as { Capacitor?: CapacitorLike };
   return !!(g.Capacitor && typeof g.Capacitor.isNativePlatform === 'function' && g.Capacitor.isNativePlatform());
+}
+
+async function loadNativeAppBuild(): Promise<string | null> {
+  try {
+    const mod = (await import('@capacitor/app')) as unknown as { App: AppGetInfoLike };
+    // Capacitor 8 proxies have a .then() that throws on Android.
+    // Return a plain object so `await` won't treat it as a thenable.
+    const plugin: AppGetInfoLike = { getInfo: () => mod.App.getInfo() };
+    const info = await plugin.getInfo();
+    return typeof info.build === 'string' ? info.build : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function startCapacitorCapture(): Promise<CapacitorCaptureHandle> {
@@ -23,7 +44,9 @@ export async function startCapacitorCapture(): Promise<CapacitorCaptureHandle> {
     throw new Error('edge-rum: init() must be called before startCapacitorCapture()');
   }
 
-  if (detectNativePlatform()) {
+  const isNative = detectNativePlatform();
+
+  if (isNative) {
     try {
       __setTransportFetch(createCapacitorHttpFetch());
     } catch {
@@ -33,6 +56,13 @@ export async function startCapacitorCapture(): Promise<CapacitorCaptureHandle> {
 
   const deviceAttrs = await getDeviceContext();
   context.setDeviceAttributes(deviceAttrs);
+
+  if (isNative) {
+    const build = await loadNativeAppBuild();
+    if (build !== null) {
+      context.setAppBuildNumber(build);
+    }
+  }
 
   const networkAttrs = await getInitialNetworkContext();
   context.setNetworkAttributes(networkAttrs);

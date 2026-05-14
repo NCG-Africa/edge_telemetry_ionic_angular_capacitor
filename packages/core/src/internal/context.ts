@@ -32,8 +32,13 @@ export class ContextManager {
     this.appAttributes = {};
     if (config.appName) this.appAttributes['app.name'] = config.appName;
     if (config.appVersion) this.appAttributes['app.version'] = config.appVersion;
-    if (config.appPackage) this.appAttributes['app.package'] = config.appPackage;
+    if (config.appPackage) this.appAttributes['app.package_name'] = config.appPackage;
     this.appAttributes['app.environment'] = config.environment ?? DEFAULT_ENVIRONMENT;
+    this.appAttributes['app.build_number'] = '';
+  }
+
+  setAppBuildNumber(build: string): void {
+    this.appAttributes['app.build_number'] = build;
   }
 
   setDeviceAttributes(attrs: EventAttributes): void {

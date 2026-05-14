@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildEventPayload, buildBatchPayload } from '../src/transport/PayloadBuilder';
+import {
+  buildEventPayload,
+  buildMetricPayload,
+  buildBatchPayload,
+} from '../src/transport/PayloadBuilder';
 
 describe('PayloadBuilder', () => {
   describe('buildEventPayload', () => {
@@ -35,6 +39,20 @@ describe('PayloadBuilder', () => {
     });
   });
 
+  describe('buildMetricPayload', () => {
+    it('puts metricName and value at the event root, not in attributes', () => {
+      const metric = buildMetricPayload('image_upload', 890, { 'app.name': 'MyApp' }, { 'metric.unit': 'ms' });
+      expect(metric.type).toBe('metric');
+      expect(metric.metricName).toBe('image_upload');
+      expect(metric.value).toBe(890);
+      expect(metric.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(metric.attributes['metric.unit']).toBe('ms');
+      expect(metric.attributes['app.name']).toBe('MyApp');
+      expect(metric.attributes).not.toHaveProperty('metricName');
+      expect(metric.attributes).not.toHaveProperty('value');
+    });
+  });
+
   describe('buildBatchPayload', () => {
     it('wraps events in the correct envelope structure', () => {
       const events = [buildEventPayload('screen_view', { 'device.id': 'device_1_abcd1234_web' }, {})];
@@ -42,12 +60,66 @@ describe('PayloadBuilder', () => {
       expect(payload.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(payload.type).toBe('batch');
       expect(payload.device_id).toBe('device_1_abcd1234_web');
+      expect(payload.batch_size).toBe(1);
       expect(payload.events).toHaveLength(1);
     });
 
-    it('omits device_id when events array is empty', () => {
+    it('sets batch_size equal to events.length', () => {
+      const events = [
+        buildEventPayload('screen_view', { 'device.id': 'device_1_abcd1234_web' }, {}),
+        buildEventPayload('navigation', { 'device.id': 'device_1_abcd1234_web' }, {}),
+        buildEventPayload('custom_event', { 'device.id': 'device_1_abcd1234_web' }, {}),
+      ];
+      const payload = buildBatchPayload(events);
+      expect(payload.batch_size).toBe(3);
+      expect(payload.events).toHaveLength(3);
+    });
+
+    it('omits device_id and reports batch_size of 0 when events array is empty', () => {
       const payload = buildBatchPayload([]);
       expect(payload.device_id).toBeUndefined();
+      expect(payload.batch_size).toBe(0);
+    });
+
+    it('aligned shape: app.package_name + session.start_time + top-level metric', () => {
+      const ctx = {
+        'app.name': 'MyApp',
+        'app.package_name': 'com.yourco.app',
+        'app.build_number': '42',
+        'device.id': 'device_1_abcd1234_web',
+        'session.id': 'session_1_x9y8z7w6_web',
+        'session.start_time': '2024-01-15T10:25:00.000Z',
+      };
+      const events = [
+        buildEventPayload('screen_view', ctx, { 'navigation.to_screen': '/home' }),
+        buildEventPayload('navigation', ctx, {
+          'navigation.to_screen': '/home',
+          'navigation.method': 'initial',
+        }),
+        buildMetricPayload('image_upload', 890, ctx, { 'metric.unit': 'ms' }),
+      ];
+      const payload = buildBatchPayload(events);
+
+      expect(payload.batch_size).toBe(payload.events.length);
+      expect(payload.batch_size).toBe(3);
+      expect(payload.device_id).toBe('device_1_abcd1234_web');
+
+      for (const ev of payload.events) {
+        expect(ev.attributes['app.package_name']).toBe('com.yourco.app');
+        expect(ev.attributes['session.start_time']).toBe('2024-01-15T10:25:00.000Z');
+        expect(ev.attributes).not.toHaveProperty('app.package');
+        expect(ev.attributes).not.toHaveProperty('session.startTime');
+      }
+
+      const metric = payload.events.find((ev) => ev.type === 'metric');
+      expect(metric).toBeDefined();
+      if (metric && metric.type === 'metric') {
+        expect(metric.metricName).toBe('image_upload');
+        expect(metric.value).toBe(890);
+        expect(metric.attributes['metric.unit']).toBe('ms');
+        expect(metric.attributes).not.toHaveProperty('metric.name');
+        expect(metric.attributes).not.toHaveProperty('metric.value');
+      }
     });
 
     it('produces valid JSON with no nested objects in attributes', () => {

@@ -193,9 +193,7 @@ export const EdgeRum: EdgeRumRuntime = {
       end: (attributes?: EventAttributes): void => {
         if (!state.enabled || !state.collector) return;
         const durationMs = Date.now() - startedAt;
-        state.collector.recordEvent('custom_metric', {
-          'metric.name': name,
-          'metric.value': durationMs,
+        state.collector.recordMetric(name, durationMs, {
           'metric.unit': 'ms',
           ...(attributes ?? {}),
         });

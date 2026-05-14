@@ -24,13 +24,14 @@ Authentication is header-based. There is no bearer token, no OAuth flow, and no 
 
 ## Request body
 
-Every request body is JSON. The shape is an envelope containing one or more events:
+Every request body is JSON. The shape is an envelope containing one or more items:
 
 ```json
 {
   "timestamp": "2024-01-15T10:30:00.000Z",
   "type": "batch",
   "device_id": "device_1704067200000_a8b9c2d1_ios",
+  "batch_size": 2,
   "events": [
     {
       "type": "event",
@@ -39,9 +40,22 @@ Every request body is JSON. The shape is an envelope containing one or more even
       "attributes": {
         "app.name": "MyApp",
         "app.version": "2.1.0",
+        "app.package_name": "com.yourco.app",
+        "app.build_number": "42",
         "device.platform": "ios",
+        "device.platform_version": "17.4",
         "session.id": "session_1704067200000_x9y8z7w6_ios",
+        "session.start_time": "2024-01-15T10:25:00.000Z",
         "sdk.platform": "ionic-angular-capacitor"
+      }
+    },
+    {
+      "type": "metric",
+      "metricName": "image_upload",
+      "value": 890,
+      "timestamp": "2024-01-15T10:30:01.000Z",
+      "attributes": {
+        "metric.unit": "ms"
       }
     }
   ]
@@ -52,8 +66,9 @@ Every request body is JSON. The shape is an envelope containing one or more even
 
 - `timestamp` — ISO 8601 string marking when the send was built. Never Unix milliseconds.
 - `type` — always the literal string `"batch"`.
-- `device_id` — device identifier extracted from event attributes. Format: `device_{ts}_{hex}_{platform}`.
-- `events` — array of event objects. Never empty for a send.
+- `device_id` — device identifier extracted from item attributes. Format: `device_{ts}_{hex}_{platform}`.
+- `batch_size` — number of items in `events`. Must equal `events.length`.
+- `events` — array of items. Each item is either an `"event"` (with `eventName`) or a `"metric"` (with `metricName` and `value` at the item root). Never empty for a send.
 
 ### Event rules
 
@@ -64,22 +79,32 @@ Every request body is JSON. The shape is an envelope containing one or more even
   `boolean`.** Never a nested object, never an array. Keys use dot notation for
   grouping (e.g. `device.os`, `network.type`).
 
+### Metric rules
+
+- `type` — always `"metric"`.
+- `metricName` — the name passed to `EdgeRum.time(name)`.
+- `value` — numeric value (duration in ms when produced by `EdgeRum.time().end()`).
+- `timestamp` — ISO 8601 string marking when the metric was recorded.
+- `attributes` — flat key-value object as for events. Includes `metric.unit` plus any context attributes and any user-supplied attributes from `timer.end({...})`.
+
 The canonical schema is at `docs/payload-schema.json`.
 
 ## Event names
 
 | `eventName` | Source |
 |---|---|
-| `screen_view` | Angular route change |
+| `navigation` | Angular route change (full `navigation.*` payload) |
+| `screen_view` | Angular route change (stripped — carries only `navigation.to_screen`, paired with `navigation` above) |
 | `network_request` | Captured HTTP request |
 | `performance` | Web performance measurement |
 | `app.crash` | Unhandled error or rejection |
 | `custom_event` | `EdgeRum.track()` |
-| `custom_metric` | `EdgeRum.time()` |
 | `app_lifecycle` | Foreground / background |
 | `page_load` | WebView page load timing |
 | `screen_timing` | Ionic page enter / leave |
 | `network_change` | Connectivity change |
+
+Metric items have no `eventName`. They are produced by `EdgeRum.time().end()` and use the shape `{ type: "metric", metricName, value, timestamp, attributes }` with `metricName` and `value` at the item root.
 
 ## Response contract
 

@@ -7,11 +7,22 @@ export interface EventPayload {
   attributes: EventAttributes;
 }
 
+export interface MetricPayload {
+  type: 'metric';
+  metricName: string;
+  value: number;
+  timestamp: string;
+  attributes: EventAttributes;
+}
+
+export type BatchItem = EventPayload | MetricPayload;
+
 export interface BatchPayload {
   timestamp: string;
   type: 'batch';
   device_id?: string;
-  events: EventPayload[];
+  batch_size: number;
+  events: BatchItem[];
 }
 
 export function buildEventPayload(
@@ -27,12 +38,28 @@ export function buildEventPayload(
   };
 }
 
-export function buildBatchPayload(events: EventPayload[]): BatchPayload {
+export function buildMetricPayload(
+  metricName: string,
+  value: number,
+  contextAttributes: EventAttributes,
+  eventAttributes: EventAttributes,
+): MetricPayload {
+  return {
+    type: 'metric',
+    metricName,
+    value,
+    timestamp: new Date().toISOString(),
+    attributes: { ...contextAttributes, ...eventAttributes },
+  };
+}
+
+export function buildBatchPayload(events: BatchItem[]): BatchPayload {
   const deviceId = events[0]?.attributes?.['device.id'];
   return {
     timestamp: new Date().toISOString(),
     type: 'batch',
     ...(typeof deviceId === 'string' ? { device_id: deviceId } : {}),
+    batch_size: events.length,
     events,
   };
 }

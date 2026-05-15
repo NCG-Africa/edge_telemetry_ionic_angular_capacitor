@@ -1,4 +1,4 @@
-export const SDK_VERSION = '1.2.0';
+export const SDK_VERSION = '2.0.0';
 export const SDK_PLATFORM = 'ionic-angular-capacitor' as const;
 
 export interface EdgeRumConfig {

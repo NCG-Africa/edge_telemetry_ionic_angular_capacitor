@@ -1,23 +1,22 @@
 name: Release
 
+# Push a `v*.*.*` tag on main to publish all packages whose
+# package.json version is ahead of npm. Tag-driven, no changesets bot,
+# no Version Packages PR — bump versions in your release commit, tag,
+# push.
 on:
   push:
-    branches: [main]
-
-# Only one release run at a time per branch.
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+    tags: ['v*.*.*']
 
 jobs:
-  release:
+  publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: write       # create tags, commits, and GitHub Releases
-      pull-requests: write  # open / update the "Version Packages" PR
-      id-token: write       # for npm provenance
+      contents: write    # for GitHub Releases (created by changeset publish)
+      id-token: write    # for npm provenance
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history is required so changesets can compare against base.
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
@@ -34,16 +33,16 @@ jobs:
       - name: Build
         run: pnpm build
 
-      # When changesets exist on main: opens / updates a "Version Packages" PR
-      # that bumps package.json versions and writes CHANGELOG entries.
-      # When no changesets exist (i.e. that PR has just merged): runs `publish`,
-      # which runs `pnpm release` -> `changeset publish` -> npm publish + tag.
-      - name: Create Release Pull Request or Publish
-        uses: changesets/action@v1
-        with:
-          publish: pnpm release
-          createGithubReleases: true
+      - name: Verify tag is on main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Release tags must be on the main branch"
+            exit 1
+          fi
+
+      - name: Publish to npm
+        run: pnpm release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

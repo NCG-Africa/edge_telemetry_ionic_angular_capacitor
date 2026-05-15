@@ -4,6 +4,39 @@ All notable changes to the edge-rum SDK are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] — 2026-05-15
+
+### Breaking
+
+- **`UserContext` shape changed** to `{ name?, email?, phone? }`. Consumers
+  calling `EdgeRum.identify({ id: '...' })` or passing custom keys will get a
+  TypeScript error. Pass `name` / `email` / `phone` only; pass `null` to
+  clear a field; pass `undefined` (or omit) to leave it untouched.
+- **`user.id` is now SDK-owned.** It is auto-generated at `EdgeRum.init()`
+  (`user_<ts>_<8hex>`) and persisted to `localStorage` so it survives reloads.
+  Consumers cannot set or override it via `identify()`.
+- **PII firewall removed.** Previously the SDK silently stripped `email`,
+  `phone`, `name`, `username`, `password` from `user.*`. With the new
+  identify shape, `user.name` / `user.email` / `user.phone` are sent as
+  provided. Consumers are responsible for collecting consent and configuring
+  backend retention. See `docs/privacy.md`.
+
+### Fixed
+
+- **`device.*` and `app.*` are now back-filled at flush time** for events
+  recorded before Capacitor's device context loads (which previously meant
+  `navigation`, `screen_view`, and `network_request` events emitted during
+  the first ~100–300ms after `init()` had no `device.*`). Stable context
+  (`app.*`, `device.*`, `sdk.*`) is back-filled; volatile context
+  (`session.*`, `user.*`, `network.*`) stays captured-at-record-time.
+
+### Changed
+
+- Switched the release workflow from changesets-driven to tag-driven. Push a
+  `v*.*.*` tag on `main` and `release.yml` runs `pnpm release` to publish all
+  packages whose `package.json` version is ahead of npm. No Version Packages
+  PR, no bot — just bump versions in your release commit, tag, push.
+
 ## [1.2.0] — 2026-05-14
 
 ### Changed

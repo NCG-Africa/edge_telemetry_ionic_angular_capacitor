@@ -41,8 +41,10 @@ import { EdgeRumService } from '@nathanclaire/rum-angular';
 
 constructor(private rum: EdgeRumService) {}
 
-onLogin(user: { id: string }) {
-  this.rum.identify({ id: user.id });
+onLogin(user: { name?: string; email?: string; phone?: string }) {
+  // user.id is owned by the SDK (auto-generated, persisted across sessions).
+  // identify() attaches user details — pass null to clear a field.
+  this.rum.identify({ name: user.name, email: user.email, phone: user.phone });
 }
 
 onCheckout() {

@@ -156,13 +156,13 @@ try {
 
 ### Identify a user
 
-Call `identify()` after login to attach user attributes to all subsequent events:
+Call `identify()` after login to attach user details to all subsequent events. `user.id` is owned by the SDK (auto-generated and persisted across sessions) — `identify()` only takes `name`, `email`, and `phone`. Pass `null` for any field to clear it.
 
 ```typescript
 this.rum.identify({
-  id: 'user_123',
-  plan: 'premium',
-  region: 'eu-west',
+  name: 'Alice Example',
+  email: 'alice@example.com',
+  phone: '+1-555-0100',
 });
 ```
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Pipeline } from '../src/internal/pipeline';
+import { ContextManager } from '../src/internal/context';
 import { buildEventPayload } from '../src/transport/PayloadBuilder';
 import { SessionManager } from '../src/session/SessionManager';
 import type { RetryTransport } from '../src/transport/RetryTransport';
@@ -22,16 +23,19 @@ describe('Pipeline', () => {
   let transport: RetryTransport & { send: ReturnType<typeof vi.fn> };
   let queue: ReturnType<typeof createMockQueue>;
   let session: SessionManager;
+  let context: ContextManager;
   let pipeline: Pipeline;
 
   beforeEach(() => {
     transport = createMockTransport() as RetryTransport & { send: ReturnType<typeof vi.fn> };
     queue = createMockQueue();
     session = new SessionManager();
+    context = new ContextManager(session);
     pipeline = new Pipeline({
       transport,
       queue,
       session,
+      context,
       batchSize: 3,
       flushIntervalMs: 60000,
       debug: false,
@@ -98,6 +102,60 @@ describe('Pipeline', () => {
     expect(queue.flush).toHaveBeenCalledTimes(1);
   });
 
+  describe('stable-context back-fill', () => {
+    it('back-fills app.* and device.* on items that lack device.id at flush time', async () => {
+      // Simulate: event recorded BEFORE device context loaded.
+      // (Collector captures empty device attrs; later setDeviceAttributes resolves them.)
+      pipeline.push(buildEventPayload('navigation', {}, { 'navigation.to_screen': '/home' }));
+
+      // Now the bootstrap completes and device context is set.
+      context.setAppAttributes({
+        apiKey: 'edge_x',
+        endpoint: 'https://example.com/collector/telemetry',
+        appName: 'MyApp',
+      });
+      context.setDeviceAttributes({
+        'device.id': 'device_1_abcd1234_web',
+        'device.platform': 'web',
+        'device.platform_version': '17.4',
+      });
+
+      await pipeline.flush();
+
+      const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
+      const navEvent = body.events[0];
+      expect(navEvent.attributes['device.id']).toBe('device_1_abcd1234_web');
+      expect(navEvent.attributes['device.platform']).toBe('web');
+      expect(navEvent.attributes['device.platform_version']).toBe('17.4');
+      expect(navEvent.attributes['app.name']).toBe('MyApp');
+      expect(navEvent.attributes['sdk.platform']).toBe('ionic-angular-capacitor');
+      // event-specific attribute survives
+      expect(navEvent.attributes['navigation.to_screen']).toBe('/home');
+    });
+
+    it('does not back-fill items that already have device.id (preserves captured-at-record-time context)', async () => {
+      // Event recorded AFTER bootstrap with the original device.id.
+      pipeline.push(
+        buildEventPayload('performance', { 'device.id': 'device_OLD_web', 'app.name': 'OldApp' }, { 'performance.metric_name': 'LCP' }),
+      );
+
+      // Hypothetically, context changes after recording (e.g. config rebuild).
+      context.setAppAttributes({
+        apiKey: 'edge_x',
+        endpoint: 'https://example.com/collector/telemetry',
+        appName: 'NewApp',
+      });
+      context.setDeviceAttributes({ 'device.id': 'device_NEW_web' });
+
+      await pipeline.flush();
+
+      const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
+      const perfEvent = body.events[0];
+      expect(perfEvent.attributes['device.id']).toBe('device_OLD_web');
+      expect(perfEvent.attributes['app.name']).toBe('OldApp');
+    });
+  });
+
   describe('deferReady', () => {
     let deferredPipeline: Pipeline;
 
@@ -106,6 +164,7 @@ describe('Pipeline', () => {
         transport,
         queue,
         session,
+        context,
         batchSize: 3,
         flushIntervalMs: 60000,
         deferReady: true,

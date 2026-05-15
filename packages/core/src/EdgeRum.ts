@@ -1,5 +1,6 @@
 import type { EdgeRumConfig, EventAttributes, UserContext } from './index';
 import { SessionManager } from './session/SessionManager';
+import { getOrCreateAnonymousUserId } from './session/SessionIdGenerator';
 import { ContextManager } from './internal/context';
 import { Collector } from './internal/collector';
 import { Pipeline } from './internal/pipeline';
@@ -96,6 +97,7 @@ export const EdgeRum: EdgeRumRuntime = {
 
     const context = new ContextManager(session);
     context.setAppAttributes(config);
+    context.setAnonymousUserId(getOrCreateAnonymousUserId());
     state.context = context;
 
     const queue = new OfflineQueue({
@@ -115,6 +117,7 @@ export const EdgeRum: EdgeRumRuntime = {
       transport,
       queue,
       session,
+      context,
       batchSize: config.batchSize ?? DEFAULT_BATCH_SIZE,
       flushIntervalMs: config.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS,
       deferReady: config.deferFlush,
@@ -173,7 +176,7 @@ export const EdgeRum: EdgeRumRuntime = {
   identify(user: UserContext): void {
     assertInitialized('identify');
     state.context?.setUserAttributes(user);
-    debug('identify', { userId: user.id });
+    debug('identify', { name: user.name, email: user.email, phone: user.phone });
   },
 
   track(name: string, attributes?: EventAttributes): void {

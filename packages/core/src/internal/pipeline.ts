@@ -3,11 +3,13 @@ import { buildBatchPayload } from '../transport/PayloadBuilder';
 import type { RetryTransport } from '../transport/RetryTransport';
 import type { OfflineQueue } from '../queue/OfflineQueue';
 import type { SessionManager } from '../session/SessionManager';
+import type { ContextManager } from './context';
 
 export interface PipelineOptions {
   transport: RetryTransport;
   queue: OfflineQueue;
   session: SessionManager;
+  context: ContextManager;
   batchSize: number;
   flushIntervalMs: number;
   deferReady?: boolean;
@@ -18,6 +20,7 @@ export class Pipeline {
   private readonly transport: RetryTransport;
   private readonly queue: OfflineQueue;
   private readonly session: SessionManager;
+  private readonly context: ContextManager;
   private readonly batchSize: number;
   private readonly flushIntervalMs: number;
   private readonly debug: boolean;
@@ -31,6 +34,7 @@ export class Pipeline {
     this.transport = options.transport;
     this.queue = options.queue;
     this.session = options.session;
+    this.context = options.context;
     this.batchSize = options.batchSize;
     this.flushIntervalMs = options.flushIntervalMs;
     this.debug = options.debug ?? false;
@@ -85,6 +89,7 @@ export class Pipeline {
     try {
       while (this.buffer.length > 0) {
         const batch = this.buffer.splice(0, this.batchSize);
+        this.backfillStableContext(batch);
         const payload = buildBatchPayload(batch);
         const body = JSON.stringify(payload);
 
@@ -113,5 +118,20 @@ export class Pipeline {
 
   getBufferSize(): number {
     return this.buffer.length;
+  }
+
+  // Events recorded before device context loaded have no device.id.
+  // Stable context (app.*, device.*, sdk.*) doesn't change for the
+  // session lifetime, so back-filling at flush time is safe and gives
+  // every event the full context the backend expects. Volatile attrs
+  // (session.*, user.*, network.*) stay captured-at-record-time.
+  private backfillStableContext(batch: BatchItem[]): void {
+    let stable: ReturnType<ContextManager['getStableContextAttributes']> | null = null;
+    for (const item of batch) {
+      if (typeof item.attributes['device.id'] !== 'string') {
+        if (stable === null) stable = this.context.getStableContextAttributes();
+        item.attributes = { ...stable, ...item.attributes };
+      }
+    }
   }
 }

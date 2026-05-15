@@ -19,8 +19,9 @@ export interface EdgeRumConfig {
 }
 
 export interface UserContext {
-  id?: string;
-  [key: string]: string | number | boolean | undefined;
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
 }
 
 export type EventAttributes = Record<string, string | number | boolean>;

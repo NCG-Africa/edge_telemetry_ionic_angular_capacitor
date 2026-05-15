@@ -1,5 +1,12 @@
 export type IdPrefix = 'session' | 'user' | 'device';
 
+const ANONYMOUS_USER_ID_KEY = 'edge_rum_anon_uid';
+
+export interface StorageLike {
+  getItem: (key: string) => string | null;
+  setItem: (key: string, value: string) => void;
+}
+
 function randomHex8(): string {
   if (
     typeof globalThis !== 'undefined' &&
@@ -27,4 +34,28 @@ export function generateSessionId(platform: string): string {
 
 export function generateUserId(): string {
   return `user_${Date.now()}_${randomHex8()}`;
+}
+
+function defaultLocalStorage(): StorageLike | undefined {
+  if (typeof globalThis === 'undefined') return undefined;
+  const ls = (globalThis as unknown as { localStorage?: StorageLike }).localStorage;
+  return ls && typeof ls.getItem === 'function' && typeof ls.setItem === 'function' ? ls : undefined;
+}
+
+export function getOrCreateAnonymousUserId(storage?: StorageLike): string {
+  const store = storage ?? defaultLocalStorage();
+  if (!store) {
+    return generateUserId();
+  }
+  try {
+    const existing = store.getItem(ANONYMOUS_USER_ID_KEY);
+    if (existing && existing.startsWith('user_')) {
+      return existing;
+    }
+    const fresh = generateUserId();
+    store.setItem(ANONYMOUS_USER_ID_KEY, fresh);
+    return fresh;
+  } catch {
+    return generateUserId();
+  }
 }

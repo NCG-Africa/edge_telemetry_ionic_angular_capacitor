@@ -27,7 +27,7 @@ describe('publishConfig on all packages', () => {
   }
 });
 
-describe.skipIf(SKIP_DIST_CHECK)('npm publish --dry-run', () => {
+describe.skipIf(SKIP_DIST_CHECK)('npm pack --dry-run', () => {
   beforeAll(() => {
     const missing = PACKAGES.filter((p) => !distEntryExists(p));
     if (missing.length > 0) {
@@ -44,7 +44,11 @@ describe.skipIf(SKIP_DIST_CHECK)('npm publish --dry-run', () => {
       let files: string[] = [];
 
       beforeAll(() => {
-        const raw = execSync('npm publish --dry-run --json', { cwd, encoding: 'utf8' });
+        // `npm pack --dry-run --json` produces the same file list as
+        // `npm publish --dry-run` but doesn't hit the registry, so it
+        // works even when the current package.json version is already
+        // published (which is normal between Version Packages PRs).
+        const raw = execSync('npm pack --dry-run --json', { cwd, encoding: 'utf8' });
         const parsed = JSON.parse(raw);
         const entry = Array.isArray(parsed) ? parsed[0] : parsed;
         files = (entry.files ?? []).map((f: { path: string }) => f.path);

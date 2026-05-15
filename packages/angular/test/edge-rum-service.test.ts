@@ -19,9 +19,9 @@ describe('EdgeRumService', () => {
     const spy = vi.spyOn(EdgeRum, 'identify');
     const svc = new EdgeRumService();
 
-    svc.identify({ id: 'user_1' });
+    svc.identify({ name: 'Alice', email: 'alice@example.com' });
 
-    expect(spy).toHaveBeenCalledWith({ id: 'user_1' });
+    expect(spy).toHaveBeenCalledWith({ name: 'Alice', email: 'alice@example.com' });
   });
 
   it('delegates track() to EdgeRum.track', () => {
@@ -78,6 +78,6 @@ describe('EdgeRumService', () => {
     __resetEdgeRumForTests();
     const svc = new EdgeRumService();
 
-    expect(() => svc.identify({ id: 'x' })).toThrowError(/init\(\) must be called before identify/);
+    expect(() => svc.identify({ name: 'Alice' })).toThrowError(/init\(\) must be called before identify/);
   });
 });

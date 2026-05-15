@@ -18,7 +18,7 @@ See the [quick start guide](https://github.com/mktowett/edge_telemetry_ionic_ang
 
 ```typescript
 EdgeRum.init(config)        // Initialize the SDK
-EdgeRum.identify(user)      // Attach a user ID to events
+EdgeRum.identify(user)      // Attach user.name / user.email / user.phone (user.id is SDK-owned)
 EdgeRum.track(name, attrs)  // Record a custom event
 EdgeRum.time(name)          // Start a timer (returns { end() })
 EdgeRum.captureError(err)   // Record a handled error

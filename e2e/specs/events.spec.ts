@@ -94,19 +94,36 @@ test.describe('event types', () => {
     expect(crash!.attributes['cause']).toBe('UnhandledError');
   });
 
-  test('EdgeRum.identify() adds user.id to subsequent events', async ({ page, request }) => {
+  test('every event carries an auto-generated anonymous user.id pre-identify', async ({ page, request }) => {
     await initHarness(page);
     await page.evaluate(() => {
-      const h = (window as unknown as { __edgeRumHarness: { identify: (u: { id: string }) => void; track: (n: string) => void } }).__edgeRumHarness;
-      h.identify({ id: 'u_abc_123' });
+      const h = (window as unknown as { __edgeRumHarness: { track: (n: string) => void } }).__edgeRumHarness;
+      h.track('before_identify');
+    });
+
+    const payloads = await waitForPayloads(request);
+    const events = allEvents(payloads);
+    const tracked = events.find((e) => e.eventName === 'custom_event');
+    expect(tracked).toBeDefined();
+    expect(tracked!.attributes['user.id']).toMatch(/^user_\d+_[0-9a-f]{8}$/);
+  });
+
+  test('EdgeRum.identify() attaches user.name / user.email / user.phone, keeps SDK-owned user.id', async ({ page, request }) => {
+    await initHarness(page);
+    await page.evaluate(() => {
+      const h = (window as unknown as { __edgeRumHarness: { identify: (u: { name?: string; email?: string; phone?: string }) => void; track: (n: string) => void } }).__edgeRumHarness;
+      h.identify({ name: 'Alice', email: 'alice@example.com', phone: '+1-555-0100' });
       h.track('after_identify');
     });
 
     const payloads = await waitForPayloads(request);
     const events = allEvents(payloads);
-    const after = events.find((e) => e.eventName === 'custom_event');
+    const after = events.find((e) => e.eventName === 'custom_event' && e.attributes['event.name'] === 'after_identify');
     expect(after).toBeDefined();
-    expect(after!.attributes['user.id']).toBe('u_abc_123');
+    expect(after!.attributes['user.id']).toMatch(/^user_\d+_[0-9a-f]{8}$/);
+    expect(after!.attributes['user.name']).toBe('Alice');
+    expect(after!.attributes['user.email']).toBe('alice@example.com');
+    expect(after!.attributes['user.phone']).toBe('+1-555-0100');
   });
 
   test('session.sequence increments after successful sends', async ({ page, request }) => {

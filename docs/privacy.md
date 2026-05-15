@@ -20,7 +20,8 @@ Attached to every event:
 
 - `session.id` — an opaque identifier that rotates after 30 minutes of inactivity.
 - `session.start_time`, `session.sequence`
-- `user.id` — present only if you call `EdgeRum.identify()`.
+- `user.id` — owned by the SDK. An anonymous `user_<ts>_<8hex>` identifier is generated at `init()` and persisted to `localStorage` so it remains stable across sessions and reloads. Consumers cannot set it.
+- `user.name`, `user.email`, `user.phone` — only present when you call `EdgeRum.identify()` with those fields. Cleared when you pass `null`.
 
 ### Automatically captured events
 
@@ -81,22 +82,33 @@ defence before a URL is recorded.
 
 ## User identification
 
-When you call `EdgeRum.identify({ id: '...' })`, the ID you supply is attached as
-`user.id` on every subsequent event.
+`user.id` is owned by the SDK. At `init()` the SDK generates an anonymous
+`user_<ts>_<8hex>` identifier (or loads the previously stored one from
+`localStorage`) and attaches it as `user.id` on every event. Consumers cannot set or
+override it.
 
-### Do
+`EdgeRum.identify(...)` attaches **user details** — `name`, `email`, and `phone` — as
+`user.name`, `user.email`, and `user.phone`. Pass `null` for any field to clear it
+(e.g. on logout). Passing `undefined` (or omitting the field) leaves the existing
+value untouched.
 
-- Pass an opaque, internal identifier — e.g. a UUID or hashed user ID.
-- Keep the ID stable across sessions for the same user.
+```typescript
+// On login:
+EdgeRum.identify({
+  name: 'Alice Example',
+  email: 'alice@example.com',
+  phone: '+1-555-0100',
+});
 
-### Do not
+// On logout:
+EdgeRum.identify({ name: null, email: null, phone: null });
+```
 
-- Pass email addresses, phone numbers, real names, or usernames.
-- Pass any value your support team could use to look up personal details.
-
-If you need to log an authenticated user out, call `EdgeRum.identify({ id: '' })` before
-your logout flow, or call `EdgeRum.disable()` and then `EdgeRum.enable()` to start a new
-anonymous session.
+> **PII responsibility.** The SDK no longer strips `name`/`email`/`phone` before
+> sending. If you call `identify()` with these fields, the values reach your backend
+> verbatim. Make sure your consent flow, backend retention, and data subject access
+> controls cover them. Do not pass `identify()` data you have not collected
+> consent for.
 
 ## Consent management
 

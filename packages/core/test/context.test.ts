@@ -63,56 +63,51 @@ describe('ContextManager', () => {
     });
   });
 
-  describe('setUserAttributes — PII blocking', () => {
-    it('does not emit user.email even when passed', () => {
-      context.setAppAttributes({ apiKey: 'edge_x', endpoint: 'https://example.com/collector/telemetry' });
-      context.setUserAttributes({ id: 'u1', email: 'alice@example.com' });
+  describe('setAnonymousUserId', () => {
+    it('sets user.id to the provided anonymous id', () => {
+      context.setAnonymousUserId('user_123_abcd1234');
       const attrs = context.getContextAttributes();
+      expect(attrs['user.id']).toBe('user_123_abcd1234');
+    });
+
+    it('keeps user.id when identify() is called afterwards (id is SDK-owned)', () => {
+      context.setAnonymousUserId('user_123_abcd1234');
+      context.setUserAttributes({ name: 'Alice', email: 'alice@example.com' });
+      const attrs = context.getContextAttributes();
+      expect(attrs['user.id']).toBe('user_123_abcd1234');
+    });
+  });
+
+  describe('setUserAttributes', () => {
+    it('sets user.name, user.email, user.phone when provided', () => {
+      context.setAppAttributes({ apiKey: 'edge_x', endpoint: 'https://example.com/collector/telemetry' });
+      context.setUserAttributes({ name: 'Alice', email: 'alice@example.com', phone: '+1-555-0100' });
+      const attrs = context.getContextAttributes();
+      expect(attrs['user.name']).toBe('Alice');
+      expect(attrs['user.email']).toBe('alice@example.com');
+      expect(attrs['user.phone']).toBe('+1-555-0100');
+    });
+
+    it('omits a field when its value is undefined (does not clear existing)', () => {
+      context.setUserAttributes({ name: 'Alice' });
+      context.setUserAttributes({ email: 'alice@example.com' });
+      const attrs = context.getContextAttributes();
+      expect(attrs['user.name']).toBe('Alice');
+      expect(attrs['user.email']).toBe('alice@example.com');
+    });
+
+    it('clears a field when its value is explicitly null', () => {
+      context.setUserAttributes({ name: 'Alice', email: 'alice@example.com' });
+      context.setUserAttributes({ email: null });
+      const attrs = context.getContextAttributes();
+      expect(attrs['user.name']).toBe('Alice');
       expect(attrs['user.email']).toBeUndefined();
-      expect(JSON.stringify(attrs)).not.toContain('alice@example.com');
     });
 
-    it('does not emit user.phone, user.name, user.username, user.password', () => {
-      context.setAppAttributes({ apiKey: 'edge_x', endpoint: 'https://example.com/collector/telemetry' });
-      context.setUserAttributes({
-        id: 'u1',
-        phone: '+1-555-0100',
-        name: 'Alice Example',
-        username: 'alice',
-        password: 'hunter2',
-      });
+    it('does not set user.id (id is SDK-owned)', () => {
+      context.setUserAttributes({ name: 'Alice' });
       const attrs = context.getContextAttributes();
-      expect(attrs['user.phone']).toBeUndefined();
-      expect(attrs['user.name']).toBeUndefined();
-      expect(attrs['user.username']).toBeUndefined();
-      expect(attrs['user.password']).toBeUndefined();
-      const serialised = JSON.stringify(attrs);
-      expect(serialised).not.toContain('+1-555-0100');
-      expect(serialised).not.toContain('Alice Example');
-      expect(serialised).not.toContain('alice');
-      expect(serialised).not.toContain('hunter2');
-    });
-
-    it('preserves non-PII custom user attributes', () => {
-      context.setAppAttributes({ apiKey: 'edge_x', endpoint: 'https://example.com/collector/telemetry' });
-      context.setUserAttributes({ id: 'u1', plan: 'pro', seats: 5 });
-      const attrs = context.getContextAttributes();
-      expect(attrs['user.plan']).toBe('pro');
-      expect(attrs['user.seats']).toBe(5);
-    });
-
-    it('sets user.id when provided', () => {
-      context.setAppAttributes({ apiKey: 'edge_x', endpoint: 'https://example.com/collector/telemetry' });
-      context.setUserAttributes({ id: 'u1' });
-      const attrs = context.getContextAttributes();
-      expect(attrs['user.id']).toBe('u1');
-    });
-
-    it('auto-generates user.id when identify called without an id', () => {
-      context.setAppAttributes({ apiKey: 'edge_x', endpoint: 'https://example.com/collector/telemetry' });
-      context.setUserAttributes({});
-      const attrs = context.getContextAttributes();
-      expect(attrs['user.id']).toMatch(/^user_\d+_[0-9a-f]{8}$/);
+      expect(attrs['user.id']).toBeUndefined();
     });
   });
 
@@ -125,11 +120,32 @@ describe('ContextManager', () => {
 
     it('produces only primitive values', () => {
       context.setAppAttributes({ apiKey: 'edge_x', endpoint: 'https://example.com/collector/telemetry', appName: 'x', environment: 'production' });
-      context.setUserAttributes({ id: 'u1' });
+      context.setAnonymousUserId('user_1_abcd1234');
+      context.setUserAttributes({ name: 'Alice' });
       const attrs = context.getContextAttributes();
       for (const v of Object.values(attrs)) {
         expect(typeof v).toMatch(/^(string|number|boolean)$/);
       }
+    });
+  });
+
+  describe('getStableContextAttributes', () => {
+    it('returns app.*, device.*, and sdk.* but not session.* or user.* or network.*', () => {
+      context.setAppAttributes({
+        apiKey: 'edge_x',
+        endpoint: 'https://example.com/collector/telemetry',
+        appName: 'MyApp',
+      });
+      context.setDeviceAttributes({ 'device.id': 'device_1_abcd_web', 'device.platform': 'web' });
+      context.setNetworkAttributes({ 'network.type': 'wifi' });
+      context.setAnonymousUserId('user_1_abcd1234');
+      const stable = context.getStableContextAttributes();
+      expect(stable['app.name']).toBe('MyApp');
+      expect(stable['device.id']).toBe('device_1_abcd_web');
+      expect(stable['sdk.platform']).toBe('ionic-angular-capacitor');
+      expect(stable['session.id']).toBeUndefined();
+      expect(stable['user.id']).toBeUndefined();
+      expect(stable['network.type']).toBeUndefined();
     });
   });
 });

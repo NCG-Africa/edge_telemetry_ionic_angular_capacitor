@@ -118,15 +118,13 @@ describe('RouterCapture', () => {
     harness.events.next(navStart(1, '/products/9876'));
     harness.events.next(navEnd(1, '/products/9876'));
 
-    expect(trackSpy).toHaveBeenCalledTimes(2);
+    expect(trackSpy).toHaveBeenCalledTimes(1);
     const navCall = callsByName(trackSpy, 'navigation')[0]!;
-    const screenCall = callsByName(trackSpy, 'screen_view')[0]!;
     expect(navCall[1]!['navigation.to_screen']).toBe('/products/:id');
-    expect(screenCall[1]!['navigation.to_screen']).toBe('/products/:id');
     expect(String(navCall[1]!['navigation.to_screen'])).not.toContain('9876');
   });
 
-  it('emits each route change as a navigation event followed by a screen_view event', () => {
+  it('emits exactly one navigation event per route change and no screen_view', () => {
     const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
@@ -135,40 +133,22 @@ describe('RouterCapture', () => {
     harness.events.next(navStart(1, '/home'));
     harness.events.next(navEnd(1, '/home'));
 
-    expect(trackSpy).toHaveBeenCalledTimes(2);
+    expect(trackSpy).toHaveBeenCalledTimes(1);
     expect(trackSpy.mock.calls[0]![0]).toBe('navigation');
-    expect(trackSpy.mock.calls[1]![0]).toBe('screen_view');
+    expect(callsByName(trackSpy, 'screen_view')).toHaveLength(0);
   });
 
-  it('emits a stripped screen_view carrying only the screen identity', () => {
+  it('does not include navigation.duration_ms on the navigation event', () => {
     const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
 
     harness.setRoute('/home', makeSnapshot({ path: 'home' }));
     harness.events.next(navStart(1, '/home'));
-    harness.events.next(navEnd(1, '/home'));
-
-    const screenCall = callsByName(trackSpy, 'screen_view')[0]!;
-    const screenAttrs = screenCall[1]!;
-    expect(screenAttrs['navigation.to_screen']).toBe('/home');
-    expect(Object.keys(screenAttrs)).toEqual(['navigation.to_screen']);
-  });
-
-  it('emits a positive navigation.duration_ms', async () => {
-    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
-    const harness = createFakeRouter();
-    new RouterCapture(harness.router);
-
-    harness.setRoute('/home', makeSnapshot({ path: 'home' }));
-    harness.events.next(navStart(1, '/home'));
-    await new Promise((r) => setTimeout(r, 5));
     harness.events.next(navEnd(1, '/home'));
 
     const navCall = callsByName(trackSpy, 'navigation')[0]!;
-    const duration = navCall[1]!['navigation.duration_ms'];
-    expect(typeof duration).toBe('number');
-    expect(duration).toBeGreaterThan(0);
+    expect(navCall[1]!).not.toHaveProperty('navigation.duration_ms');
   });
 
   it('sets navigation.method to initial on the first navigation, push afterwards', () => {

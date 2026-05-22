@@ -22,9 +22,9 @@ export interface MetricPayload {
 export type BatchItem = EventPayload | MetricPayload;
 
 export interface BatchPayload {
+  type: 'telemetry_batch';
   timestamp: string;
-  type: 'batch';
-  device_id?: string;
+  location?: string;
   batch_size: number;
   events: BatchItem[];
 }
@@ -103,14 +103,11 @@ export function assertEnvelope(payload: BatchPayload): void {
   if (!/^\d{4}-\d{2}-\d{2}T/.test(payload.timestamp)) {
     throw new Error(`payload.timestamp is not ISO 8601: ${payload.timestamp}`);
   }
-  if (payload.type !== 'batch') {
-    throw new Error(`type must be 'batch', got ${payload.type}`);
+  if (payload.type !== 'telemetry_batch') {
+    throw new Error(`type must be 'telemetry_batch', got ${payload.type}`);
   }
   if (!Array.isArray(payload.events)) {
     throw new Error('events must be an array');
-  }
-  if (payload.device_id !== undefined && !/^device_/.test(payload.device_id)) {
-    throw new Error(`device_id must match device_ prefix, got ${payload.device_id}`);
   }
   if (typeof payload.batch_size !== 'number' || payload.batch_size !== payload.events.length) {
     throw new Error(`batch_size must equal events.length, got ${payload.batch_size} vs ${payload.events.length}`);

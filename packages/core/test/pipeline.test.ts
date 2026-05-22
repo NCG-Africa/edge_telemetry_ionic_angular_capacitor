@@ -56,7 +56,7 @@ describe('Pipeline', () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(transport.send).toHaveBeenCalledTimes(1);
     const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
-    expect(body.type).toBe('batch');
+    expect(body.type).toBe('telemetry_batch');
     expect(body.events).toHaveLength(3);
   });
 
@@ -80,11 +80,12 @@ describe('Pipeline', () => {
   });
 
   it('sends JSON with the correct envelope', async () => {
-    pipeline.push(buildEventPayload('screen_view', { 'sdk.platform': 'ionic-angular-capacitor', 'device.id': 'device_1_abcd1234_web' }, {}));
+    pipeline.push(buildEventPayload('navigation', { 'sdk.platform': 'ionic-angular-capacitor', 'device.id': 'device_1_abcd1234_web' }, {}));
     await pipeline.flush();
     const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
     expect(body.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(body.type).toBe('batch');
+    expect(body.type).toBe('telemetry_batch');
+    expect(body).not.toHaveProperty('device_id');
     body.events.forEach((ev: Record<string, unknown>) => {
       expect(ev.type).toBe('event');
       const attrs = ev.attributes as Record<string, unknown>;
@@ -95,6 +96,22 @@ describe('Pipeline', () => {
     expect(JSON.stringify(body)).not.toContain('traceId');
     expect(JSON.stringify(body)).not.toContain('spanId');
     expect(JSON.stringify(body)).not.toContain('opentelemetry');
+  });
+
+  it('includes location in the envelope when set on the pipeline', async () => {
+    const locatedPipeline = new Pipeline({
+      transport,
+      queue,
+      session,
+      context,
+      batchSize: 3,
+      flushIntervalMs: 60000,
+      location: 'Nairobi/Kenya',
+    });
+    locatedPipeline.push(buildEventPayload('navigation', { 'device.id': 'device_1_abcd1234_web' }, {}));
+    await locatedPipeline.flush();
+    const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
+    expect(body.location).toBe('Nairobi/Kenya');
   });
 
   it('flushOfflineQueue delegates to queue.flush', async () => {

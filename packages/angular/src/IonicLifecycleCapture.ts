@@ -3,16 +3,12 @@ import { __recordEvent, type EventAttributes } from '@nathanclaire/rum';
 
 export const LIFECYCLE_EVENT_SOURCE = new InjectionToken<EventTarget>('LIFECYCLE_EVENT_SOURCE');
 
-type Phase = 'enter' | 'leave';
-
-interface PendingTiming {
+interface CurrentScreen {
   readonly name: string;
-  readonly t: number;
+  readonly enteredAt: number;
 }
 
-const WILL_ENTER = 'ionViewWillEnter';
 const DID_ENTER = 'ionViewDidEnter';
-const WILL_LEAVE = 'ionViewWillLeave';
 const DID_LEAVE = 'ionViewDidLeave';
 
 function resolveScreenName(target: EventTarget | null): string {
@@ -25,22 +21,17 @@ function resolveScreenName(target: EventTarget | null): string {
 @Injectable({ providedIn: 'root' })
 export class IonicLifecycleCapture implements OnDestroy {
   private readonly source: EventTarget | null;
-  private readonly willEnter = (e: Event): void => this.onWill('enter', e);
-  private readonly didEnter = (e: Event): void => this.onDid('enter', e);
-  private readonly willLeave = (e: Event): void => this.onWill('leave', e);
-  private readonly didLeave = (e: Event): void => this.onDid('leave', e);
+  private readonly didEnter = (e: Event): void => this.onDidEnter(e);
+  private readonly didLeave = (e: Event): void => this.onDidLeave(e);
 
-  private pendingEnter: PendingTiming | null = null;
-  private pendingLeave: PendingTiming | null = null;
+  private currentScreen: CurrentScreen | null = null;
 
   constructor(
     @Optional() @Inject(LIFECYCLE_EVENT_SOURCE) source?: EventTarget | null,
   ) {
     this.source = source ?? (typeof document !== 'undefined' ? document : null);
     if (this.source) {
-      this.source.addEventListener(WILL_ENTER, this.willEnter);
       this.source.addEventListener(DID_ENTER, this.didEnter);
-      this.source.addEventListener(WILL_LEAVE, this.willLeave);
       this.source.addEventListener(DID_LEAVE, this.didLeave);
     }
   }
@@ -49,39 +40,31 @@ export class IonicLifecycleCapture implements OnDestroy {
     if (!this.source) {
       return;
     }
-    this.source.removeEventListener(WILL_ENTER, this.willEnter);
     this.source.removeEventListener(DID_ENTER, this.didEnter);
-    this.source.removeEventListener(WILL_LEAVE, this.willLeave);
     this.source.removeEventListener(DID_LEAVE, this.didLeave);
   }
 
-  private onWill(phase: Phase, event: Event): void {
-    const timing: PendingTiming = { name: resolveScreenName(event.target), t: Date.now() };
-    if (phase === 'enter') {
-      this.pendingEnter = timing;
-    } else {
-      this.pendingLeave = timing;
-    }
+  private onDidEnter(event: Event): void {
+    this.currentScreen = {
+      name: resolveScreenName(event.target),
+      enteredAt: Date.now(),
+    };
   }
 
-  private onDid(phase: Phase, event: Event): void {
-    const endTime = Date.now();
-    const pending = phase === 'enter' ? this.pendingEnter : this.pendingLeave;
-    const name = pending?.name ?? resolveScreenName(event.target);
-    const durationMs = pending ? Math.max(0, endTime - pending.t) : 0;
+  private onDidLeave(event: Event): void {
+    const name = this.currentScreen?.name ?? resolveScreenName(event.target);
+    const enteredAt = this.currentScreen?.enteredAt ?? Date.now();
+    const durationMs = Math.max(0, Date.now() - enteredAt);
+    const timestamp = new Date().toISOString();
 
     const attrs: EventAttributes = {
       'screen.name': name,
-      'screen.event': phase,
       'screen.duration_ms': durationMs,
+      'screen.exit_method': 'navigate',
+      'screen.timestamp': timestamp,
     };
 
-    __recordEvent('screen_timing', attrs);
-
-    if (phase === 'enter') {
-      this.pendingEnter = null;
-    } else {
-      this.pendingLeave = null;
-    }
+    __recordEvent('screen.duration', attrs);
+    this.currentScreen = null;
   }
 }

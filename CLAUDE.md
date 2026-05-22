@@ -9,12 +9,12 @@ Read it completely before writing any code, generating any files, or making any 
 
 `edge-rum` is a Real User Monitoring SDK for **Ionic Angular Capacitor** apps. It captures
 performance data, errors, network requests, and user interactions, then ships them as JSON
-to a proprietary backend — the **same backend** that already receives data from the
+to a proprietary backend — the EdgeTelemetryProcessor — that also receives data from the
 Edge Telemetry Android SDK.
 
-**Payload compatibility is a hard requirement.** The wire format is aligned to the Android
-SDK's batch envelope so the same Kafka processor, storage tables, and dashboards handle
-both platforms without branching.
+**Payload compatibility is a hard requirement.** The wire format conforms to the
+EdgeTelemetryProcessor contract documented in `docs/payload-schema.json`. The same Kafka
+processor handles both platforms.
 
 ---
 
@@ -62,47 +62,59 @@ All data sent to the backend must be:
 
 ---
 
-## Android SDK alignment — read this before touching PayloadBuilder
+## EdgeTelemetryProcessor contract — read this before touching PayloadBuilder
 
-The backend already processes payloads from the Android SDK. The web SDK **must produce
-the same envelope structure** so the Kafka processor handles both without changes.
+The web SDK must produce payloads matching the EdgeTelemetryProcessor wire contract. The
+backend collector tier resolves `tenant_id` from the API key, so the SDK does NOT send it.
 
-### Envelope structure (matches collector server)
+### Envelope structure
 
 ```json
 {
-  "timestamp": "2024-01-15T10:30:00Z",
-  "type": "batch",
-  "device_id": "device_1704067200000_a8b9c2d1_web",
+  "type": "telemetry_batch",
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "location": "Nairobi/Kenya",
+  "batch_size": 3,
   "events": [ ...events ]
 }
 ```
 
-- `timestamp`: ISO 8601 string of the batch flush time — **NOT Unix ms**. Use `new Date().toISOString()`.
-- `type`: always the string `"batch"` — never changes.
-- `device_id`: device identifier extracted from `events[0].attributes["device.id"]`. Required by the collector server.
-- `events`: array of event objects.
+- `type`: always the string `"telemetry_batch"`.
+- `timestamp`: ISO 8601 string of the batch flush time. Use `new Date().toISOString()`. Never Unix ms.
+- `location`: optional per-app/install string (City/Country). Set via `EdgeRumConfig.location`.
+- `batch_size`: integer equal to `events.length` (optional on the wire, but included for parity).
+- `events`: array of event and metric items.
 
-### Individual event structure (matches Android exactly)
+### Required identity attributes on every event
 
-Every event in the array:
+The collector drops events missing any of these. PayloadBuilder merges them in from
+`ContextManager` so every emitted event carries them:
+
+- `app.package_name`, `app.name`, `app.version`, `app.build_number`
+- `device.id`, `device.platform`
+- `user.id` (plus optional `user.name`, `user.email`, `user.phone`)
+- `session.id`, `session.start_time`
+- `network.type` (optional)
+
+### Individual event structure
 
 ```json
 {
   "type": "event",
-  "eventName": "screen_view",
-  "timestamp": "2024-01-15T10:30:00Z",
+  "eventName": "navigation",
+  "timestamp": "2024-01-15T10:30:00.123Z",
   "attributes": {
     "app.name": "MyApp",
     "app.version": "1.0.0",
-    "app.package": "com.example.myapp",
+    "app.package_name": "com.example.myapp",
+    "app.build_number": "42",
     "app.environment": "production",
     "device.id": "device_1704067200000_a8b9c2d1_web",
     "device.platform": "web",
     "device.model": "iPhone 15 Pro",
     "device.manufacturer": "Apple",
     "device.os": "ios",
-    "device.osVersion": "17.4",
+    "device.platform_version": "17.4",
     "device.isVirtual": false,
     "device.screenWidth": 390,
     "device.screenHeight": 844,
@@ -113,33 +125,31 @@ Every event in the array:
     "network.effectiveType": "4g",
     "network.downlinkMbps": 24.5,
     "session.id": "session_1704067200000_x9y8z7w6_web",
-    "session.startTime": "2024-01-15T10:25:00Z",
+    "session.start_time": "2024-01-15T10:25:00.000Z",
     "session.sequence": 42,
     "user.id": "user_1704067200000_abcd1234",
-    "sdk.version": "1.0.0",
+    "sdk.version": "3.0.0",
     "sdk.platform": "ionic-angular-capacitor",
-    ...eventSpecificAttributes
+    "...eventSpecificAttributes": "..."
   }
 }
 ```
 
-**Critical alignment points:**
+**Wire contract pinned facts:**
 
-| Field | Android SDK | Web SDK (edge-rum) | Notes |
-|---|---|---|---|
-| Outer `type` | `"event"` | `"event"` | Always `"event"` for every item |
-| `eventName` | e.g. `"screen_view"` | e.g. `"screen_view"` | Maps to our event type names |
-| `timestamp` | ISO 8601 string | ISO 8601 string | `new Date().toISOString()` |
-| `attributes` | flat key-value object | flat key-value object | All context + event data merged flat |
-| `app.name` | in `attributes` | in `attributes` | Same key |
-| `app.version` | in `attributes` | in `attributes` | Same key |
-| `device.id` | in `attributes` | in `attributes` | See device ID format below |
-| `device.platform` | `"android"` | `"ios"` / `"android"` / `"web"` | From Capacitor |
-| `session.id` | in `attributes` | in `attributes` | See session ID format below |
-| `user.id` | in `attributes` | in `attributes` | Same key |
-| Auth header | `X-API-Key` | `X-API-Key` | **Changed from our original design** |
+| Field | Value | Notes |
+|---|---|---|
+| Outer batch `type` | `"telemetry_batch"` | Never the old `"batch"` value |
+| Per-event `type` | `"event"` (or `"metric"`) | Discriminator |
+| `eventName` | see mapping table below | Backend routes by this |
+| `timestamp` | ISO 8601 string | `new Date().toISOString()` |
+| `attributes` | flat key-value object | Primitives only, no nesting |
+| `app.package_name` | in `attributes` | NOT `app.package` |
+| `session.start_time` | in `attributes` | NOT `session.startTime` |
+| `device.platform_version` | in `attributes` | NOT `device.osVersion` |
+| Auth header | `X-API-Key` | |
 
-### ID formats (match Android SDK patterns)
+### ID formats
 
 ```
 device.id:  "device_{timestampMs}_{8hexchars}_{platform}"
@@ -150,314 +160,134 @@ session.id: "session_{timestampMs}_{8hexchars}_{platform}"
 
 user.id:    "user_{timestampMs}_{8hexchars}"
             e.g. "user_1704067200000_abcd1234"
-            (only present after EdgeRum.identify() — or auto-generated anonymous ID)
+            (SDK-owned anonymous ID; EdgeRum.identify() does not change it)
 ```
-
-> **Device ID note**: The Android SDK generates its own device ID format. We must match it
-> structurally. `device.id` is SHA-256 derived from Capacitor's `Device.getId()` but formatted
-> to the `device_{ts}_{hex}_{platform}` pattern. On web (non-native), generate deterministically
-> from `navigator.userAgent` + a stored random suffix in `localStorage`.
 
 ---
 
-## eventName mapping — web SDK to Android SDK equivalents
+## eventName values
 
-The `eventName` field must use names consistent with what the Android SDK already sends so
-the backend can process both platforms in the same pipeline.
+The backend dispatches each event by `eventName`. Currently shipped names:
 
-| Web SDK concept | `eventName` value | Android SDK equivalent |
+| Web SDK concept | `eventName` value | Where emitted |
 |---|---|---|
-| Angular route change | `screen_view` | `screen_view` (Activity/Fragment) |
-| HTTP request | `network_request` | (from TelemetryInterceptor) |
-| Web Vital (LCP, INP etc.) | `performance` | `performance` (frame_drop, memory) |
-| JS / unhandled error | `app.crash` | `app.crash` (crash events) |
-| Custom `EdgeRum.track()` | `custom_event` | `custom_event` |
-| Custom `EdgeRum.time()` | `custom_metric` | `custom_metric` |
-| App foreground/background | `app_lifecycle` | `app_lifecycle` |
-| Page load timing | `page_load` | *(web-only — new, backend must add)* |
-| Ionic page enter/leave | `screen_timing` | *(web-only — new, backend must add)* |
-| Network connectivity change | `network_change` | *(web-only — new, backend must add)* |
+| Angular route change (entry hop) | `navigation` | `packages/angular/src/RouterCapture.ts` |
+| Ionic screen exit (dwell time) | `screen.duration` | `packages/angular/src/IonicLifecycleCapture.ts` |
+| HTTP request | `http.request` | `packages/core/src/instrumentation/requests.ts` |
+| Web Vital (LCP, INP, etc.) | `performance` | `packages/core/src/instrumentation/vitals.ts` |
+| JS / unhandled error | `app.crash` | `packages/core/src/instrumentation/errors.ts` |
+| Custom `EdgeRum.track()` | `custom_event` | `EdgeRum.track()` |
+| Custom `EdgeRum.time()` | (`metric` item) | `EdgeRum.time()` — uses the `metric` item shape, not `eventName` |
+| App foreground / background | `app_lifecycle` | `packages/capacitor/src/LifecycleCapture.ts` |
+| Page load timing | `page_load` | `packages/core/src/instrumentation/pageload.ts` |
+| Network connectivity change | `network_change` | `packages/capacitor/src/NetworkCapture.ts` |
 
-> **New event types requiring backend work** — see the Backend Changes section at the bottom
-> of this file. These three new `eventName` values do not exist in the Android SDK and the
-> Kafka processor will need to be updated to handle them.
+> The `network_request` and `screen_view` names from earlier SDK versions are **gone**.
+> Backend silently drops anything else.
 
 ---
 
 ## Complete payload example — what edge-rum sends
 
 ```jsonc
-// POST /collector/telemetry    (same endpoint as Android SDK)
+// POST /collector/telemetry
 // Content-Type: application/json
 // X-API-Key: edge_your_api_key_here
 
 {
+  "type": "telemetry_batch",
   "timestamp": "2024-01-15T10:30:00.000Z",
-  "type": "batch",
-  "device_id": "device_1704067200000_a8b9c2d1_web",
+  "location": "Nairobi/Kenya",
+  "batch_size": 3,
   "events": [
 
-    // ── screen_view (Angular route change) ──────────────────────────────
-      {
-        "type": "event",
-        "eventName": "screen_view",
-        "timestamp": "2024-01-15T10:30:00.123Z",
-        "attributes": {
-          "app.name": "MyApp",
-          "app.version": "2.1.0",
-          "app.package": "com.yourco.app",
-          "app.environment": "production",
-          "device.id": "device_1704067200000_a8b9c2d1_web",
-          "device.platform": "ios",
-          "device.model": "iPhone 15 Pro",
-          "device.manufacturer": "Apple",
-          "device.os": "ios",
-          "device.osVersion": "17.4",
-          "device.isVirtual": false,
-          "device.screenWidth": 390,
-          "device.screenHeight": 844,
-          "device.pixelRatio": 3.0,
-          "device.batteryLevel": 0.82,
-          "device.batteryCharging": false,
-          "network.type": "wifi",
-          "network.effectiveType": "4g",
-          "network.downlinkMbps": 24.5,
-          "session.id": "session_1704067200000_x9y8z7w6_web",
-          "session.startTime": "2024-01-15T10:25:00.000Z",
-          "session.sequence": 1,
-          "user.id": "user_1704067200000_abcd1234",
-          "sdk.version": "1.0.0",
-          "sdk.platform": "ionic-angular-capacitor",
-          "navigation.from_screen": "HomeScreen",
-          "navigation.to_screen": "ProductDetailScreen",
-          "navigation.method": "push",
-          "navigation.route_type": "main_flow",
-          "navigation.has_arguments": true,
-          "navigation.timestamp": "2024-01-15T10:30:00.123Z",
-          "navigation.duration_ms": 187
-        }
-      },
-
-      // ── network_request (HTTP capture) ──────────────────────────────────
-      {
-        "type": "event",
-        "eventName": "network_request",
-        "timestamp": "2024-01-15T10:30:00.456Z",
-        "attributes": {
-          "app.name": "MyApp",
-          "app.version": "2.1.0",
-          "app.package": "com.yourco.app",
-          "app.environment": "production",
-          "device.id": "device_1704067200000_a8b9c2d1_web",
-          "device.platform": "ios",
-          "session.id": "session_1704067200000_x9y8z7w6_web",
-          "session.sequence": 1,
-          "user.id": "user_1704067200000_abcd1234",
-          "sdk.version": "1.0.0",
-          "sdk.platform": "ionic-angular-capacitor",
-          "network.url": "https://api.example.com/products",
-          "network.method": "GET",
-          "network.status_code": 200,
-          "network.duration_ms": 342,
-          "network.request_body_size": 0,
-          "network.response_body_size": 4210,
-          "network.parent_screen": "ProductDetailScreen"
-        }
-      },
-
-      // ── performance (Web Vital) ──────────────────────────────────────────
-      {
-        "type": "event",
-        "eventName": "performance",
-        "timestamp": "2024-01-15T10:30:01.000Z",
-        "attributes": {
-          "app.name": "MyApp",
-          "app.version": "2.1.0",
-          "app.package": "com.yourco.app",
-          "app.environment": "production",
-          "device.id": "device_1704067200000_a8b9c2d1_web",
-          "device.platform": "ios",
-          "session.id": "session_1704067200000_x9y8z7w6_web",
-          "session.sequence": 1,
-          "user.id": "user_1704067200000_abcd1234",
-          "sdk.version": "1.0.0",
-          "sdk.platform": "ionic-angular-capacitor",
-          "performance.metric_name": "LCP",
-          "performance.value": 1240,
-          "performance.unit": "ms",
-          "performance.rating": "good",
-          "performance.screen": "ProductDetailScreen"
-        }
-      },
-
-      // ── app.crash (JS error) ─────────────────────────────────────────────
-      {
-        "type": "event",
-        "eventName": "app.crash",
-        "timestamp": "2024-01-15T10:30:02.000Z",
-        "attributes": {
-          "app.name": "MyApp",
-          "app.version": "2.1.0",
-          "app.package": "com.yourco.app",
-          "app.environment": "production",
-          "device.id": "device_1704067200000_a8b9c2d1_web",
-          "device.platform": "ios",
-          "session.id": "session_1704067200000_x9y8z7w6_web",
-          "session.sequence": 1,
-          "user.id": "user_1704067200000_abcd1234",
-          "sdk.version": "1.0.0",
-          "sdk.platform": "ionic-angular-capacitor",
-          "exception_type": "TypeError",
-          "message": "Cannot read properties of undefined (reading 'name')",
-          "stacktrace": "TypeError: Cannot read...\n  at ProductDetailComponent...",
-          "is_fatal": false,
-          "handled": false,
-          "error_context": "screen:ProductDetailScreen",
-          "cause": "UnhandledError",
-          "runtime": "webview"
-        }
-      },
-
-      // ── custom_event (EdgeRum.track()) ───────────────────────────────────
-      {
-        "type": "event",
-        "eventName": "custom_event",
-        "timestamp": "2024-01-15T10:30:03.000Z",
-        "attributes": {
-          "app.name": "MyApp",
-          "app.version": "2.1.0",
-          "app.package": "com.yourco.app",
-          "app.environment": "production",
-          "device.id": "device_1704067200000_a8b9c2d1_web",
-          "device.platform": "ios",
-          "session.id": "session_1704067200000_x9y8z7w6_web",
-          "session.sequence": 1,
-          "user.id": "user_1704067200000_abcd1234",
-          "sdk.version": "1.0.0",
-          "sdk.platform": "ionic-angular-capacitor",
-          "event.name": "checkout_started",
-          "event.value": 49.99,
-          "event.currency": "GBP"
-        }
-      },
-
-      // ── custom_metric (EdgeRum.time()) ───────────────────────────────────
-      {
-        "type": "event",
-        "eventName": "custom_metric",
-        "timestamp": "2024-01-15T10:30:04.000Z",
-        "attributes": {
-          "app.name": "MyApp",
-          "app.version": "2.1.0",
-          "app.package": "com.yourco.app",
-          "app.environment": "production",
-          "device.id": "device_1704067200000_a8b9c2d1_web",
-          "device.platform": "ios",
-          "session.id": "session_1704067200000_x9y8z7w6_web",
-          "session.sequence": 1,
-          "user.id": "user_1704067200000_abcd1234",
-          "sdk.version": "1.0.0",
-          "sdk.platform": "ionic-angular-capacitor",
-          "metric.name": "image_upload",
-          "metric.value": 890,
-          "metric.unit": "ms",
-          "metric.file_size_kb": 2048
-        }
-      },
-
-      // ── app_lifecycle ────────────────────────────────────────────────────
-      {
-        "type": "event",
-        "eventName": "app_lifecycle",
-        "timestamp": "2024-01-15T10:30:05.000Z",
-        "attributes": {
-          "app.name": "MyApp",
-          "app.version": "2.1.0",
-          "app.package": "com.yourco.app",
-          "app.environment": "production",
-          "device.id": "device_1704067200000_a8b9c2d1_web",
-          "device.platform": "ios",
-          "session.id": "session_1704067200000_x9y8z7w6_web",
-          "session.sequence": 1,
-          "user.id": "user_1704067200000_abcd1234",
-          "sdk.version": "1.0.0",
-          "sdk.platform": "ionic-angular-capacitor",
-          "lifecycle.event": "foreground",
-          "lifecycle.cold_start_ms": 1240
-        }
-      },
-
-      // ── page_load (NEW — web only) ───────────────────────────────────────
-      {
-        "type": "event",
-        "eventName": "page_load",
-        "timestamp": "2024-01-15T10:30:06.000Z",
-        "attributes": {
-          "app.name": "MyApp",
-          "app.version": "2.1.0",
-          "app.package": "com.yourco.app",
-          "app.environment": "production",
-          "device.id": "device_1704067200000_a8b9c2d1_web",
-          "device.platform": "ios",
-          "session.id": "session_1704067200000_x9y8z7w6_web",
-          "session.sequence": 1,
-          "sdk.version": "1.0.0",
-          "sdk.platform": "ionic-angular-capacitor",
-          "page.ttfb_ms": 180,
-          "page.dom_content_loaded_ms": 420,
-          "page.load_duration_ms": 980,
-          "page.resource_count": 24,
-          "page.route": "/home"
-        }
-      },
-
-      // ── screen_timing (NEW — web only) ──────────────────────────────────
-      {
-        "type": "event",
-        "eventName": "screen_timing",
-        "timestamp": "2024-01-15T10:30:07.000Z",
-        "attributes": {
-          "app.name": "MyApp",
-          "app.version": "2.1.0",
-          "app.package": "com.yourco.app",
-          "app.environment": "production",
-          "device.id": "device_1704067200000_a8b9c2d1_web",
-          "device.platform": "ios",
-          "session.id": "session_1704067200000_x9y8z7w6_web",
-          "session.sequence": 1,
-          "sdk.version": "1.0.0",
-          "sdk.platform": "ionic-angular-capacitor",
-          "screen.name": "ProductDetailScreen",
-          "screen.event": "enter",
-          "screen.duration_ms": 95
-        }
-      },
-
-      // ── network_change (NEW — web only) ─────────────────────────────────
-      {
-        "type": "event",
-        "eventName": "network_change",
-        "timestamp": "2024-01-15T10:30:08.000Z",
-        "attributes": {
-          "app.name": "MyApp",
-          "app.version": "2.1.0",
-          "app.package": "com.yourco.app",
-          "app.environment": "production",
-          "device.id": "device_1704067200000_a8b9c2d1_web",
-          "device.platform": "ios",
-          "session.id": "session_1704067200000_x9y8z7w6_web",
-          "session.sequence": 1,
-          "sdk.version": "1.0.0",
-          "sdk.platform": "ionic-angular-capacitor",
-          "network.connected": true,
-          "network.type": "wifi",
-          "network.previous_type": "cellular"
-        }
+    // ── navigation (entry hop in user journey) ──────────────────────────
+    {
+      "type": "event",
+      "eventName": "navigation",
+      "timestamp": "2024-01-15T10:30:00.123Z",
+      "attributes": {
+        "app.name": "MyApp",
+        "app.version": "2.1.0",
+        "app.package_name": "com.yourco.app",
+        "app.build_number": "42",
+        "app.environment": "production",
+        "device.id": "device_1704067200000_a8b9c2d1_web",
+        "device.platform": "ios",
+        "device.model": "iPhone 15 Pro",
+        "device.platform_version": "17.4",
+        "network.type": "wifi",
+        "session.id": "session_1704067200000_x9y8z7w6_web",
+        "session.start_time": "2024-01-15T10:25:00.000Z",
+        "session.sequence": 1,
+        "user.id": "user_1704067200000_abcd1234",
+        "sdk.version": "3.0.0",
+        "sdk.platform": "ionic-angular-capacitor",
+        "navigation.from_screen": "/tabs/products",
+        "navigation.to_screen": "/tabs/profile",
+        "navigation.method": "push",
+        "navigation.route_type": "main_flow",
+        "navigation.has_arguments": false,
+        "navigation.timestamp": "2024-01-15T10:30:00.123Z"
       }
+    },
 
+    // ── screen.duration (on screen exit, full dwell time) ───────────────
+    {
+      "type": "event",
+      "eventName": "screen.duration",
+      "timestamp": "2024-01-15T10:30:04.456Z",
+      "attributes": {
+        "app.name": "MyApp",
+        "app.package_name": "com.yourco.app",
+        "app.build_number": "42",
+        "device.id": "device_1704067200000_a8b9c2d1_web",
+        "device.platform": "ios",
+        "network.type": "wifi",
+        "session.id": "session_1704067200000_x9y8z7w6_web",
+        "session.start_time": "2024-01-15T10:25:00.000Z",
+        "user.id": "user_1704067200000_abcd1234",
+        "sdk.version": "3.0.0",
+        "sdk.platform": "ionic-angular-capacitor",
+        "screen.name": "/tabs/profile",
+        "screen.duration_ms": 4331,
+        "screen.exit_method": "navigate",
+        "screen.timestamp": "2024-01-15T10:30:04.456Z"
+      }
+    },
+
+    // ── http.request (fetch capture) ────────────────────────────────────
+    {
+      "type": "event",
+      "eventName": "http.request",
+      "timestamp": "2024-01-15T10:30:00.456Z",
+      "attributes": {
+        "app.name": "MyApp",
+        "app.package_name": "com.yourco.app",
+        "app.build_number": "42",
+        "device.id": "device_1704067200000_a8b9c2d1_web",
+        "device.platform": "ios",
+        "network.type": "wifi",
+        "session.id": "session_1704067200000_x9y8z7w6_web",
+        "session.start_time": "2024-01-15T10:25:00.000Z",
+        "user.id": "user_1704067200000_abcd1234",
+        "sdk.version": "3.0.0",
+        "sdk.platform": "ionic-angular-capacitor",
+        "http.url": "https://api.example.com/products",
+        "http.method": "GET",
+        "http.status_code": 200,
+        "http.duration_ms": 342,
+        "http.success": true,
+        "http.timestamp": "2024-01-15T10:30:00.456Z"
+      }
+    }
   ]
 }
 ```
+
+Other event shapes (`performance`, `app.crash`, `custom_event`, `app_lifecycle`, `page_load`,
+`network_change`, and `metric` items from `EdgeRum.time()`) follow the same envelope and
+identity attribute rules. See `docs/payload-schema.json` for the authoritative attribute lists.
 
 ---
 
@@ -466,10 +296,12 @@ the backend can process both platforms in the same pipeline.
 Because every event carries the full context (app, device, session, user) as flat attributes,
 `PayloadBuilder` must:
 
-1. Maintain a `contextAttributes` object in `SessionManager` — updated once on init and
+1. Maintain a `contextAttributes` object in `ContextManager` — updated once on init and
    on any change (user identify, network change, etc.).
 2. On each event, call `{ ...contextAttributes, ...eventAttributes }` to merge flat.
-3. Build the outer envelope: `{ timestamp: new Date().toISOString(), type: "batch", device_id: events[0].attributes["device.id"], events: [...] }`.
+3. Build the outer envelope:
+   `{ type: "telemetry_batch", timestamp: new Date().toISOString(), location?, batch_size, events }`.
+   `location` is sourced from `EdgeRumConfig.location` and threaded through the `Pipeline`.
 4. Never nest objects inside `attributes` — all values must be primitives
    (`string | number | boolean`). Flatten any nested data with dot-notation keys.
 
@@ -532,10 +364,9 @@ edge-rum/
 │           └── LifecycleCapture.ts
 ├── demo/
 ├── docs/
-│   ├── payload-schema.json
+│   ├── payload-schema.json          ← authoritative wire contract
 │   ├── decisions.md
-│   ├── terminology.md
-│   └── backend-changes.md          ← NEW: what backend team must implement
+│   └── terminology.md
 ├── CLAUDE.md
 ├── PLAN.md
 └── THIRD_PARTY_LICENSES
@@ -552,13 +383,14 @@ interface EdgeRumConfig {
   endpoint: string;                   // required — no default, must be provided by the developer
   appName?: string;                  // used as app.name in all events
   appVersion?: string;               // used as app.version
-  appPackage?: string;               // used as app.package (e.g. "com.yourco.app")
+  appPackage?: string;               // used as app.package_name (e.g. "com.yourco.app")
   environment?: 'production' | 'staging' | 'development';
+  location?: string;                 // batch envelope location, e.g. "Nairobi/Kenya"
   sampleRate?: number;               // 0.0–1.0, default 1.0
   ignoreUrls?: (string | RegExp)[];
   maxQueueSize?: number;             // default 200
   flushIntervalMs?: number;          // default 5000
-  batchSize?: number;                // max events per payload, default 30 (matches Android)
+  batchSize?: number;                // max events per payload, default 30
   sanitizeUrl?: (url: string) => string;
   debug?: boolean;
 }
@@ -599,8 +431,8 @@ const payload = JSON.parse(body);
 
 // Envelope shape
 expect(payload.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);   // ISO 8601
-expect(payload.type).toBe('batch');
-expect(payload.device_id).toMatch(/^device_/);
+expect(payload.type).toBe('telemetry_batch');
+expect(payload).not.toHaveProperty('device_id');
 expect(payload.events).toBeInstanceOf(Array);
 
 // Each event
@@ -753,8 +585,8 @@ Batch max size: `batchSize` (default 30, matches Android default).
 ## When in doubt checklist
 
 1. Public surface? → Apply Rule 1 (terminology firewall).
-2. Touches the wire? → Apply Rule 2 (JSON only, Android envelope).
-3. Adding a new `eventName`? → Check `docs/backend-changes.md` — does the backend know?
+2. Touches the wire? → Apply Rule 2 (JSON only, `telemetry_batch` envelope).
+3. Adding a new `eventName`? → Confirm with the backend team and update `docs/payload-schema.json`.
 4. Attributes nested? → Flatten them. Always primitives only.
 5. Timestamp field? → ISO 8601 string, never Unix ms.
 6. Auth header? → `X-API-Key`, never `Authorization: Bearer`.

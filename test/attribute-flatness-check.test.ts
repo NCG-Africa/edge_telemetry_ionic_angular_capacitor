@@ -38,7 +38,7 @@ function runAgainst(fixture: unknown): { code: number; stdout: string; stderr: s
 
 const cleanEvent = {
   type: 'event',
-  eventName: 'screen_view',
+  eventName: 'navigation',
   timestamp: '2024-01-15T10:30:00.000Z',
   attributes: {
     'app.name': 'MyApp',
@@ -51,7 +51,7 @@ describe('attribute-flatness-check', () => {
   it('passes with flat primitive attributes', () => {
     const fixture = {
       timestamp: '2024-01-15T10:30:00.000Z',
-      type: 'batch', events: [cleanEvent],
+      type: 'telemetry_batch', events: [cleanEvent],
     };
     const r = runAgainst(fixture);
     expect(r.code).toBe(0);
@@ -60,7 +60,7 @@ describe('attribute-flatness-check', () => {
   it('fails when an attribute value is an object', () => {
     const fixture = {
       timestamp: '2024-01-15T10:30:00.000Z',
-      type: 'batch',
+      type: 'telemetry_batch',
       events: [{ ...cleanEvent, attributes: { device: { model: 'iPhone' } } }],
     };
     const r = runAgainst(fixture);
@@ -71,7 +71,7 @@ describe('attribute-flatness-check', () => {
   it('fails when an attribute value is an array', () => {
     const fixture = {
       timestamp: '2024-01-15T10:30:00.000Z',
-      type: 'batch',
+      type: 'telemetry_batch',
       events: [{ ...cleanEvent, attributes: { tags: ['a', 'b'] } }],
     };
     const r = runAgainst(fixture);
@@ -81,7 +81,7 @@ describe('attribute-flatness-check', () => {
   it('fails when an attribute value is null', () => {
     const fixture = {
       timestamp: '2024-01-15T10:30:00.000Z',
-      type: 'batch',
+      type: 'telemetry_batch',
       events: [{ ...cleanEvent, attributes: { 'user.id': null } }],
     };
     const r = runAgainst(fixture);

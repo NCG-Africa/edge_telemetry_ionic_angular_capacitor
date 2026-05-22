@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   registerRequestCapture,
-  type NetworkRequestAttributes,
+  type HttpRequestAttributes,
   type RequestsDeps,
 } from '../src/instrumentation/requests';
 
@@ -18,9 +18,8 @@ function mockResponse(status: number, headers: Record<string, string> = {}): Res
 }
 
 describe('registerRequestCapture', () => {
-  let originalFetch: typeof fetch;
   let fakeFetch: ReturnType<typeof vi.fn>;
-  let recorded: Array<{ eventName: string; attrs: NetworkRequestAttributes }>;
+  let recorded: Array<{ eventName: string; attrs: HttpRequestAttributes }>;
   let target: typeof globalThis;
   let deps: RequestsDeps;
 
@@ -28,12 +27,10 @@ describe('registerRequestCapture', () => {
     recorded = [];
     fakeFetch = vi.fn().mockResolvedValue(mockResponse(200, { 'content-length': '1024' }));
     target = { fetch: fakeFetch } as unknown as typeof globalThis;
-    originalFetch = fakeFetch as unknown as typeof fetch;
     deps = {
       recordEvent: (eventName, attrs) => {
         recorded.push({ eventName, attrs });
       },
-      getCurrentRoute: () => '/home',
       target,
     };
   });
@@ -42,18 +39,19 @@ describe('registerRequestCapture', () => {
     vi.restoreAllMocks();
   });
 
-  it('captures a successful GET request', async () => {
+  it('captures a successful GET request as an http.request event', async () => {
     const handle = registerRequestCapture(deps);
     await target.fetch('https://api.example.com/data');
     handle.dispose();
 
     expect(recorded).toHaveLength(1);
-    expect(recorded[0]?.eventName).toBe('network_request');
-    expect(recorded[0]?.attrs['network.url']).toBe('https://api.example.com/data');
-    expect(recorded[0]?.attrs['network.method']).toBe('GET');
-    expect(recorded[0]?.attrs['network.status_code']).toBe(200);
-    expect(recorded[0]?.attrs['network.response_body_size']).toBe(1024);
-    expect(recorded[0]?.attrs['network.parent_screen']).toBe('/home');
+    expect(recorded[0]?.eventName).toBe('http.request');
+    expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/data');
+    expect(recorded[0]?.attrs['http.method']).toBe('GET');
+    expect(recorded[0]?.attrs['http.status_code']).toBe(200);
+    expect(recorded[0]?.attrs['http.success']).toBe(true);
+    expect(recorded[0]?.attrs['http.timestamp']).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(typeof recorded[0]?.attrs['http.duration_ms']).toBe('number');
   });
 
   it('captures POST method from init', async () => {
@@ -64,11 +62,20 @@ describe('registerRequestCapture', () => {
     });
     handle.dispose();
 
-    expect(recorded[0]?.attrs['network.method']).toBe('POST');
-    expect(recorded[0]?.attrs['network.request_body_size']).toBe(15);
+    expect(recorded[0]?.attrs['http.method']).toBe('POST');
   });
 
-  it('records status 0 and duration on network error', async () => {
+  it('marks http.success false for 4xx and 5xx responses', async () => {
+    fakeFetch.mockResolvedValueOnce(mockResponse(404));
+    const handle = registerRequestCapture(deps);
+    await target.fetch('https://api.example.com/missing');
+    handle.dispose();
+
+    expect(recorded[0]?.attrs['http.status_code']).toBe(404);
+    expect(recorded[0]?.attrs['http.success']).toBe(false);
+  });
+
+  it('records status 0, success false, and duration on network error', async () => {
     fakeFetch.mockRejectedValueOnce(new Error('network down'));
     const handle = registerRequestCapture(deps);
 
@@ -76,8 +83,9 @@ describe('registerRequestCapture', () => {
     handle.dispose();
 
     expect(recorded).toHaveLength(1);
-    expect(recorded[0]?.attrs['network.status_code']).toBe(0);
-    expect(recorded[0]?.attrs['network.duration_ms']).toBeGreaterThanOrEqual(0);
+    expect(recorded[0]?.attrs['http.status_code']).toBe(0);
+    expect(recorded[0]?.attrs['http.success']).toBe(false);
+    expect(recorded[0]?.attrs['http.duration_ms']).toBeGreaterThanOrEqual(0);
   });
 
   it('ignores URLs matching string patterns', async () => {
@@ -92,7 +100,7 @@ describe('registerRequestCapture', () => {
     handle.dispose();
 
     expect(recorded).toHaveLength(1);
-    expect(recorded[0]?.attrs['network.url']).toBe('https://api.example.com/data');
+    expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/data');
   });
 
   it('ignores URLs matching RegExp patterns', async () => {
@@ -106,7 +114,7 @@ describe('registerRequestCapture', () => {
     handle.dispose();
 
     expect(recorded).toHaveLength(1);
-    expect(recorded[0]?.attrs['network.url']).toBe('https://api.example.com/data');
+    expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/data');
   });
 
   it('applies sanitizeUrl to captured URLs', async () => {
@@ -118,7 +126,7 @@ describe('registerRequestCapture', () => {
     await target.fetch('https://api.example.com/users/12345');
     handle.dispose();
 
-    expect(recorded[0]?.attrs['network.url']).toBe('https://api.example.com/users/:id');
+    expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/users/:id');
   });
 
   it('strips default sensitive query params even without a user sanitizer', async () => {
@@ -128,7 +136,7 @@ describe('registerRequestCapture', () => {
     handle.dispose();
 
     expect(recorded).toHaveLength(1);
-    const url = recorded[0]?.attrs['network.url'] as string;
+    const url = recorded[0]?.attrs['http.url'] as string;
     expect(url).toBe('https://api.example.com/s?q=hats');
     expect(url).not.toContain('token');
     expect(url).not.toContain('password');
@@ -144,8 +152,7 @@ describe('registerRequestCapture', () => {
     await target.fetch('https://api.example.com/users/12345?token=abc&q=hats');
     handle.dispose();
 
-    // token stripped (default) AND /users/12345 normalised (user)
-    expect(recorded[0]?.attrs['network.url']).toBe(
+    expect(recorded[0]?.attrs['http.url']).toBe(
       'https://api.example.com/users/:id?q=hats',
     );
   });
@@ -155,9 +162,7 @@ describe('registerRequestCapture', () => {
     const handle = registerRequestCapture(deps);
     expect(target.fetch).not.toBe(beforePatch);
     handle.dispose();
-    // After dispose, fetch should no longer be the patched version
     await target.fetch('https://api.example.com/after-dispose');
-    // Only the call during the test should be recorded (not through capture)
     expect(recorded).toHaveLength(0);
   });
 
@@ -171,6 +176,21 @@ describe('registerRequestCapture', () => {
     for (const value of Object.values(attrs!)) {
       expect(typeof value).toMatch(/^(string|number|boolean)$/);
     }
+  });
+
+  it('does not emit any network.* request attributes', async () => {
+    const handle = registerRequestCapture(deps);
+    await target.fetch('https://api.example.com/data');
+    handle.dispose();
+
+    const attrs = recorded[0]?.attrs as Record<string, unknown>;
+    expect(attrs).not.toHaveProperty('network.url');
+    expect(attrs).not.toHaveProperty('network.method');
+    expect(attrs).not.toHaveProperty('network.status_code');
+    expect(attrs).not.toHaveProperty('network.duration_ms');
+    expect(attrs).not.toHaveProperty('network.request_body_size');
+    expect(attrs).not.toHaveProperty('network.response_body_size');
+    expect(attrs).not.toHaveProperty('network.parent_screen');
   });
 
   it('contains no OTel terminology', async () => {
@@ -190,7 +210,7 @@ describe('registerRequestCapture', () => {
       ...deps,
       target: {} as typeof globalThis,
     });
-    handle.dispose(); // should not throw
+    handle.dispose();
     expect(recorded).toHaveLength(0);
   });
 
@@ -199,6 +219,6 @@ describe('registerRequestCapture', () => {
     await target.fetch(new URL('https://api.example.com/url-object'));
     handle.dispose();
 
-    expect(recorded[0]?.attrs['network.url']).toBe('https://api.example.com/url-object');
+    expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/url-object');
   });
 });

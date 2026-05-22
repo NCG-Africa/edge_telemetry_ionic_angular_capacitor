@@ -120,6 +120,7 @@ export const EdgeRum: EdgeRumRuntime = {
       context,
       batchSize: config.batchSize ?? DEFAULT_BATCH_SIZE,
       flushIntervalMs: config.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS,
+      location: config.location,
       deferReady: config.deferFlush,
       debug: config.debug,
     });
@@ -160,7 +161,6 @@ export const EdgeRum: EdgeRumRuntime = {
 
     state.requestsHandle = registerRequestCapture({
       recordEvent: (eventName, attributes) => collector.recordEvent(eventName, attributes),
-      getCurrentRoute: () => state.currentRoute,
       ignoreUrls: effectiveIgnoreUrls,
       sanitizeUrl: config.sanitizeUrl,
     });

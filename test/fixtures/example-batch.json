@@ -1,12 +1,12 @@
 {
+  "type": "telemetry_batch",
   "timestamp": "2024-01-15T10:30:00.000Z",
-  "type": "batch",
-  "device_id": "device_1704067200000_a8b9c2d1_web",
+  "location": "Nairobi/Kenya",
   "batch_size": 2,
   "events": [
     {
       "type": "event",
-      "eventName": "screen_view",
+      "eventName": "navigation",
       "timestamp": "2024-01-15T10:30:00.123Z",
       "attributes": {
         "app.name": "MyApp",
@@ -23,8 +23,15 @@
         "session.id": "session_1704067200000_x9y8z7w6_web",
         "session.start_time": "2024-01-15T10:25:00.000Z",
         "session.sequence": 1,
+        "user.id": "user_1704067200000_abcd1234",
         "sdk.platform": "ionic-angular-capacitor",
-        "sdk.version": "0.0.1"
+        "sdk.version": "3.0.0",
+        "navigation.from_screen": "/home",
+        "navigation.to_screen": "/products/:id",
+        "navigation.method": "push",
+        "navigation.route_type": "deeplink",
+        "navigation.has_arguments": true,
+        "navigation.timestamp": "2024-01-15T10:30:00.123Z"
       }
     },
     {
@@ -44,8 +51,9 @@
         "session.id": "session_1704067200000_x9y8z7w6_web",
         "session.start_time": "2024-01-15T10:25:00.000Z",
         "session.sequence": 1,
+        "user.id": "user_1704067200000_abcd1234",
         "sdk.platform": "ionic-angular-capacitor",
-        "sdk.version": "0.0.1",
+        "sdk.version": "3.0.0",
         "metric.unit": "ms"
       }
     }

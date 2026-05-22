@@ -4,8 +4,6 @@ import { Router } from '@angular/router';
 import type {
   ActivatedRouteSnapshot,
   Event as RouterEvent,
-  NavigationCancel,
-  NavigationEnd,
   NavigationError,
   NavigationStart,
 } from '@angular/router';
@@ -66,7 +64,6 @@ function classifyRoute(pattern: string): RouteType {
 
 interface PendingNav {
   readonly id: number;
-  readonly startTime: number;
   readonly trigger: NavigationStart['navigationTrigger'];
   readonly replaceUrl: boolean;
 }
@@ -94,20 +91,17 @@ export class RouterCapture implements OnDestroy {
         const start = event as NavigationStart;
         this.pending = {
           id: start.id,
-          startTime: this.now(),
           trigger: start.navigationTrigger,
           replaceUrl: this.router.getCurrentNavigation()?.extras?.replaceUrl === true,
         };
         return;
       }
       case EVENT_TYPE.NavigationEnd: {
-        const end = event as NavigationEnd;
-        this.emitRouteChange(this.methodForEnd(), end.id);
+        this.emitRouteChange(this.methodForEnd());
         return;
       }
       case EVENT_TYPE.NavigationCancel: {
-        const cancel = event as NavigationCancel;
-        this.emitRouteChange('cancel', cancel.id);
+        this.emitRouteChange('cancel');
         return;
       }
       case EVENT_TYPE.NavigationError: {
@@ -132,12 +126,9 @@ export class RouterCapture implements OnDestroy {
     return 'push';
   }
 
-  private emitRouteChange(method: NavigationMethod, navId: number): void {
-    const endTime = this.now();
+  private emitRouteChange(method: NavigationMethod): void {
     const root = this.router.routerState.snapshot.root;
     const toRoute = normaliseRoute(root);
-    const startTime = this.pending?.id === navId ? this.pending.startTime : endTime;
-    const durationMs = Math.max(0, endTime - startTime);
     const url = this.router.routerState.snapshot.url;
 
     const navAttrs: EventAttributes = {
@@ -146,14 +137,12 @@ export class RouterCapture implements OnDestroy {
       'navigation.route_type': classifyRoute(toRoute),
       'navigation.has_arguments': hasArguments(url, root),
       'navigation.timestamp': new Date().toISOString(),
-      'navigation.duration_ms': durationMs,
     };
     if (this.previousRoute !== null) {
       navAttrs['navigation.from_screen'] = this.previousRoute;
     }
 
     __recordEvent('navigation', navAttrs);
-    __recordEvent('screen_view', { 'navigation.to_screen': toRoute });
 
     this.previousRoute = toRoute;
     this.isFirstNavigation = false;
@@ -179,12 +168,5 @@ export class RouterCapture implements OnDestroy {
 
     __recordEvent('app.crash', attrs);
     this.pending = null;
-  }
-
-  private now(): number {
-    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
-      return performance.now();
-    }
-    return Date.now();
   }
 }

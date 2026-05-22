@@ -1,18 +1,16 @@
 import { composeSanitizeUrl } from './url-sanitizer';
 
-export type NetworkRequestAttributes = {
-  'network.url': string;
-  'network.method': string;
-  'network.status_code': number;
-  'network.duration_ms': number;
-  'network.request_body_size': number;
-  'network.response_body_size': number;
-  'network.parent_screen': string;
+export type HttpRequestAttributes = {
+  'http.url': string;
+  'http.method': string;
+  'http.status_code': number;
+  'http.duration_ms': number;
+  'http.success': boolean;
+  'http.timestamp': string;
 };
 
 export interface RequestsDeps {
-  recordEvent: (eventName: 'network_request', attributes: NetworkRequestAttributes) => void;
-  getCurrentRoute: () => string;
+  recordEvent: (eventName: 'http.request', attributes: HttpRequestAttributes) => void;
   ignoreUrls?: (string | RegExp)[];
   sanitizeUrl?: (url: string) => string;
   target?: typeof globalThis;
@@ -33,15 +31,8 @@ function shouldIgnore(url: string, patterns: (string | RegExp)[]): boolean {
   return false;
 }
 
-function estimateBodySize(body: BodyInit | null | undefined): number {
-  if (!body) return 0;
-  if (typeof body === 'string') return body.length;
-  if (body instanceof ArrayBuffer) return body.byteLength;
-  if (body instanceof Blob) return body.size;
-  if (typeof body === 'object' && 'byteLength' in body) {
-    return (body as ArrayBufferView).byteLength;
-  }
-  return 0;
+function isSuccess(status: number): boolean {
+  return status >= 200 && status < 400;
 }
 
 export function registerRequestCapture(deps: RequestsDeps): RequestsHandle {
@@ -66,7 +57,6 @@ export function registerRequestCapture(deps: RequestsDeps): RequestsHandle {
     }
 
     const method = init?.method ?? (typeof input === 'object' && 'method' in input ? (input as Request).method : 'GET');
-    const requestBodySize = estimateBodySize(init?.body);
     const startTime = Date.now();
 
     let response: Response;
@@ -74,14 +64,13 @@ export function registerRequestCapture(deps: RequestsDeps): RequestsHandle {
       response = await originalFetch(input, init);
     } catch (err) {
       try {
-        deps.recordEvent('network_request', {
-          'network.url': sanitizeUrl(url),
-          'network.method': method.toUpperCase(),
-          'network.status_code': 0,
-          'network.duration_ms': Date.now() - startTime,
-          'network.request_body_size': requestBodySize,
-          'network.response_body_size': 0,
-          'network.parent_screen': deps.getCurrentRoute(),
+        deps.recordEvent('http.request', {
+          'http.url': sanitizeUrl(url),
+          'http.method': method.toUpperCase(),
+          'http.status_code': 0,
+          'http.duration_ms': Date.now() - startTime,
+          'http.success': false,
+          'http.timestamp': new Date().toISOString(),
         });
       } catch {
         // Never let capture errors escape.
@@ -90,17 +79,13 @@ export function registerRequestCapture(deps: RequestsDeps): RequestsHandle {
     }
 
     try {
-      const contentLength = response.headers.get('content-length');
-      const responseBodySize = contentLength ? parseInt(contentLength, 10) || 0 : 0;
-
-      deps.recordEvent('network_request', {
-        'network.url': sanitizeUrl(url),
-        'network.method': method.toUpperCase(),
-        'network.status_code': response.status,
-        'network.duration_ms': Date.now() - startTime,
-        'network.request_body_size': requestBodySize,
-        'network.response_body_size': responseBodySize,
-        'network.parent_screen': deps.getCurrentRoute(),
+      deps.recordEvent('http.request', {
+        'http.url': sanitizeUrl(url),
+        'http.method': method.toUpperCase(),
+        'http.status_code': response.status,
+        'http.duration_ms': Date.now() - startTime,
+        'http.success': isSuccess(response.status),
+        'http.timestamp': new Date().toISOString(),
       });
     } catch {
       // Never let capture errors escape.

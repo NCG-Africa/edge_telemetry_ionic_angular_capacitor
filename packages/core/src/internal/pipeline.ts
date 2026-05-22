@@ -12,6 +12,7 @@ export interface PipelineOptions {
   context: ContextManager;
   batchSize: number;
   flushIntervalMs: number;
+  location?: string;
   deferReady?: boolean;
   debug?: boolean;
 }
@@ -23,6 +24,7 @@ export class Pipeline {
   private readonly context: ContextManager;
   private readonly batchSize: number;
   private readonly flushIntervalMs: number;
+  private readonly location: string | undefined;
   private readonly debug: boolean;
   private buffer: BatchItem[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -37,6 +39,7 @@ export class Pipeline {
     this.context = options.context;
     this.batchSize = options.batchSize;
     this.flushIntervalMs = options.flushIntervalMs;
+    this.location = options.location;
     this.debug = options.debug ?? false;
 
     if (options.deferReady) {
@@ -90,7 +93,7 @@ export class Pipeline {
       while (this.buffer.length > 0) {
         const batch = this.buffer.splice(0, this.batchSize);
         this.backfillStableContext(batch);
-        const payload = buildBatchPayload(batch);
+        const payload = buildBatchPayload(batch, this.location);
         const body = JSON.stringify(payload);
 
         try {

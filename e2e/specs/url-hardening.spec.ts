@@ -26,11 +26,11 @@ test.describe('URL hardening', () => {
 
     const payloads = await waitForPayloads(request);
     const events = allEvents(payloads);
-    const netReqs = events.filter((e) => e.eventName === 'network_request');
+    const netReqs = events.filter((e) => e.eventName === 'http.request');
     expect(netReqs.length).toBeGreaterThanOrEqual(1);
 
     for (const ev of netReqs) {
-      const url = ev.attributes['network.url'] as string;
+      const url = ev.attributes['http.url'] as string;
       expect(url).not.toContain('token');
       expect(url).not.toContain('password');
       expect(url).not.toContain('SECRET_ABC123');
@@ -55,12 +55,12 @@ test.describe('URL hardening', () => {
     const payloads = await waitForPayloads(request);
     const events = allEvents(payloads);
 
-    // No network_request event should reference the telemetry endpoint
+    // No http.request event should reference the telemetry endpoint
     const selfCapture = events.filter(
       (e) =>
-        e.eventName === 'network_request' &&
-        typeof e.attributes['network.url'] === 'string' &&
-        (e.attributes['network.url'] as string).includes('/collector/telemetry'),
+        e.eventName === 'http.request' &&
+        typeof e.attributes['http.url'] === 'string' &&
+        (e.attributes['http.url'] as string).includes('/collector/telemetry'),
     );
     expect(selfCapture).toHaveLength(0);
   });
@@ -87,9 +87,9 @@ test.describe('URL hardening', () => {
 
     const payloads = await waitForPayloads(request);
     const events = allEvents(payloads);
-    const netReqs = events.filter((e) => e.eventName === 'network_request');
+    const netReqs = events.filter((e) => e.eventName === 'http.request');
     for (const ev of netReqs) {
-      expect(ev.attributes['network.url']).not.toContain('/collector/telemetry');
+      expect(ev.attributes['http.url']).not.toContain('/collector/telemetry');
     }
   });
 });

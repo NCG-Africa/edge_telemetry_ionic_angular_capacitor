@@ -18,9 +18,9 @@ export interface MetricPayload {
 export type BatchItem = EventPayload | MetricPayload;
 
 export interface BatchPayload {
+  type: 'telemetry_batch';
   timestamp: string;
-  type: 'batch';
-  device_id?: string;
+  location?: string;
   batch_size: number;
   events: BatchItem[];
 }
@@ -53,12 +53,11 @@ export function buildMetricPayload(
   };
 }
 
-export function buildBatchPayload(events: BatchItem[]): BatchPayload {
-  const deviceId = events[0]?.attributes?.['device.id'];
+export function buildBatchPayload(events: BatchItem[], location?: string): BatchPayload {
   return {
+    type: 'telemetry_batch',
     timestamp: new Date().toISOString(),
-    type: 'batch',
-    ...(typeof deviceId === 'string' ? { device_id: deviceId } : {}),
+    ...(typeof location === 'string' && location.length > 0 ? { location } : {}),
     batch_size: events.length,
     events,
   };

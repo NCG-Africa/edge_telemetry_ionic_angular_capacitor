@@ -391,8 +391,8 @@ describe('startLifecycleCapture', () => {
       const payload: BeaconPayload = {
         url: 'https://edgetelemetry.ncgafrica.com/collector/telemetry?k=edge_abc',
         body: JSON.stringify({
+          type: 'telemetry_batch',
           timestamp: '2026-04-15T10:00:00.000Z',
-          type: 'batch',
           events: [{ type: 'event', eventName: 'custom_event', timestamp: '2026-04-15T10:00:00.000Z', attributes: { 'sdk.platform': 'ionic-angular-capacitor' } }],
         }),
         headers: { 'X-API-Key': 'edge_abc' },
@@ -429,7 +429,7 @@ describe('startLifecycleCapture', () => {
 
       // Assert envelope shape and no OTel keys / nested attributes
       const parsed = JSON.parse(bodyText);
-      expect(parsed.type).toBe('batch');
+      expect(parsed.type).toBe('telemetry_batch');
       expect(parsed.events).toBeInstanceOf(Array);
       assertNoOtelKeys(parsed);
       for (const ev of parsed.events) {
@@ -445,7 +445,7 @@ describe('startLifecycleCapture', () => {
       const { factory, calls } = makeXhrFactory();
       const payload: BeaconPayload = {
         url: 'https://edgetelemetry.ncgafrica.com/collector/telemetry',
-        body: '{"timestamp":"2026-04-15T10:00:00.000Z","type":"batch","events":[]}',
+        body: '{"type":"telemetry_batch","timestamp":"2026-04-15T10:00:00.000Z","events":[]}',
         headers: { 'X-API-Key': 'edge_xyz' },
       };
       const cb: LifecycleCaptureCallbacks = {

@@ -8,13 +8,13 @@ import {
 describe('PayloadBuilder', () => {
   describe('buildEventPayload', () => {
     it('creates an event with type "event"', () => {
-      const event = buildEventPayload('screen_view', {}, {});
+      const event = buildEventPayload('navigation', {}, {});
       expect(event.type).toBe('event');
     });
 
     it('uses the provided eventName', () => {
-      const event = buildEventPayload('network_request', {}, {});
-      expect(event.eventName).toBe('network_request');
+      const event = buildEventPayload('http.request', {}, {});
+      expect(event.eventName).toBe('http.request');
     });
 
     it('produces an ISO 8601 timestamp', () => {
@@ -25,7 +25,7 @@ describe('PayloadBuilder', () => {
     it('merges context and event attributes with event taking precedence', () => {
       const context = { 'app.name': 'MyApp', 'sdk.platform': 'ionic-angular-capacitor' };
       const eventAttrs = { 'navigation.to_screen': '/home', 'app.name': 'Override' };
-      const event = buildEventPayload('screen_view', context, eventAttrs);
+      const event = buildEventPayload('navigation', context, eventAttrs);
       expect(event.attributes['app.name']).toBe('Override');
       expect(event.attributes['sdk.platform']).toBe('ionic-angular-capacitor');
       expect(event.attributes['navigation.to_screen']).toBe('/home');
@@ -54,20 +54,40 @@ describe('PayloadBuilder', () => {
   });
 
   describe('buildBatchPayload', () => {
-    it('wraps events in the correct envelope structure', () => {
-      const events = [buildEventPayload('screen_view', { 'device.id': 'device_1_abcd1234_web' }, {})];
+    it('wraps events in the telemetry_batch envelope', () => {
+      const events = [buildEventPayload('navigation', { 'device.id': 'device_1_abcd1234_web' }, {})];
       const payload = buildBatchPayload(events);
+      expect(payload.type).toBe('telemetry_batch');
       expect(payload.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-      expect(payload.type).toBe('batch');
-      expect(payload.device_id).toBe('device_1_abcd1234_web');
       expect(payload.batch_size).toBe(1);
       expect(payload.events).toHaveLength(1);
     });
 
+    it('omits location when not provided', () => {
+      const payload = buildBatchPayload([]);
+      expect(payload.location).toBeUndefined();
+    });
+
+    it('includes location when provided', () => {
+      const payload = buildBatchPayload([], 'Nairobi/Kenya');
+      expect(payload.location).toBe('Nairobi/Kenya');
+    });
+
+    it('omits location for empty string', () => {
+      const payload = buildBatchPayload([], '');
+      expect(payload.location).toBeUndefined();
+    });
+
+    it('does not include a top-level device_id field', () => {
+      const events = [buildEventPayload('navigation', { 'device.id': 'device_1_abcd1234_web' }, {})];
+      const payload = buildBatchPayload(events);
+      expect(payload).not.toHaveProperty('device_id');
+    });
+
     it('sets batch_size equal to events.length', () => {
       const events = [
-        buildEventPayload('screen_view', { 'device.id': 'device_1_abcd1234_web' }, {}),
         buildEventPayload('navigation', { 'device.id': 'device_1_abcd1234_web' }, {}),
+        buildEventPayload('http.request', { 'device.id': 'device_1_abcd1234_web' }, {}),
         buildEventPayload('custom_event', { 'device.id': 'device_1_abcd1234_web' }, {}),
       ];
       const payload = buildBatchPayload(events);
@@ -75,9 +95,8 @@ describe('PayloadBuilder', () => {
       expect(payload.events).toHaveLength(3);
     });
 
-    it('omits device_id and reports batch_size of 0 when events array is empty', () => {
+    it('reports batch_size of 0 when events array is empty', () => {
       const payload = buildBatchPayload([]);
-      expect(payload.device_id).toBeUndefined();
       expect(payload.batch_size).toBe(0);
     });
 
@@ -91,18 +110,23 @@ describe('PayloadBuilder', () => {
         'session.start_time': '2024-01-15T10:25:00.000Z',
       };
       const events = [
-        buildEventPayload('screen_view', ctx, { 'navigation.to_screen': '/home' }),
         buildEventPayload('navigation', ctx, {
           'navigation.to_screen': '/home',
           'navigation.method': 'initial',
         }),
+        buildEventPayload('screen.duration', ctx, {
+          'screen.name': '/home',
+          'screen.duration_ms': 4331,
+          'screen.exit_method': 'navigate',
+        }),
         buildMetricPayload('image_upload', 890, ctx, { 'metric.unit': 'ms' }),
       ];
-      const payload = buildBatchPayload(events);
+      const payload = buildBatchPayload(events, 'Nairobi/Kenya');
 
+      expect(payload.type).toBe('telemetry_batch');
+      expect(payload.location).toBe('Nairobi/Kenya');
       expect(payload.batch_size).toBe(payload.events.length);
       expect(payload.batch_size).toBe(3);
-      expect(payload.device_id).toBe('device_1_abcd1234_web');
 
       for (const ev of payload.events) {
         expect(ev.attributes['app.package_name']).toBe('com.yourco.app');
@@ -129,7 +153,7 @@ describe('PayloadBuilder', () => {
       const payload = buildBatchPayload(events);
       const json = JSON.stringify(payload);
       const parsed = JSON.parse(json);
-      expect(parsed.type).toBe('batch');
+      expect(parsed.type).toBe('telemetry_batch');
       parsed.events.forEach((ev: Record<string, unknown>) => {
         const attrs = ev.attributes as Record<string, unknown>;
         Object.values(attrs).forEach((v) => {

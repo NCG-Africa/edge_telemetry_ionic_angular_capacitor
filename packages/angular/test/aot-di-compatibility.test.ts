@@ -144,12 +144,13 @@ describe('IonicLifecycleCapture DI constructor', () => {
     const bus = new EventTarget();
     const capture = new IonicLifecycleCapture(bus);
 
-    dispatch(bus, 'ionViewWillEnter', 'APP-INJECTED');
     dispatch(bus, 'ionViewDidEnter', 'APP-INJECTED');
+    dispatch(bus, 'ionViewDidLeave', 'APP-INJECTED');
 
     expect(spy).toHaveBeenCalledTimes(1);
-    const attrs = spy.mock.calls[0]![1] as Record<string, unknown>;
-    expect(attrs['screen.name']).toBe('app-injected');
+    const [eventName, attrs] = spy.mock.calls[0]!;
+    expect(eventName).toBe('screen.duration');
+    expect((attrs as Record<string, unknown>)['screen.name']).toBe('app-injected');
     capture.ngOnDestroy();
   });
 
@@ -160,8 +161,8 @@ describe('IonicLifecycleCapture DI constructor', () => {
 
     capture.ngOnDestroy();
 
-    dispatch(bus, 'ionViewWillEnter', 'APP-GONE');
     dispatch(bus, 'ionViewDidEnter', 'APP-GONE');
+    dispatch(bus, 'ionViewDidLeave', 'APP-GONE');
 
     expect(spy).not.toHaveBeenCalled();
   });

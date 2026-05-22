@@ -1,4 +1,4 @@
-export const SDK_VERSION = '2.0.0';
+export const SDK_VERSION = '3.0.0';
 export const SDK_PLATFORM = 'ionic-angular-capacitor' as const;
 
 export interface EdgeRumConfig {
@@ -8,6 +8,7 @@ export interface EdgeRumConfig {
   appVersion?: string;
   appPackage?: string;
   environment?: 'production' | 'staging' | 'development';
+  location?: string;
   sampleRate?: number;
   ignoreUrls?: (string | RegExp)[];
   maxQueueSize?: number;

@@ -1,5 +1,17 @@
 # @nathanclaire/rum-capacitor
 
+## 3.3.5
+
+### Patch Changes
+
+- iOS: rename SPM product to `NathanclaireRumCapacitor` to match Capacitor
+  CLI's auto-generated consumer manifest. Fixes "product 'NathanclaireRumCapacitor'
+  not found in package 'NathanclaireRumCapacitor'" SwiftPM error in 3.3.4 on
+  SPM-only Capacitor 8 consumers. The CLI derives the consumer-side
+  `.package(name: ...)` / `.product(name: ...)` entries from
+  `fixName(npmPackageName)`, not from `capacitor.ios.name`. Swift class
+  name, jsName, podspec name, and bridged methods unchanged.
+
 ## 3.3.4
 
 ### Patch Changes

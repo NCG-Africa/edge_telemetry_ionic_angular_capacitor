@@ -4,6 +4,33 @@ All notable changes to the edge-rum SDK are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/).
 
+## [@nathanclaire/rum-capacitor 3.3.5] — 2026-05-25
+
+### Fixed
+
+- **iOS: rename SPM product to `NathanclaireRumCapacitor` to match
+  Capacitor CLI's auto-generated consumer manifest.** Fixes the
+  `"product 'NathanclaireRumCapacitor' required by package 'capapp-spm'
+  target 'CapApp-SPM' not found in package 'NathanclaireRumCapacitor'"`
+  SwiftPM error on Capacitor 8 SPM consumers.
+
+  The Capacitor CLI's `cap sync ios` writes the consumer's
+  `CapApp-SPM/Package.swift` using `plugin.ios?.name`, which is set in
+  `cli/src/ios/common.ts` to `plugin.name` — the result of `fixName(npmPackageName)`
+  from `cli/src/plugin.ts`. For `@nathanclaire/rum-capacitor` this produces
+  `NathanclaireRumCapacitor`. The CLI does **not** read `capacitor.ios.name`
+  for SPM at all (that field is only honoured by the legacy CocoaPods path
+  via the podspec name). So the plugin's `Package.swift` must declare a
+  package name + library product name that matches the auto-derived value
+  the CLI emits, or `swift package resolve` fails before any source compiles.
+
+  Behavioural surface unchanged: the `@objc(EdgeRumCrashPlugin)` Swift class
+  name, the `jsName = "EdgeRumCrash"` JS bridge identifier, the
+  `EdgeRumCapacitor` CocoaPods podspec name, and all four bridged methods
+  are untouched. Only the SPM-side `name` / `products[0].name` /
+  `targets[0].name` in `Package.swift` rename to `NathanclaireRumCapacitor` /
+  `NathanclaireRumCapacitorPlugin`.
+
 ## [@nathanclaire/rum-capacitor 3.3.4] — 2026-05-25
 
 ### Fixed

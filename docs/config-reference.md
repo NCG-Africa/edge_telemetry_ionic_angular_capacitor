@@ -26,6 +26,7 @@ interface EdgeRumConfig {
   enableHangDetection?: boolean;
   anrTimeoutMs?: number;
   hangTimeoutMs?: number;
+  awaitNativeInstall?: boolean;
 
   // --- Network ---
   ignoreUrls?: (string | RegExp)[];
@@ -179,6 +180,30 @@ Main-thread blocked threshold before an ANR is recorded.
 - Default: `5000`
 
 iOS equivalent of `anrTimeoutMs`.
+
+### `awaitNativeInstall`
+
+- Type: `boolean`
+- Default: `false`
+- Platform: native (iOS / Android), no effect on web
+
+When `false` (the default), the native crash bridge's `plugin.install()`
+and `plugin.fetchPending()` run on the next idle tick
+(`requestIdleCallback` / `setTimeout(0)` fallback) instead of blocking
+the bootstrap critical path. This typically saves **50–150 ms** of
+cold-start time on modern devices, up to **~200 ms** on older devices
+and first-install scenarios.
+
+The screen-relay listener that feeds `error_context` is wired
+**synchronously** regardless of this flag, so crashes happening during
+the deferred-install gap still record the correct screen — they just
+get replayed a few hundred ms later (in batch 2 of the next session
+instead of batch 1).
+
+Set to `true` only if you absolutely need the native signal handlers
+armed before any other code in the app can run. The window is typically
+<50 ms and crashes during it are exceedingly rare; the default is
+recommended.
 
 ---
 

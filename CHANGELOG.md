@@ -4,6 +4,23 @@ All notable changes to the edge-rum SDK are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/).
 
+## [@nathanclaire/rum-capacitor 3.3.1] — 2026-05-25
+
+### Fixed
+
+- **Add SPM support for Capacitor 8 consumers.** SPM-only iOS projects (no
+  `Podfile`) were silently dropping `@nathanclaire/rum-capacitor` during
+  `npx cap sync ios` with `[warn] @nathanclaire/rum-capacitor does not have
+  a Package.swift`. Result: the native iOS plugin (`EdgeRumCrashPlugin`,
+  `HangDetector`, `CrashReporter`) never loaded at runtime. Adds a
+  `Package.swift` at the package root following the official capacitor-team
+  plugin template — single target rooted at `ios/Plugin`, depends on
+  `capacitor-swift-pm` `from: "7.0.0"` (covers Capacitor 7 + 8). CocoaPods
+  consumers continue to resolve via the existing
+  `ios/EdgeRumCapacitor.podspec`. The podspec's iOS deployment target is
+  bumped from 13.0 → 14.0 to match `capacitor-swift-pm` 7+ requirements so
+  the SPM and CocoaPods install paths share a single minimum.
+
 ## [2.0.0] — 2026-05-15
 
 ### Breaking

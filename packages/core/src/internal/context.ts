@@ -1,5 +1,5 @@
 import type { EdgeRumConfig, EventAttributes, UserContext } from '../index';
-import { SDK_VERSION, SDK_PLATFORM } from '../index';
+import { SDK_VERSION, SDK_CONTRACT_VERSION, SDK_PLATFORM } from '../index';
 import type { SessionManager } from '../session/SessionManager';
 
 const DEFAULT_ENVIRONMENT = 'production' as const;
@@ -9,10 +9,15 @@ export class ContextManager {
   private deviceAttributes: EventAttributes = {};
   private networkAttributes: EventAttributes = {};
   private userAttributes: EventAttributes = {};
+  private profileVersion = 0;
   private readonly session: SessionManager;
 
   constructor(session: SessionManager) {
     this.session = session;
+  }
+
+  incrementProfileVersion(): number {
+    return ++this.profileVersion;
   }
 
   setAppAttributes(config: EdgeRumConfig): void {
@@ -20,12 +25,16 @@ export class ContextManager {
     if (config.appName) this.appAttributes['app.name'] = config.appName;
     if (config.appVersion) this.appAttributes['app.version'] = config.appVersion;
     if (config.appPackage) this.appAttributes['app.package_name'] = config.appPackage;
+    if (typeof config.appBuild === 'string' && config.appBuild.trim().length > 0) {
+      this.appAttributes['app.build_number'] = config.appBuild;
+    }
     this.appAttributes['app.environment'] = config.environment ?? DEFAULT_ENVIRONMENT;
-    this.appAttributes['app.build_number'] = '';
   }
 
   setAppBuildNumber(build: string): void {
-    this.appAttributes['app.build_number'] = build;
+    if (typeof build === 'string' && build.trim().length > 0) {
+      this.appAttributes['app.build_number'] = build;
+    }
   }
 
   setDeviceAttributes(attrs: EventAttributes): void {
@@ -69,6 +78,7 @@ export class ContextManager {
       ...this.userAttributes,
       'sdk.version': SDK_VERSION,
       'sdk.platform': SDK_PLATFORM,
+      'sdk.contract_version': SDK_CONTRACT_VERSION,
     };
   }
 
@@ -81,6 +91,7 @@ export class ContextManager {
       ...this.deviceAttributes,
       'sdk.version': SDK_VERSION,
       'sdk.platform': SDK_PLATFORM,
+      'sdk.contract_version': SDK_CONTRACT_VERSION,
     };
   }
 }

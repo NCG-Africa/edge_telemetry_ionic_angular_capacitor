@@ -13,12 +13,27 @@ const getPipeline = vi.fn(() => ({
   flushOfflineQueue: vi.fn(),
 }));
 
+const subscribeToCurrentRoute = vi.fn<(cb: (route: string) => void) => () => void>(() => () => undefined);
+const reportError = vi.fn<(scope: string, err: unknown) => void>();
+
 vi.mock('@nathanclaire/rum', () => ({
   __getSession: () => getSession(),
   __getCollector: () => getCollector(),
   __getContext: () => getContext(),
   __getPipeline: () => getPipeline(),
   __setTransportFetch: (fn: unknown) => setTransportFetch(fn),
+  __subscribeToCurrentRoute: (cb: (route: string) => void) => subscribeToCurrentRoute(cb),
+  healthMonitor: {
+    reportError: (scope: string, err: unknown) => reportError(scope, err),
+    setDebug: vi.fn(),
+    getErrorCount: () => 0,
+    getErrorsByScope: () => ({}),
+    reset: vi.fn(),
+  },
+}));
+
+vi.mock('../src/NativeCrashCapture', () => ({
+  registerNativeCrashCapture: vi.fn(async () => ({ stop: () => undefined })),
 }));
 
 vi.mock('../src/DeviceContext', () => ({
@@ -76,5 +91,61 @@ describe('startCapacitorCapture transport swap', () => {
     const { startCapacitorCapture } = await import('../src/bootstrap');
     await startCapacitorCapture();
     expect(setTransportFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('startCapacitorCapture native crash wiring', () => {
+  beforeEach(async () => {
+    setTransportFetch.mockClear();
+    const { registerNativeCrashCapture } = (await import('../src/NativeCrashCapture')) as unknown as {
+      registerNativeCrashCapture: ReturnType<typeof vi.fn>;
+    };
+    registerNativeCrashCapture.mockClear();
+  });
+
+  afterEach(() => {
+    setGlobalCapacitor(undefined);
+  });
+
+  it('registers the native crash bridge when running on a native platform (default opt-in)', async () => {
+    setGlobalCapacitor({ isNativePlatform: () => true });
+    const { startCapacitorCapture } = await import('../src/bootstrap');
+    const { registerNativeCrashCapture } = (await import('../src/NativeCrashCapture')) as unknown as {
+      registerNativeCrashCapture: ReturnType<typeof vi.fn>;
+    };
+    await startCapacitorCapture();
+    expect(registerNativeCrashCapture).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT register the native crash bridge when captureNativeCrashes is false', async () => {
+    setGlobalCapacitor({ isNativePlatform: () => true });
+    const { startCapacitorCapture } = await import('../src/bootstrap');
+    const { registerNativeCrashCapture } = (await import('../src/NativeCrashCapture')) as unknown as {
+      registerNativeCrashCapture: ReturnType<typeof vi.fn>;
+    };
+    await startCapacitorCapture({ captureNativeCrashes: false });
+    expect(registerNativeCrashCapture).not.toHaveBeenCalled();
+  });
+
+  it('does NOT register the native crash bridge on non-native platforms', async () => {
+    setGlobalCapacitor({ isNativePlatform: () => false });
+    const { startCapacitorCapture } = await import('../src/bootstrap');
+    const { registerNativeCrashCapture } = (await import('../src/NativeCrashCapture')) as unknown as {
+      registerNativeCrashCapture: ReturnType<typeof vi.fn>;
+    };
+    await startCapacitorCapture();
+    expect(registerNativeCrashCapture).not.toHaveBeenCalled();
+  });
+
+  it('survives a registration failure (reports to healthMonitor, returns a working handle)', async () => {
+    setGlobalCapacitor({ isNativePlatform: () => true });
+    const { registerNativeCrashCapture } = (await import('../src/NativeCrashCapture')) as unknown as {
+      registerNativeCrashCapture: ReturnType<typeof vi.fn>;
+    };
+    registerNativeCrashCapture.mockRejectedValueOnce(new Error('plugin missing'));
+    const { startCapacitorCapture } = await import('../src/bootstrap');
+    const handle = await startCapacitorCapture();
+    expect(reportError).toHaveBeenCalledWith('native-crash.bootstrap', expect.any(Error));
+    expect(typeof handle.stop).toBe('function');
   });
 });

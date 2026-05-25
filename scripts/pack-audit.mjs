@@ -6,7 +6,10 @@ import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const PACKAGES_DIR = new URL('../packages', import.meta.url).pathname;
-const BANNED = /@opentelemetry|(^|\/)src\/|\.test\.|tsup\.config|CLAUDE\.md/i;
+// `^src/` matches each package's root TS source dir we never ship.
+// `android/src/main/` and `ios/Plugin/` ARE shipped on purpose for the
+// Capacitor native bridge — consumers need them to compile in their app.
+const BANNED = /@opentelemetry|^src\/|\.test\.|tsup\.config|CLAUDE\.md/i;
 
 const packages = readdirSync(PACKAGES_DIR).filter((name) => {
   const pkgJson = join(PACKAGES_DIR, name, 'package.json');

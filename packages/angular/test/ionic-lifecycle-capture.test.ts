@@ -146,6 +146,32 @@ describe('IonicLifecycleCapture', () => {
     capture.ngOnDestroy();
   });
 
+  it('screen.exit_method reflects the most recent navigation method (pop)', () => {
+    const spy = vi.spyOn(rumInternals, '__recordEvent');
+    rumInternals.__setLastNavigationMethod('pop');
+    const capture = new IonicLifecycleCapture(bus);
+
+    dispatch(bus, 'ionViewDidEnter', 'APP-PROFILE');
+    dispatch(bus, 'ionViewDidLeave', 'APP-PROFILE');
+
+    const attrs = spy.mock.calls[0]![1] as Record<string, unknown>;
+    expect(attrs['screen.exit_method']).toBe('pop');
+    capture.ngOnDestroy();
+  });
+
+  it('screen.exit_method reflects "replace" when set by the router', () => {
+    const spy = vi.spyOn(rumInternals, '__recordEvent');
+    rumInternals.__setLastNavigationMethod('replace');
+    const capture = new IonicLifecycleCapture(bus);
+
+    dispatch(bus, 'ionViewDidEnter', 'APP-LOGIN');
+    dispatch(bus, 'ionViewDidLeave', 'APP-LOGIN');
+
+    const attrs = spy.mock.calls[0]![1] as Record<string, unknown>;
+    expect(attrs['screen.exit_method']).toBe('replace');
+    capture.ngOnDestroy();
+  });
+
   it('stops listening after ngOnDestroy', () => {
     const spy = vi.spyOn(rumInternals, '__recordEvent');
     const capture = new IonicLifecycleCapture(bus);

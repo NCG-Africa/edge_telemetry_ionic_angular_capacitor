@@ -33,6 +33,15 @@ describe('EdgeRumService', () => {
     expect(spy).toHaveBeenCalledWith('checkout_started', { 'event.value': 49.99 });
   });
 
+  it('delegates trackScreen() to EdgeRum.trackScreen', () => {
+    const spy = vi.spyOn(EdgeRum, 'trackScreen');
+    const svc = new EdgeRumService();
+
+    svc.trackScreen('CheckoutModal', { 'navigation.method': 'push' });
+
+    expect(spy).toHaveBeenCalledWith('CheckoutModal', { 'navigation.method': 'push' });
+  });
+
   it('delegates time() to EdgeRum.time and returns the timer', () => {
     const timer = { end: vi.fn() };
     const spy = vi.spyOn(EdgeRum, 'time').mockReturnValue(timer);

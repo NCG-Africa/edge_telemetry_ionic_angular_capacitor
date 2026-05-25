@@ -16,6 +16,10 @@ export class EdgeRumService {
     EdgeRum.track(name, attributes);
   }
 
+  trackScreen(name: string, attributes?: EventAttributes): void {
+    EdgeRum.trackScreen(name, attributes);
+  }
+
   time(name: string): RumTimer {
     return EdgeRum.time(name);
   }

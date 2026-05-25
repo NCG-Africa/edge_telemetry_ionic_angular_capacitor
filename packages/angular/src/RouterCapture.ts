@@ -8,7 +8,7 @@ import type {
   NavigationStart,
 } from '@angular/router';
 import type { Subscription } from 'rxjs';
-import { __recordEvent, type EventAttributes } from '@nathanclaire/rum';
+import { __recordEvent, __setCurrentRoute, __setLastNavigationMethod, type EventAttributes } from '@nathanclaire/rum';
 
 type NavigationMethod = 'push' | 'pop' | 'replace' | 'initial' | 'cancel';
 
@@ -143,6 +143,8 @@ export class RouterCapture implements OnDestroy {
     }
 
     __recordEvent('navigation', navAttrs);
+    __setCurrentRoute(toRoute);
+    __setLastNavigationMethod(method);
 
     this.previousRoute = toRoute;
     this.isFirstNavigation = false;

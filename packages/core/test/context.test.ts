@@ -47,10 +47,30 @@ describe('ContextManager', () => {
       expect(attrs['app.package_name']).toBeUndefined();
     });
 
-    it('initializes app.build_number to "" so web events always carry the key', () => {
+    it('omits app.build_number when neither config.appBuild nor setAppBuildNumber has provided one', () => {
       context.setAppAttributes({ apiKey: 'edge_x', endpoint: 'https://example.com/collector/telemetry' });
       const attrs = context.getContextAttributes();
-      expect(attrs['app.build_number']).toBe('');
+      expect(attrs).not.toHaveProperty('app.build_number');
+    });
+
+    it('sets app.build_number from config.appBuild when provided', () => {
+      context.setAppAttributes({
+        apiKey: 'edge_x',
+        endpoint: 'https://example.com/collector/telemetry',
+        appBuild: '42',
+      });
+      const attrs = context.getContextAttributes();
+      expect(attrs['app.build_number']).toBe('42');
+    });
+
+    it('treats empty/whitespace config.appBuild the same as missing', () => {
+      context.setAppAttributes({
+        apiKey: 'edge_x',
+        endpoint: 'https://example.com/collector/telemetry',
+        appBuild: '   ',
+      });
+      const attrs = context.getContextAttributes();
+      expect(attrs).not.toHaveProperty('app.build_number');
     });
   });
 
@@ -60,6 +80,24 @@ describe('ContextManager', () => {
       context.setAppBuildNumber('42');
       const attrs = context.getContextAttributes();
       expect(attrs['app.build_number']).toBe('42');
+    });
+
+    it('ignores empty strings (never overwrites a real build with "")', () => {
+      context.setAppAttributes({
+        apiKey: 'edge_x',
+        endpoint: 'https://example.com/collector/telemetry',
+        appBuild: '42',
+      });
+      context.setAppBuildNumber('');
+      const attrs = context.getContextAttributes();
+      expect(attrs['app.build_number']).toBe('42');
+    });
+
+    it('ignores whitespace-only strings', () => {
+      context.setAppAttributes({ apiKey: 'edge_x', endpoint: 'https://example.com/collector/telemetry' });
+      context.setAppBuildNumber('   ');
+      const attrs = context.getContextAttributes();
+      expect(attrs).not.toHaveProperty('app.build_number');
     });
   });
 

@@ -1,16 +1,15 @@
 import { onCLS, onFCP, onINP, onLCP, onTTFB } from 'web-vitals';
 import type { Metric } from 'web-vitals';
+import { healthMonitor } from '../internal/health';
 
-export type VitalsEventAttributes = {
-  'performance.metric_name': 'LCP' | 'INP' | 'CLS' | 'FCP' | 'TTFB';
-  'performance.value': number;
-  'performance.unit': 'ms' | 'score';
-  'performance.rating': 'good' | 'needs-improvement' | 'poor';
-  'performance.screen': string;
+export type VitalsMetricAttributes = {
+  'metric.unit': 'ms' | 'score';
+  'metric.rating': 'good' | 'needs-improvement' | 'poor';
+  'metric.screen': string;
 };
 
 export interface VitalsDeps {
-  recordEvent: (eventName: 'performance', attributes: VitalsEventAttributes) => void;
+  recordMetric: (metricName: string, value: number, attributes: VitalsMetricAttributes) => void;
   getCurrentRoute: () => string;
 }
 
@@ -26,15 +25,13 @@ export function registerVitalsCapture(deps: VitalsDeps): void {
   for (const subscribe of SUBSCRIBERS) {
     subscribe((metric) => {
       try {
-        deps.recordEvent('performance', {
-          'performance.metric_name': metric.name as VitalsEventAttributes['performance.metric_name'],
-          'performance.value': metric.value,
-          'performance.unit': unitFor(metric.name),
-          'performance.rating': metric.rating,
-          'performance.screen': deps.getCurrentRoute(),
+        deps.recordMetric(metric.name, metric.value, {
+          'metric.unit': unitFor(metric.name),
+          'metric.rating': metric.rating,
+          'metric.screen': deps.getCurrentRoute(),
         });
-      } catch {
-        // Never let capture errors escape into consumer code.
+      } catch (err) {
+        healthMonitor.reportError('vitals.recordMetric', err);
       }
     });
   }

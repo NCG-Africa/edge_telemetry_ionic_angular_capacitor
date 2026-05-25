@@ -5,6 +5,7 @@ import {
   assertEnvelope,
   initHarness,
   resetIngest,
+  waitForItem,
   waitForPayloads,
 } from './helpers';
 
@@ -57,7 +58,10 @@ test.describe('event types', () => {
       await new Promise((r) => setTimeout(r, 100));
     });
 
-    const payloads = await waitForPayloads(request);
+    const payloads = await waitForItem(
+      request,
+      (item) => item.type === 'metric' && item.metricName === 'image_upload',
+    );
     for (const p of payloads) assertEnvelope(p);
     const metrics = allMetrics(payloads);
     const metric = metrics.find((m) => m.metricName === 'image_upload');
@@ -101,11 +105,14 @@ test.describe('event types', () => {
       h.track('before_identify');
     });
 
-    const payloads = await waitForPayloads(request);
+    const payloads = await waitForItem(
+      request,
+      (item) => item.type === 'event' && item.eventName === 'custom_event',
+    );
     const events = allEvents(payloads);
     const tracked = events.find((e) => e.eventName === 'custom_event');
     expect(tracked).toBeDefined();
-    expect(tracked!.attributes['user.id']).toMatch(/^user_\d+_[0-9a-f]{8}$/);
+    expect(tracked!.attributes['user.id']).toMatch(/^user_\d+_[0-9a-f]{16}$/);
   });
 
   test('EdgeRum.identify() attaches user.name / user.email / user.phone, keeps SDK-owned user.id', async ({ page, request }) => {
@@ -116,11 +123,17 @@ test.describe('event types', () => {
       h.track('after_identify');
     });
 
-    const payloads = await waitForPayloads(request);
+    const payloads = await waitForItem(
+      request,
+      (item) =>
+        item.type === 'event' &&
+        item.eventName === 'custom_event' &&
+        item.attributes['event.name'] === 'after_identify',
+    );
     const events = allEvents(payloads);
     const after = events.find((e) => e.eventName === 'custom_event' && e.attributes['event.name'] === 'after_identify');
     expect(after).toBeDefined();
-    expect(after!.attributes['user.id']).toMatch(/^user_\d+_[0-9a-f]{8}$/);
+    expect(after!.attributes['user.id']).toMatch(/^user_\d+_[0-9a-f]{16}$/);
     expect(after!.attributes['user.name']).toBe('Alice');
     expect(after!.attributes['user.email']).toBe('alice@example.com');
     expect(after!.attributes['user.phone']).toBe('+1-555-0100');
@@ -129,26 +142,39 @@ test.describe('event types', () => {
   test('session.sequence increments after successful sends', async ({ page, request }) => {
     await initHarness(page);
 
-    // First batch
+    // First batch — wait until track 'first' is delivered
     await page.evaluate(() => {
       const h = (window as unknown as { __edgeRumHarness: { track: (n: string) => void } }).__edgeRumHarness;
       h.track('first');
     });
-    await waitForPayloads(request, { minCount: 1 });
+    await waitForItem(
+      request,
+      (item) => item.type === 'event' && item.attributes['event.name'] === 'first',
+    );
 
-    // Second batch (after first has been sent, so sequence should have incremented)
+    // Second batch — wait until track 'second' is delivered
     await page.evaluate(() => {
       const h = (window as unknown as { __edgeRumHarness: { track: (n: string) => void } }).__edgeRumHarness;
       h.track('second');
     });
-    await waitForPayloads(request, { minCount: 2 });
+    const payloads = await waitForItem(
+      request,
+      (item) => item.type === 'event' && item.attributes['event.name'] === 'second',
+    );
 
-    const payloads = await waitForPayloads(request, { minCount: 2 });
-    const firstBatchEvents = payloads[0]!.events;
-    const secondBatchEvents = payloads[payloads.length - 1]!.events;
-
-    const firstSeq = firstBatchEvents[0]!.attributes['session.sequence'];
-    const secondSeq = secondBatchEvents[0]!.attributes['session.sequence'];
+    // Find the batches by content rather than index — order may vary.
+    const firstBatch = payloads.find((p) =>
+      p.events.some((e) => e.attributes['event.name'] === 'first'),
+    )!;
+    const secondBatch = payloads.find((p) =>
+      p.events.some((e) => e.attributes['event.name'] === 'second'),
+    )!;
+    const firstSeq = firstBatch.events.find(
+      (e) => e.attributes['event.name'] === 'first',
+    )!.attributes['session.sequence'];
+    const secondSeq = secondBatch.events.find(
+      (e) => e.attributes['event.name'] === 'second',
+    )!.attributes['session.sequence'];
     expect(typeof firstSeq).toBe('number');
     expect(typeof secondSeq).toBe('number');
     expect(secondSeq as number).toBeGreaterThan(firstSeq as number);

@@ -32,8 +32,9 @@ vi.mock('web-vitals', () => ({
 
 import { registerVitalsCapture } from '../src/instrumentation/vitals';
 
-type RecordedEvent = {
-  eventName: 'performance';
+type RecordedMetric = {
+  metricName: string;
+  value: number;
   attributes: Record<string, string | number | boolean>;
 };
 
@@ -52,7 +53,7 @@ function baseMetric(name: MetricName) {
 }
 
 describe('registerVitalsCapture', () => {
-  let recorded: RecordedEvent[];
+  let recorded: RecordedMetric[];
   let currentRoute: string;
 
   beforeEach(() => {
@@ -61,8 +62,8 @@ describe('registerVitalsCapture', () => {
     for (const key of Object.keys(callbacks)) delete callbacks[key];
 
     registerVitalsCapture({
-      recordEvent: (eventName, attributes) => {
-        recorded.push({ eventName, attributes: { ...attributes } });
+      recordMetric: (metricName, value, attributes) => {
+        recorded.push({ metricName, value, attributes: { ...attributes } });
       },
       getCurrentRoute: () => currentRoute,
     });
@@ -80,17 +81,26 @@ describe('registerVitalsCapture', () => {
     expect(callbacks.TTFB).toBeTypeOf('function');
   });
 
-  it('emits a performance event when LCP fires', () => {
+  it('emits a metric (not an event) when LCP fires', () => {
     callbacks.LCP!({ ...baseMetric('LCP'), value: 1240, rating: 'good' });
 
     expect(recorded).toHaveLength(1);
-    const event = recorded[0]!;
-    expect(event.eventName).toBe('performance');
-    expect(event.attributes['performance.metric_name']).toBe('LCP');
-    expect(event.attributes['performance.value']).toBe(1240);
-    expect(event.attributes['performance.unit']).toBe('ms');
-    expect(event.attributes['performance.rating']).toBe('good');
-    expect(event.attributes['performance.screen']).toBe('/home');
+    const m = recorded[0]!;
+    expect(m.metricName).toBe('LCP');
+    expect(m.value).toBe(1240);
+    expect(m.attributes['metric.unit']).toBe('ms');
+    expect(m.attributes['metric.rating']).toBe('good');
+    expect(m.attributes['metric.screen']).toBe('/home');
+  });
+
+  it('does not use the legacy performance.* attribute keys', () => {
+    callbacks.FCP!({ ...baseMetric('FCP'), value: 670, rating: 'good' });
+    const attrs = recorded[0]!.attributes;
+    expect(attrs).not.toHaveProperty('performance.metric_name');
+    expect(attrs).not.toHaveProperty('performance.value');
+    expect(attrs).not.toHaveProperty('performance.unit');
+    expect(attrs).not.toHaveProperty('performance.rating');
+    expect(attrs).not.toHaveProperty('performance.screen');
   });
 
   it.each([
@@ -101,15 +111,15 @@ describe('registerVitalsCapture', () => {
     ['CLS', 'score'],
   ] as const)('uses correct unit for %s → %s', (name, unit) => {
     callbacks[name]!({ ...baseMetric(name), value: 10 });
-    expect(recorded[0]!.attributes['performance.unit']).toBe(unit);
-    expect(recorded[0]!.attributes['performance.metric_name']).toBe(name);
+    expect(recorded[0]!.attributes['metric.unit']).toBe(unit);
+    expect(recorded[0]!.metricName).toBe(name);
   });
 
-  it('metric_name is always one of the five supported values', () => {
+  it('metricName is always one of the five supported values', () => {
     for (const name of ['LCP', 'INP', 'CLS', 'FCP', 'TTFB'] as const) {
       callbacks[name]!({ ...baseMetric(name) });
     }
-    const names = recorded.map((e) => e.attributes['performance.metric_name']);
+    const names = recorded.map((m) => m.metricName);
     expect(new Set(names)).toEqual(new Set(['LCP', 'INP', 'CLS', 'FCP', 'TTFB']));
   });
 
@@ -117,18 +127,18 @@ describe('registerVitalsCapture', () => {
     'propagates rating "%s" unchanged',
     (rating) => {
       callbacks.LCP!({ ...baseMetric('LCP'), rating });
-      expect(recorded[0]!.attributes['performance.rating']).toBe(rating);
+      expect(recorded[0]!.attributes['metric.rating']).toBe(rating);
     },
   );
 
-  it('performance.screen reflects the current SessionManager route at emit time', () => {
+  it('metric.screen reflects the current route at emit time', () => {
     currentRoute = '/products/42';
     callbacks.INP!({ ...baseMetric('INP'), value: 80 });
-    expect(recorded[0]!.attributes['performance.screen']).toBe('/products/42');
+    expect(recorded[0]!.attributes['metric.screen']).toBe('/products/42');
 
     currentRoute = '/cart';
     callbacks.LCP!({ ...baseMetric('LCP'), value: 800 });
-    expect(recorded[1]!.attributes['performance.screen']).toBe('/cart');
+    expect(recorded[1]!.attributes['metric.screen']).toBe('/cart');
   });
 
   it('all attribute values are primitives (string | number | boolean)', () => {
@@ -148,12 +158,12 @@ describe('registerVitalsCapture', () => {
     expect(json).not.toMatch(/opentelemetry/i);
   });
 
-  it('swallows errors thrown by recordEvent and does not propagate to web-vitals callback', () => {
+  it('swallows errors thrown by recordMetric and does not propagate to web-vitals callback', () => {
     recorded = [];
     for (const key of Object.keys(callbacks)) delete callbacks[key];
 
     registerVitalsCapture({
-      recordEvent: () => {
+      recordMetric: () => {
         throw new Error('transport exploded');
       },
       getCurrentRoute: () => '/x',
@@ -166,8 +176,8 @@ describe('registerVitalsCapture', () => {
     for (const key of Object.keys(callbacks)) delete callbacks[key];
 
     registerVitalsCapture({
-      recordEvent: (_, attrs) => {
-        recorded.push({ eventName: 'performance', attributes: { ...attrs } });
+      recordMetric: (metricName, value, attrs) => {
+        recorded.push({ metricName, value, attributes: { ...attrs } });
       },
       getCurrentRoute: () => {
         throw new Error('no route yet');

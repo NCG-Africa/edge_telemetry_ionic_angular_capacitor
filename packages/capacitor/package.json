@@ -1,7 +1,7 @@
 {
   "name": "@nathanclaire/rum-capacitor",
-  "version": "3.0.0",
-  "description": "Capacitor integration for edge-rum",
+  "version": "3.3.0",
+  "description": "Capacitor integration for edge-rum — JS bridge + native iOS/Android crash capture",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -16,8 +16,19 @@
   },
   "files": [
     "dist",
+    "ios/",
+    "android/",
+    "EdgeRumCapacitor.podspec",
     "README.md"
   ],
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  },
   "sideEffects": false,
   "publishConfig": {
     "access": "public"

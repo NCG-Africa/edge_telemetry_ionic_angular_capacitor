@@ -152,16 +152,18 @@ The collector drops events missing any of these. PayloadBuilder merges them in f
 ### ID formats
 
 ```
-device.id:  "device_{timestampMs}_{8hexchars}_{platform}"
-            e.g. "device_1704067200000_a8b9c2d1_web"
+device.id:  "device_{timestampMs}_{16hexchars}_{platform}"
+            e.g. "device_1704067200000_a8b9c2d176b4ce41_web"
 
-session.id: "session_{timestampMs}_{8hexchars}_{platform}"
-            e.g. "session_1704067200000_x9y8z7w6_web"
+session.id: "session_{timestampMs}_{16hexchars}_{platform}"
+            e.g. "session_1704067200000_x9y8z7w6deadbeef_web"
 
-user.id:    "user_{timestampMs}_{8hexchars}"
-            e.g. "user_1704067200000_abcd1234"
+user.id:    "user_{timestampMs}_{16hexchars}"
+            e.g. "user_1704067200000_abcd1234deadbeef"
             (SDK-owned anonymous ID; EdgeRum.identify() does not change it)
 ```
+
+Format note (v3.1.0): the random segment widened from 8 to 16 hex chars (64 bits of entropy) to eliminate birthday-collision risk at scale. Existing persisted IDs in `localStorage` are invalidated by the new regex on next launch — fresh IDs generate transparently.
 
 ---
 
@@ -174,8 +176,20 @@ The backend dispatches each event by `eventName`. Currently shipped names:
 | Angular route change (entry hop) | `navigation` | `packages/angular/src/RouterCapture.ts` |
 | Ionic screen exit (dwell time) | `screen.duration` | `packages/angular/src/IonicLifecycleCapture.ts` |
 | HTTP request | `http.request` | `packages/core/src/instrumentation/requests.ts` |
-| Web Vital (LCP, INP, etc.) | `performance` | `packages/core/src/instrumentation/vitals.ts` |
-| JS / unhandled error | `app.crash` | `packages/core/src/instrumentation/errors.ts` |
+| Web Vital (LCP, INP, etc.) | (`metric` item, `metricName` = `"LCP"`/`"FCP"`/...) | `packages/core/src/instrumentation/vitals.ts` |
+| JS / unhandled error | `app.crash` | `packages/core/src/instrumentation/errors.ts` (includes `crash.breadcrumbs` JSON-string of last 20 actions) |
+| Console.error / .warn | `app.crash` (cause=ConsoleError/Warn) | `packages/core/src/instrumentation/errors.ts` (opt-out via `captureConsoleErrors: false`) |
+| **iOS native crash** (NSException / Mach signal SIGSEGV-class) | `app.crash` (cause=NativeCrash, runtime=native) | `packages/capacitor/ios/` (PLCrashReporter wrapper) — replayed on next launch |
+| **iOS main-thread hang** | `app.crash` (cause=Hang, runtime=native) | `packages/capacitor/ios/Plugin/HangDetector.swift` |
+| **Android JVM throwable** | `app.crash` (cause=NativeCrash, runtime=native) | `packages/capacitor/android/.../JvmCrashHandler.kt` (Thread.setDefaultUncaughtExceptionHandler) |
+| **Android NDK signal** | `app.crash` (cause=NativeCrash, runtime=native, symbolication=required) | `packages/capacitor/android/src/main/cpp/native-crash.cpp` |
+| **Android ANR** | `app.crash` (cause=ANR, runtime=native) | `packages/capacitor/android/.../AnrWatchdog.kt` |
+| Click / tap | `user.interaction` | `packages/core/src/instrumentation/interactions.ts` |
+| Long task (PerformanceObserver longtask) | (`metric` item, metricName = `"long_task"`) | `packages/core/src/instrumentation/perf-observer.ts` |
+| Resource timing (PerformanceObserver resource) | (`metric` item, metricName = `"resource_timing"`) | `packages/core/src/instrumentation/perf-observer.ts` |
+| Session begins (init / resume / rotation) | `session.started` | `EdgeRum.init()` + `packages/capacitor/src/LifecycleCapture.ts` |
+| Session ends (background / app close) | `session.finalized` | `packages/capacitor/src/LifecycleCapture.ts` (immediate-flush; carries journey summary + `sdk.error_count`) |
+| `EdgeRum.identify()` user attach | `user.profile.update` | `EdgeRum.identify()` |
 | Custom `EdgeRum.track()` | `custom_event` | `EdgeRum.track()` |
 | Custom `EdgeRum.time()` | (`metric` item) | `EdgeRum.time()` — uses the `metric` item shape, not `eventName` |
 | App foreground / background | `app_lifecycle` | `packages/capacitor/src/LifecycleCapture.ts` |
@@ -285,9 +299,33 @@ The backend dispatches each event by `eventName`. Currently shipped names:
 }
 ```
 
-Other event shapes (`performance`, `app.crash`, `custom_event`, `app_lifecycle`, `page_load`,
-`network_change`, and `metric` items from `EdgeRum.time()`) follow the same envelope and
-identity attribute rules. See `docs/payload-schema.json` for the authoritative attribute lists.
+Web Vitals are emitted as `metric` items with top-level `metricName` (`"LCP"` /
+`"FCP"` / `"CLS"` / `"INP"` / `"TTFB"`) and numeric `value`. Example:
+
+```jsonc
+{
+  "type": "metric",
+  "metricName": "FCP",
+  "value": 670,
+  "timestamp": "2024-01-15T10:30:00.500Z",
+  "attributes": {
+    "metric.unit": "ms",
+    "metric.rating": "good",
+    "metric.screen": "/tabs/profile",
+    "app.name": "MyApp",
+    "device.id": "device_1704067200000_a8b9c2d1_web",
+    "session.id": "session_1704067200000_x9y8z7w6_web",
+    "user.id": "user_1704067200000_abcd1234",
+    "sdk.version": "3.0.1",
+    "sdk.platform": "ionic-angular-capacitor"
+  }
+}
+```
+
+Other event shapes (`app.crash`, `user.profile.update`, `custom_event`,
+`app_lifecycle`, `page_load`, `network_change`, and `metric` items from
+`EdgeRum.time()`) follow the same envelope and identity attribute rules. See
+`docs/payload-schema.json` for the authoritative attribute lists.
 
 ---
 
@@ -384,6 +422,7 @@ interface EdgeRumConfig {
   appName?: string;                  // used as app.name in all events
   appVersion?: string;               // used as app.version
   appPackage?: string;               // used as app.package_name (e.g. "com.yourco.app")
+  appBuild?: string;                 // used as app.build_number — omitted entirely when unset
   environment?: 'production' | 'staging' | 'development';
   location?: string;                 // batch envelope location, e.g. "Nairobi/Kenya"
   sampleRate?: number;               // 0.0–1.0, default 1.0
@@ -392,6 +431,12 @@ interface EdgeRumConfig {
   flushIntervalMs?: number;          // default 5000
   batchSize?: number;                // max events per payload, default 30
   sanitizeUrl?: (url: string) => string;
+  captureConsoleErrors?: boolean;    // default true; wraps console.error/warn → app.crash
+  captureNativeCrashes?: boolean;    // default true; registers the Capacitor native bridge
+  enableAnrDetection?: boolean;      // default true on Android
+  enableHangDetection?: boolean;     // default true on iOS
+  anrTimeoutMs?: number;             // default 5000
+  hangTimeoutMs?: number;            // default 5000
   debug?: boolean;
 }
 ```
@@ -401,6 +446,7 @@ interface EdgeRumConfig {
 EdgeRum.init(config: EdgeRumConfig): void
 EdgeRum.identify(user: UserContext): void
 EdgeRum.track(name: string, attributes?: Record<string, string | number | boolean>): void
+EdgeRum.trackScreen(name: string, attributes?: Record<string, string | number | boolean>): void  // manual screen tracking; emits a `navigation` event
 EdgeRum.time(name: string): RumTimer           // returns { end(attributes?): void }
 EdgeRum.captureError(error: Error, context?: Record<string, unknown>): void
 EdgeRum.disable(): void
@@ -512,12 +558,12 @@ return Device.getInfo();
 ## Session and ID rules
 
 ```
-device.id:   "device_{Date.now()}_{8hexchars}_{platform}"
-session.id:  "session_{Date.now()}_{8hexchars}_{platform}"
-user.id:     "user_{Date.now()}_{8hexchars}"
+device.id:   "device_{Date.now()}_{16hexchars}_{platform}"
+session.id:  "session_{Date.now()}_{16hexchars}_{platform}"
+user.id:     "user_{Date.now()}_{16hexchars}"
 ```
 
-Generate the 8 hex chars using `crypto.getRandomValues` or `Math.random().toString(16)`.
+Generate the 16 hex chars using `crypto.getRandomValues` or `Math.random().toString(16)`.
 On native, `platform` = `ios` or `android` (from `Device.getInfo()`). On web = `web`.
 
 Session expires after 30 minutes of inactivity. New session on next foreground.

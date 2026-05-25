@@ -1,19 +1,40 @@
 # Edge RUM SDK
 
-Real User Monitoring SDK for **Ionic Angular Capacitor** apps. Captures performance data, errors, network requests, and user interactions automatically — then ships them as JSON to your backend.
+Real User Monitoring SDK for **Ionic Angular Capacitor** apps. Captures user journey, errors, performance, native crashes, and interactions automatically — then ships them as JSON to your backend.
+
+**Current version:** 3.2.0 · **Wire contract:** 3.1.0
 
 ## Packages
 
 | Package | Description |
 |---|---|
-| [`@nathanclaire/rum`](./packages/core) | Core SDK — event capture, batching, transport |
-| [`@nathanclaire/rum-angular`](./packages/angular) | Angular integration — module, service, route and error capture |
-| [`@nathanclaire/rum-capacitor`](./packages/capacitor) | Capacitor integration — device info, network, lifecycle |
+| [`@nathanclaire/rum`](./packages/core) | Core SDK — event capture, batching, transport, session management |
+| [`@nathanclaire/rum-angular`](./packages/angular) | Angular integration — module / standalone provider, service, router + Ionic lifecycle + ErrorHandler |
+| [`@nathanclaire/rum-capacitor`](./packages/capacitor) | Capacitor integration — device info, network, app lifecycle, **native crash bridge (iOS PLCrashReporter + Android JVM/ANR/NDK)** |
+
+## What it captures automatically
+
+Zero further wiring beyond the install — every line below works out of the box:
+
+- **User journey:** Angular navigations, Ionic screen exits with full dwell time, click / tap interactions (tag/id/class/role, never inner text), session lifecycle (`session.started` / `session.finalized` with visited-screens list + counters)
+- **Network:** every `fetch` / XHR with method, status, duration, success flag; SDK's own endpoint auto-ignored
+- **Performance:** all five Web Vitals (`LCP`, `FCP`, `INP`, `CLS`, `TTFB`) as metric items; long tasks > 50 ms; resource timing for images/fonts/css/scripts; page load timing
+- **Errors:** unhandled JS errors, promise rejections, `console.error`/`warn` (configurable), `EdgeRum.captureError()` for handled errors. Every crash carries a 20-item breadcrumb ring of preceding user actions.
+- **Native crashes (Capacitor):**
+  - iOS: NSException + Mach signals (SIGSEGV/SIGBUS/SIGILL/SIGFPE/SIGABRT) via PLCrashReporter
+  - iOS: main-thread hangs > 5 s (configurable)
+  - Android: uncaught Java/Kotlin `Throwable` via chained `Thread.setDefaultUncaughtExceptionHandler`
+  - Android: ANRs > 5 s (configurable)
+  - Android: NDK signal handler (async-signal-safe sigaction) for native code crashes
+- **Device + network context:** OS, model, screen, battery, network type, connectivity changes — auto-attached to every event
+- **Session counters:** `is_first_session`, `total_sessions` (cross-launch via localStorage)
 
 ## Installation
 
 ```bash
 npm install @nathanclaire/rum @nathanclaire/rum-angular @nathanclaire/rum-capacitor
+npx cap sync ios
+npx cap sync android
 ```
 
 ## Step-by-Step Setup
@@ -35,6 +56,7 @@ import { EdgeRumModule } from '@nathanclaire/rum-angular';
       appName: 'MyApp',
       appVersion: '1.0.0',
       appPackage: 'com.yourco.app',
+      appBuild: '210',
       environment: 'production',
       deferFlush: true,
     }),
@@ -56,6 +78,7 @@ export const appConfig: ApplicationConfig = {
       appName: 'MyApp',
       appVersion: '1.0.0',
       appPackage: 'com.yourco.app',
+      appBuild: '210',
       environment: 'production',
       deferFlush: true,
     }),
@@ -63,11 +86,11 @@ export const appConfig: ApplicationConfig = {
 };
 ```
 
-> **`deferFlush: true`** is recommended for Capacitor apps. It tells the SDK to buffer events until device context (device ID, platform, etc.) is fully loaded, preventing the first batch from being rejected by the server.
+> **`deferFlush: true`** is recommended for Capacitor apps. It tells the SDK to buffer events until device context (device ID, platform, OS version, app build number) is fully loaded, preventing the first batch from going out with placeholder identity attributes.
 
 ### Step 2 — Start Capacitor capture
 
-In your root component (e.g. `app.component.ts`), call `startCapacitorCapture()` to collect device info, network status, and lifecycle events:
+In your root component, call `startCapacitorCapture()` to enable device-context loading, network capture, lifecycle hooks, and the native crash bridge:
 
 ```typescript
 import { Component, OnInit, OnDestroy } from '@angular/core';
@@ -93,28 +116,21 @@ export class AppComponent implements OnInit, OnDestroy {
 }
 ```
 
-Once `startCapacitorCapture()` resolves, the SDK starts sending batches. All events recorded during startup are buffered and included in the first batch.
+`startCapacitorCapture()` registers the native crash bridge by default. You can opt out:
+
+```typescript
+await startCapacitorCapture({
+  captureNativeCrashes: false,    // skip the iOS/Android native bridge entirely
+  enableAnrDetection: false,      // Android — disable main-thread ANR watchdog
+  enableHangDetection: false,     // iOS — disable main-thread hang watchdog
+});
+```
 
 ### Step 3 — You're done
 
-The SDK now automatically captures:
+The SDK now captures everything in the [auto-instrumentation catalog](./docs/TECHNICAL_GUIDE.md#2-automatic-capture-catalog) without further code.
 
-| What | Event Name | How |
-|---|---|---|
-| Angular route changes | `navigation` (full) + `screen_view` (screen identity) | Angular Router subscription |
-| HTTP requests | `network_request` | Fetch/XHR interception |
-| JS errors | `app.crash` | Angular `ErrorHandler` |
-| Web Vitals (LCP, INP, CLS, FCP, TTFB) | `performance` | `web-vitals` library |
-| Page load timing | `page_load` | Performance API |
-| Ionic page transitions | `screen_timing` | Ionic lifecycle events |
-| App foreground/background | `app_lifecycle` | Capacitor App plugin |
-| Network connectivity changes | `network_change` | Capacitor Network plugin |
-
-No extra code is needed for any of the above.
-
-## Custom Events and Metrics
-
-For app-specific tracking, inject `EdgeRumService` into your components:
+## Custom events and identification
 
 ```typescript
 import { EdgeRumService } from '@nathanclaire/rum-angular';
@@ -122,116 +138,102 @@ import { EdgeRumService } from '@nathanclaire/rum-angular';
 @Component({ /* ... */ })
 export class CheckoutPage {
   constructor(private rum: EdgeRumService) {}
+
+  onLoad() {
+    // Attach user identity after login
+    this.rum.identify({ name: 'Alice', email: 'alice@example.com' });
+  }
+
+  onCheckoutStart(amount: number) {
+    this.rum.track('checkout_started', { amount, currency: 'GBP' });
+  }
+
+  async onImageUpload(file: File) {
+    const timer = this.rum.time('image_upload');
+    try {
+      await uploadImage(file);
+      timer.end({ file_size_kb: file.size / 1024 });
+    } catch (err) {
+      this.rum.captureError(err as Error, { step: 'upload' });
+    }
+  }
+
+  openCheckoutModal() {
+    // Manual screen tracking for modals / tabs that don't use Angular Router.
+    // Also emits screen.duration for the previous tracked screen.
+    this.rum.trackScreen('CheckoutModal');
+  }
 }
 ```
 
-### Track a custom event
+## Configuration
 
-```typescript
-this.rum.track('checkout_started', {
-  'event.value': 49.99,
-  'event.currency': 'GBP',
-});
-```
+All options are documented in [docs/config-reference.md](./docs/config-reference.md). Common ones:
 
-### Measure a duration
-
-```typescript
-const timer = this.rum.time('image_upload');
-await uploadImage(file);
-timer.end({ 'metric.file_size_kb': file.size / 1024 });
-// Records a metric item ({ type: "metric", metricName, value, attributes })
-// with elapsed time in milliseconds as the value.
-```
-
-### Capture a handled error
-
-```typescript
-try {
-  await riskyOperation();
-} catch (error) {
-  this.rum.captureError(error as Error, { operation: 'riskyOperation' });
-}
-```
-
-### Identify a user
-
-Call `identify()` after login to attach user details to all subsequent events. `user.id` is owned by the SDK (auto-generated and persisted across sessions) — `identify()` only takes `name`, `email`, and `phone`. Pass `null` for any field to clear it.
-
-```typescript
-this.rum.identify({
-  name: 'Alice Example',
-  email: 'alice@example.com',
-  phone: '+1-555-0100',
-});
-```
-
-## Configuration Reference
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `apiKey` | `string` | *required* | API key. Must start with `"edge_"` |
-| `endpoint` | `string` | *required* | Collector endpoint URL |
-| `appName` | `string` | — | App name attached to all events |
-| `appVersion` | `string` | — | App version string |
-| `appPackage` | `string` | — | Bundle ID, e.g. `com.yourco.app` |
-| `environment` | `string` | — | `"production"`, `"staging"`, or `"development"` |
-| `sampleRate` | `number` | `1.0` | Event sampling rate (0.0–1.0) |
-| `ignoreUrls` | `(string \| RegExp)[]` | `[]` | URLs to exclude from request capture |
-| `maxQueueSize` | `number` | `200` | Max offline queue size |
-| `flushIntervalMs` | `number` | `5000` | Batch send interval in ms |
-| `batchSize` | `number` | `30` | Max events per batch |
-| `sanitizeUrl` | `(url: string) => string` | — | Strip PII from captured URLs |
-| `deferFlush` | `boolean` | `false` | Defer sending until `startCapacitorCapture()` completes |
-| `debug` | `boolean` | `false` | Log SDK activity to console |
+| Option | Default | Notes |
+|---|---|---|
+| `apiKey`, `endpoint` | *required* | `apiKey` must start with `'edge_'` |
+| `appName`, `appVersion`, `appPackage`, `appBuild`, `environment`, `location` | various | identity context |
+| `sampleRate` | `1.0` | **Per-session, not per-event.** Critical events (`app.crash`, `session.*`, `user.profile.update`) bypass. |
+| `captureConsoleErrors` | `true` | Wraps `console.error`/`warn` to emit `app.crash` |
+| `captureNativeCrashes` | `true` | Capacitor only — register the native bridge |
+| `enableAnrDetection`, `enableHangDetection`, `anrTimeoutMs`, `hangTimeoutMs` | enabled, 5000 ms | Native-bridge config |
+| `ignoreUrls`, `sanitizeUrl` | — | Network capture filtering |
+| `flushIntervalMs`, `batchSize`, `maxQueueSize` | 5000 ms / 30 / 200 | Transport tuning |
+| `debug` | `false` | Logs every event + every internal error. API key redacted. |
 
 ## API Reference
 
-### EdgeRumService
+### EdgeRumService (Angular DI wrapper around `EdgeRum`)
 
 | Method | Description |
 |---|---|
+| `identify(user)` | Attach name/email/phone. Emits `user.profile.update`. Pass `null` to clear a field. |
 | `track(name, attributes?)` | Record a custom event (`custom_event`) |
-| `time(name)` | Start a timer. Returns `{ end(attributes?) }`. Emits a metric item with top-level `metricName` and `value` (duration in ms) |
-| `captureError(error, context?)` | Manually capture an error (`app.crash` with `handled: true`) |
-| `identify(user)` | Set user identity and custom attributes |
+| `trackScreen(name, attributes?)` | Manually mark a screen transition (modal, tab, etc.). Emits `navigation` + `screen.duration` for the previous screen. |
+| `time(name)` | Start a timer. Returns `{ end(attributes?) }`. Emits a metric item with `metricName` and `value` (duration in ms). |
+| `captureError(error, context?)` | Manually capture an error (`app.crash` with `handled: true`, `cause: 'ManualCapture'`) |
 | `disable()` | Stop capturing and clear the offline queue |
 | `enable()` | Resume capturing and flush queued events |
 | `getSessionId()` | Get the current session ID string |
 
-## Offline Support
+## Offline support
 
-Events that fail to send are stored in an offline queue (localStorage on web, Capacitor Preferences on native). They are automatically retried when:
+Events that fail to send are stored in an offline queue (localStorage on web, sessionStorage fallback in private modes). They retry automatically when:
 
-- The device comes back online
-- The app returns to the foreground
-- `enable()` is called
+- The device comes back online (Capacitor `Network` plugin reconnect)
+- The app returns to the foreground (Capacitor `App` plugin)
+- `EdgeRum.enable()` is called
+- **Any** successful live send completes (opportunistic drain — the queue self-heals from transient outages without needing one of the explicit triggers)
 
-The retry schedule uses exponential backoff: immediate, 2s, 8s, 30s. After 4 attempts, events are moved to the offline queue.
+Retry schedule: immediate → 2 s → 8 s → 30 s → offline queue. Retries on HTTP `0`, `429` (respects `Retry-After`), `503`. Discards on other 4xx.
 
-## Session Management
+## Session management
 
-- Sessions expire after **30 minutes** of inactivity
-- A new session starts on the next app foreground event
-- Session IDs follow the format: `session_{timestamp}_{8hex}_{platform}`
+- Session id format: `session_{Date.now()}_{16hexchars}_{platform}` (e.g. `session_1716624000000_a8b9c2d176b4ce41_ios`)
+- Platform detected synchronously from `window.Capacitor.getPlatform()` — falls back to `'web'`
+- Sessions expire after 30 minutes of background idle
+- Background fires `session.finalized { end_reason: 'backgrounded' }`; subsequent foreground fires `session.started` with `start_reason: 'resumed'` (within timeout) or `'rotation_timeout'` (after)
+- App close (pagehide / beforeunload) ships `session.finalized { end_reason: 'app_closed' }` via `navigator.sendBeacon` (or sync XHR on iOS)
+- Every `session.finalized` carries the **journey summary**: `visited_screens` (comma-separated), `screen_count`, `event_count`, `metric_count`, `journey_truncated`
 
 ## Disabling the SDK
 
 ```typescript
-// Temporarily disable (e.g. for opt-out)
-this.rum.disable();
-
-// Re-enable
-this.rum.enable();
+this.rum.disable();   // Stop capturing + clear offline queue
+this.rum.enable();    // Resume + flush
 ```
-
-`disable()` stops all capture and clears the offline queue. `enable()` resumes capture and flushes any queued events.
 
 ## Documentation
 
-- [Backend integration guide](./docs/backend-integration.md)
-- [Payload schema](./docs/payload-schema.json)
-- [Architecture decisions](./docs/decisions.md)
+- **[docs/TECHNICAL_GUIDE.md](./docs/TECHNICAL_GUIDE.md)** — the authoritative technical reference (auto-capture catalog, lifecycle, sampling, native bridge, debugging)
+- [docs/quick-start.md](./docs/quick-start.md) — five-minute wire-up
+- [docs/config-reference.md](./docs/config-reference.md) — every `EdgeRumConfig` option
+- [docs/backend-integration.md](./docs/backend-integration.md) — endpoint, auth, CORS, wire contract
+- [docs/payload-schema.json](./docs/payload-schema.json) — machine-readable wire contract
+- [docs/decisions.md](./docs/decisions.md) — architecture decision log (ADRs)
+- [docs/privacy.md](./docs/privacy.md) — what is collected and what isn't
+- [docs/terminology.md](./docs/terminology.md) — terminology firewall (internal)
 
 ## License
 

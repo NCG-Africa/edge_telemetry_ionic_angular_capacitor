@@ -4,6 +4,24 @@ All notable changes to the edge-rum SDK are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/).
 
+## [@nathanclaire/rum-capacitor 3.3.4] — 2026-05-25
+
+### Fixed
+
+- **iOS: remove legacy `.m` registration file; migrate to Swift-only
+  `CAPBridgedPlugin` pattern.** Fixes the SwiftPM "mixed language source
+  files; feature not supported" error that broke 3.3.2 and 3.3.3 on
+  SPM-only Capacitor 8 consumers at package-resolution time. The
+  `EdgeRumCrashPlugin.m` file's `CAP_PLUGIN` macro registration is now
+  declared in `EdgeRumCrashPlugin.swift` via the `identifier`, `jsName`,
+  and `pluginMethods` properties of `CAPBridgedPlugin` — matching the
+  pattern every official `@capacitor/*` plugin uses (see `@capacitor/app`).
+  Behavioural surface is unchanged — same four bridged methods (`install`,
+  `fetchPending`, `markHandled`, `setLastScreen`) with the same `EdgeRumCrash`
+  JS name. The `Package.swift` comment in 3.3.3 that claimed mixed-language
+  SPM targets work via the `@objc` runtime bridge was wrong; SwiftPM rejects
+  such targets at resolve time, before any ObjC class loader runs.
+
 ## [@nathanclaire/rum-capacitor 3.3.3] — 2026-05-25
 
 ### Added

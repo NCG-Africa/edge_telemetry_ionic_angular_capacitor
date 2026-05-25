@@ -1,5 +1,18 @@
 # @nathanclaire/rum-capacitor
 
+## 3.3.4
+
+### Patch Changes
+
+- iOS: remove legacy `.m` registration file; migrate to Swift-only
+  `CAPBridgedPlugin` pattern. Fixes the SwiftPM "mixed language source files;
+  feature not supported" error that broke 3.3.2 and 3.3.3 on SPM-only
+  Capacitor 8 consumers at package-resolution time. The `CAP_PLUGIN` macro
+  registration is now in Swift via `identifier` / `jsName` / `pluginMethods`,
+  matching the official `@capacitor/*` plugin pattern. Bridged methods
+  (`install`, `fetchPending`, `markHandled`, `setLastScreen`) and the
+  `EdgeRumCrash` JS name are unchanged.
+
 ## 3.3.3
 
 ### Patch Changes

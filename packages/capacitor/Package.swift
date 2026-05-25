@@ -10,19 +10,14 @@
 // Versioning note — `capacitor-swift-pm`'s major version is aligned with
 // Capacitor's major version (7.x for Capacitor 7, 8.x for Capacitor 8).
 // SwiftPM's `from:` is up-to-next-major, so this manifest targets
-// Capacitor 8 consumers only. Capacitor 7 SPM consumers were unreachable
-// from the previous `from: "7.0.0"` declaration because their app's
-// `capacitor-swift-pm` resolves to 8.x and conflicted with our 7.x pin —
-// resulting in either a resolution error or the plugin being silently
-// dropped during `cap sync ios`. Capacitor 7 CocoaPods consumers continue
-// to work via the podspec.
+// Capacitor 8 consumers only. Capacitor 7 CocoaPods consumers continue
+// to work via the podspec; Capacitor 7 SPM is out of scope.
 //
-// Layout matches the official capacitor-team plugin template
-// (https://github.com/ionic-team/capacitor-plugins): a single target rooted
-// at `ios/Plugin` picks up both the Swift sources and the Obj-C `CAP_PLUGIN`
-// registration file. Swift / Obj-C interop within one SPM target works
-// because the Swift class is marked `@objc(EdgeRumCrashPlugin)` and the
-// CAP_PLUGIN macro resolves it at runtime via the ObjC class registry.
+// The target points at `ios/Plugin`, which contains Swift sources only.
+// Plugin method registration is handled by `CAPBridgedPlugin` in
+// `EdgeRumCrashPlugin.swift` — SwiftPM refuses to resolve targets that
+// mix `.swift` and `.m` sources, which is why the legacy `CAP_PLUGIN`
+// macro `.m` file was removed in 3.3.4.
 
 import PackageDescription
 

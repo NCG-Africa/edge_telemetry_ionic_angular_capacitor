@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name = 'EdgeRumCapacitor'
-  s.version = '3.3.3'
+  s.version = '3.3.4'
   s.summary = 'Edge RUM Capacitor native crash bridge (PLCrashReporter + hang detector)'
   s.license = 'MIT'
   s.homepage = 'https://github.com/mktowett/edge_telemetry_ionic_angular_capacitor'

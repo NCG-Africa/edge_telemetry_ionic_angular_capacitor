@@ -1,5 +1,29 @@
 # @nathanclaire/rum-capacitor
 
+## 3.3.6
+
+### Patch Changes
+
+- **iOS cold-start perf: defer native crash install off the bootstrap
+  critical path.** `plugin.install()` and `plugin.fetchPending()` now run
+  on the next idle tick (`requestIdleCallback` / `setTimeout(0)` fallback)
+  instead of blocking Angular's `APP_INITIALIZER`. Measured 50–150 ms
+  cold-start improvement on modern devices, up to ~200 ms on older
+  devices / first install. The screen-relay listener is still wired
+  synchronously so crashes during the deferred-install gap retain the
+  correct screen context. Opt-out via `awaitNativeInstall: true` in
+  `EdgeRumConfig` or `startCapacitorCapture` options. No data loss —
+  pending crashes from session N-1 simply surface a few hundred ms later
+  (batch 2 of session N instead of batch 1).
+- **iOS: drop eager local symbolication
+  (`PLCrashReporterConfig(symbolicationStrategy: .none)`).** Raw addresses
+  ship in the crash record with `crash.symbolication: "required"` and
+  the backend symbolicates from uploaded dSYMs — the standard pattern
+  for production crash SDKs.
+- New `awaitNativeInstall?: boolean` option on `CapacitorCaptureOptions`
+  for consumers who absolutely need the native crash handlers armed
+  before any other code runs (rare).
+
 ## 3.3.5
 
 ### Patch Changes

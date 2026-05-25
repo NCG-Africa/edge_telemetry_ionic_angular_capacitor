@@ -48,7 +48,13 @@ final class CrashReporter {
     }
 
     func install() throws {
-        let config = PLCrashReporterConfig(signalHandlerType: .BSD, symbolicationStrategy: .all)
+        // `.none` ships raw addresses in the crash record and relies on the
+        // backend to symbolicate from uploaded dSYMs — the standard pattern
+        // for production crash SDKs (Sentry / Crashlytics / Datadog all do
+        // this). Avoids the crash-time cost of in-process symbol-table walks
+        // and keeps the dump small. Records carry `crash.symbolication:
+        // "required"` so the backend knows the addresses need mapping.
+        let config = PLCrashReporterConfig(signalHandlerType: .BSD, symbolicationStrategy: [])  // [] = PLCrashReporterSymbolicationStrategyNone (NS_OPTIONS, value 0)
         guard let reporter = PLCrashReporter(configuration: config) else {
             throw NSError(domain: "EdgeRumCrash", code: -1,
                           userInfo: [NSLocalizedDescriptionKey: "PLCrashReporter(configuration:) returned nil"])
@@ -158,7 +164,7 @@ final class CrashReporter {
             "platform": "ios",
             "platform_version": osVersion,
             "thread": "main",
-            "symbolication": "symbolicated"
+            "symbolication": "required"
         ]
         if let s = signalName {
             record["signal"] = s

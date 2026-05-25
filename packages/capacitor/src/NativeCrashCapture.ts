@@ -46,6 +46,18 @@ export interface NativeCrashCaptureDeps {
   // Throttle window for setLastScreen relays — default 1000ms.
   screenRelayThrottleMs?: number;
   now?: () => number;
+  // Default false. When false (the default), `plugin.install()` and
+  // `plugin.fetchPending()` run on the next idle tick instead of blocking
+  // the bootstrap critical path. Set to true if you need the native crash
+  // handlers armed before any other code runs (the gap is typically
+  // <50 ms; crashes during that window are rare and not the SDK's primary
+  // capture target). See ADR / TECHNICAL_GUIDE for details.
+  awaitNativeInstall?: boolean;
+  // Test seam — override the idle scheduler. Defaults to requestIdleCallback
+  // when available, falling back to setTimeout(0). The scheduled function may
+  // return a Promise; production schedulers ignore it (fire-and-forget) while
+  // tests can await it to observe install/fetchPending completion.
+  scheduleIdle?: (fn: () => void | Promise<void>) => void;
 }
 
 export interface NativeCrashCaptureHandle {
@@ -89,6 +101,19 @@ function toAppCrashAttrs(rec: NativeCrashRecord): EventAttributes {
   return attrs;
 }
 
+function defaultScheduleIdle(fn: () => void | Promise<void>): void {
+  const g = globalThis as unknown as { requestIdleCallback?: (cb: () => void) => void };
+  if (typeof g.requestIdleCallback === 'function') {
+    g.requestIdleCallback(() => {
+      void fn();
+    });
+  } else {
+    setTimeout(() => {
+      void fn();
+    }, 0);
+  }
+}
+
 export async function registerNativeCrashCapture(
   deps: NativeCrashCaptureDeps,
 ): Promise<NativeCrashCaptureHandle> {
@@ -98,45 +123,9 @@ export async function registerNativeCrashCapture(
     return { stop: () => undefined };
   }
 
-  // 1. Install native handlers (idempotent).
-  try {
-    await plugin.install({
-      enableHangDetection: deps.enableHangDetection ?? true,
-      enableAnrDetection: deps.enableAnrDetection ?? true,
-      hangTimeoutMs: deps.hangTimeoutMs,
-      anrTimeoutMs: deps.anrTimeoutMs,
-    });
-  } catch (err) {
-    healthMonitor.reportError('native-crash.install', err);
-  }
-
-  // 2. Replay any pending crashes from previous launches.
-  try {
-    const result = await plugin.fetchPending();
-    const crashes = Array.isArray(result?.crashes) ? result.crashes : [];
-    if (crashes.length > 0) {
-      const handledIds: string[] = [];
-      for (const rec of crashes) {
-        try {
-          deps.recordEvent('app.crash', toAppCrashAttrs(rec));
-          handledIds.push(rec.id);
-        } catch (err) {
-          healthMonitor.reportError('native-crash.emit', err);
-        }
-      }
-      if (handledIds.length > 0) {
-        try {
-          await plugin.markHandled({ ids: handledIds });
-        } catch (err) {
-          healthMonitor.reportError('native-crash.markHandled', err);
-        }
-      }
-    }
-  } catch (err) {
-    healthMonitor.reportError('native-crash.fetchPending', err);
-  }
-
-  // 3. Relay current route to native so crashes carry a screen context.
+  // Wire the screen-relay synchronously — it's cheap (~µs to attach a
+  // listener) and we want crashes that happen *during* the deferred-install
+  // window to still carry the right screen context if at all possible.
   const now = deps.now ?? (() => Date.now());
   const throttleMs = deps.screenRelayThrottleMs ?? SCREEN_RELAY_THROTTLE_MS;
   let lastRelayAt = 0;
@@ -173,6 +162,57 @@ export async function registerNativeCrashCapture(
   };
 
   const unsubscribe = deps.subscribeToCurrentRoute(relay);
+
+  // install + fetchPending bundled — the expensive native work.
+  // Deferred by default; opt-in synchronous via `awaitNativeInstall: true`.
+  const installAndReplay = async (): Promise<void> => {
+    try {
+      await plugin.install({
+        enableHangDetection: deps.enableHangDetection ?? true,
+        enableAnrDetection: deps.enableAnrDetection ?? true,
+        hangTimeoutMs: deps.hangTimeoutMs,
+        anrTimeoutMs: deps.anrTimeoutMs,
+      });
+    } catch (err) {
+      healthMonitor.reportError('native-crash.install', err);
+    }
+
+    try {
+      const result = await plugin.fetchPending();
+      const crashes = Array.isArray(result?.crashes) ? result.crashes : [];
+      if (crashes.length > 0) {
+        const handledIds: string[] = [];
+        for (const rec of crashes) {
+          try {
+            deps.recordEvent('app.crash', toAppCrashAttrs(rec));
+            handledIds.push(rec.id);
+          } catch (err) {
+            healthMonitor.reportError('native-crash.emit', err);
+          }
+        }
+        if (handledIds.length > 0) {
+          try {
+            await plugin.markHandled({ ids: handledIds });
+          } catch (err) {
+            healthMonitor.reportError('native-crash.markHandled', err);
+          }
+        }
+      }
+    } catch (err) {
+      healthMonitor.reportError('native-crash.fetchPending', err);
+    }
+  };
+
+  if (deps.awaitNativeInstall === true) {
+    await installAndReplay();
+  } else {
+    const scheduleIdle = deps.scheduleIdle ?? defaultScheduleIdle;
+    // Pass the install fn directly so tests (via the `scheduleIdle` seam) can
+    // observe and await the work. In production schedulers (requestIdleCallback
+    // / setTimeout) the returned Promise is intentionally not awaited — errors
+    // are caught inside installAndReplay and routed through healthMonitor.
+    scheduleIdle(installAndReplay);
+  }
 
   return {
     stop: () => {

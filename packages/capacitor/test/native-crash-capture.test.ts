@@ -48,8 +48,13 @@ describe('registerNativeCrashCapture', () => {
     unsubscribe = vi.fn();
   });
 
-  function setup(plugin: EdgeRumCrashPluginLike, opts: { now?: () => number; throttle?: number } = {}) {
-    return registerNativeCrashCapture({
+  async function setup(plugin: EdgeRumCrashPluginLike, opts: { now?: () => number; throttle?: number; deferred?: boolean } = {}) {
+    // Non-deferred path: capture the install Promise so we can await the
+    // full install + fetchPending + markHandled chain before asserting on
+    // side-effects. The SDK now passes installAndReplay directly to
+    // scheduleIdle, so calling fn() returns its Promise.
+    let installSettled: Promise<void> = Promise.resolve();
+    const handle = await registerNativeCrashCapture({
       recordEvent: (name, attrs) => recorded.push({ name, attrs }),
       subscribeToCurrentRoute: (cb) => {
         subscribers.push(cb);
@@ -58,7 +63,18 @@ describe('registerNativeCrashCapture', () => {
       plugin,
       now: opts.now,
       screenRelayThrottleMs: opts.throttle,
+      ...(opts.deferred
+        ? {}
+        : {
+            scheduleIdle: (fn: () => void | Promise<void>) => {
+              installSettled = Promise.resolve(fn());
+            },
+          }),
     });
+    if (!opts.deferred) {
+      await installSettled;
+    }
+    return handle;
   }
 
   it('returns a no-op handle when no plugin is available', async () => {
@@ -76,6 +92,7 @@ describe('registerNativeCrashCapture', () => {
 
   it('calls plugin.install once with the supplied options', async () => {
     const plugin = makePlugin();
+    let installSettled: Promise<void> = Promise.resolve();
     await registerNativeCrashCapture({
       recordEvent: (name, attrs) => recorded.push({ name, attrs }),
       subscribeToCurrentRoute: (cb) => {
@@ -87,7 +104,11 @@ describe('registerNativeCrashCapture', () => {
       enableHangDetection: false,
       anrTimeoutMs: 7000,
       hangTimeoutMs: 4000,
+      scheduleIdle: (fn) => {
+        installSettled = Promise.resolve(fn());
+      },
     });
+    await installSettled;
     expect(plugin.install).toHaveBeenCalledTimes(1);
     expect(plugin.install).toHaveBeenCalledWith({
       enableAnrDetection: true,
@@ -218,5 +239,119 @@ describe('registerNativeCrashCapture', () => {
     for (const v of Object.values(attrs)) {
       expect(['string', 'number', 'boolean']).toContain(typeof v);
     }
+  });
+
+  describe('deferred install (default cold-start path)', () => {
+    it('resolves the returned handle BEFORE plugin.install resolves (no bootstrap block)', async () => {
+      let resolveInstall: (() => void) | null = null;
+      const installPromise = new Promise<{ installed: boolean }>((resolve) => {
+        resolveInstall = () => resolve({ installed: true });
+      });
+      const plugin = makePlugin({
+        install: vi.fn(() => installPromise),
+      });
+
+      // No scheduleIdle override → uses the real default (setTimeout(0)).
+      // Use a captured-scheduler hook to assert the work was deferred and
+      // not awaited inline.
+      let scheduledFn: (() => void) | null = null;
+      const handle = await registerNativeCrashCapture({
+        recordEvent: (name, attrs) => recorded.push({ name, attrs }),
+        subscribeToCurrentRoute: (cb) => { subscribers.push(cb); return unsubscribe; },
+        plugin,
+        scheduleIdle: (fn) => { scheduledFn = fn; },
+      });
+
+      // Handle returned and plugin.install was NOT awaited inside register.
+      expect(handle).toBeDefined();
+      expect(plugin.install).not.toHaveBeenCalled();
+      expect(scheduledFn).toBeTypeOf('function');
+
+      // Now run the scheduled work: install starts, but the install promise
+      // hasn't resolved yet.
+      scheduledFn!();
+      await Promise.resolve();
+      expect(plugin.install).toHaveBeenCalledTimes(1);
+
+      // Finally resolve install; fetchPending then runs.
+      resolveInstall!();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(plugin.fetchPending).toHaveBeenCalled();
+    });
+
+    it('replays pending crashes correctly on the deferred path', async () => {
+      const plugin = makePlugin({
+        fetchPending: vi.fn().mockResolvedValue({ crashes: [sampleCrash('deferred-1'), sampleCrash('deferred-2')] }),
+      });
+      let scheduledFn: (() => void) | null = null;
+      await registerNativeCrashCapture({
+        recordEvent: (name, attrs) => recorded.push({ name, attrs }),
+        subscribeToCurrentRoute: (cb) => { subscribers.push(cb); return unsubscribe; },
+        plugin,
+        scheduleIdle: (fn) => { scheduledFn = fn; },
+      });
+      expect(recorded).toHaveLength(0); // nothing emitted yet — install was deferred
+
+      scheduledFn!();
+      // Drain microtasks for install + fetchPending + markHandled
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(recorded).toHaveLength(2);
+      expect(plugin.markHandled).toHaveBeenCalledWith({ ids: ['deferred-1', 'deferred-2'] });
+    });
+
+    it('awaitNativeInstall: true makes the handle wait until install + fetchPending settle (opt-out path)', async () => {
+      let installResolved = false;
+      const plugin = makePlugin({
+        install: vi.fn(async () => {
+          await new Promise((r) => setTimeout(r, 5));
+          installResolved = true;
+          return { installed: true };
+        }),
+      });
+      // Use a scheduler that throws if invoked — confirms we took the
+      // awaitNativeInstall path, not the deferred path.
+      const scheduleIdle = vi.fn(() => {
+        throw new Error('scheduleIdle should not be called when awaitNativeInstall is true');
+      });
+      const handle = await registerNativeCrashCapture({
+        recordEvent: (name, attrs) => recorded.push({ name, attrs }),
+        subscribeToCurrentRoute: (cb) => { subscribers.push(cb); return unsubscribe; },
+        plugin,
+        awaitNativeInstall: true,
+        scheduleIdle,
+      });
+
+      expect(installResolved).toBe(true);
+      expect(handle).toBeDefined();
+      expect(scheduleIdle).not.toHaveBeenCalled();
+    });
+
+    it('default scheduler is setTimeout(0) when requestIdleCallback is unavailable', async () => {
+      const g = globalThis as unknown as { requestIdleCallback?: unknown };
+      const saved = g.requestIdleCallback;
+      delete g.requestIdleCallback;
+      try {
+        const plugin = makePlugin();
+        // No scheduleIdle override — should pick the default.
+        const before = Date.now();
+        await registerNativeCrashCapture({
+          recordEvent: (name, attrs) => recorded.push({ name, attrs }),
+          subscribeToCurrentRoute: (cb) => { subscribers.push(cb); return unsubscribe; },
+          plugin,
+        });
+        // The handle returned synchronously — install hasn't fired yet.
+        expect(plugin.install).not.toHaveBeenCalled();
+        // After a tick, the setTimeout(0) defer should fire.
+        await new Promise((r) => setTimeout(r, 0));
+        expect(plugin.install).toHaveBeenCalledTimes(1);
+        expect(Date.now() - before).toBeLessThan(50);
+      } finally {
+        if (saved !== undefined) {
+          (g as Record<string, unknown>).requestIdleCallback = saved;
+        }
+      }
+    });
   });
 });

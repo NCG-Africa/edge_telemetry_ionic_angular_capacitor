@@ -19,6 +19,7 @@ export interface CapacitorCaptureOptions {
   enableHangDetection?: boolean;
   anrTimeoutMs?: number;
   hangTimeoutMs?: number;
+  awaitNativeInstall?: boolean;
 }
 
 export interface CapacitorCaptureHandle {
@@ -119,6 +120,7 @@ export async function startCapacitorCapture(
         enableHangDetection: options.enableHangDetection,
         anrTimeoutMs: options.anrTimeoutMs,
         hangTimeoutMs: options.hangTimeoutMs,
+        awaitNativeInstall: options.awaitNativeInstall,
       });
     } catch (err) {
       healthMonitor.reportError('native-crash.bootstrap', err);

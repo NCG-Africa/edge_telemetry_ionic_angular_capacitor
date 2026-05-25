@@ -1,4 +1,4 @@
-export const SDK_VERSION = '3.3.0';
+export const SDK_VERSION = '3.3.1';
 export const SDK_CONTRACT_VERSION = '3.1.0' as const;
 export const SDK_PLATFORM = 'ionic-angular-capacitor' as const;
 
@@ -25,6 +25,12 @@ export interface EdgeRumConfig {
   enableHangDetection?: boolean;
   anrTimeoutMs?: number;
   hangTimeoutMs?: number;
+  // Default false. When false (default), the native crash bridge's
+  // `plugin.install()` and `plugin.fetchPending()` run on the next idle tick
+  // instead of blocking the bootstrap critical path — typically a 50–150 ms
+  // cold-start improvement on iOS. Opt in to `true` if you absolutely need
+  // the native handlers armed before any other code runs (rare).
+  awaitNativeInstall?: boolean;
 }
 
 export interface UserContext {

@@ -1,5 +1,17 @@
 # @nathanclaire/rum-capacitor
 
+## 3.3.1
+
+### Patch Changes
+
+- Add SPM support for Capacitor 8 consumers (`Package.swift` at the package
+  root; library product `EdgeRumCapacitor`, target rooted at `ios/Plugin`,
+  depends on `capacitor-swift-pm` 7+). SPM-only iOS projects were silently
+  dropping the plugin during `npx cap sync ios`; this restores the native
+  bridge for that install path. CocoaPods path unchanged. iOS deployment
+  target raised from 13.0 → 14.0 to align both install paths with
+  `capacitor-swift-pm` 7+ requirements.
+
 ## 1.0.5
 
 ### Patch Changes

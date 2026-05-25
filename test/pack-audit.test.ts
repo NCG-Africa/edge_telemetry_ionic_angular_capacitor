@@ -7,7 +7,10 @@ const ROOT = new URL('..', import.meta.url).pathname;
 const TSUP_PACKAGES = ['core', 'capacitor'];
 const ALL_PACKAGES = [...TSUP_PACKAGES, 'angular'];
 
-const BANNED = /@opentelemetry|(^|\/)src\/|\.test\.|tsup\.config|CLAUDE\.md/i;
+// `^src/` matches the package-root TS source dir we never ship; `android/src/main/`
+// and `ios/Plugin/` are legit native source paths shipped on purpose for the
+// Capacitor plugin to compile in consumer apps, so they're explicitly NOT banned.
+const BANNED = /@opentelemetry|^src\/|\.test\.|tsup\.config|CLAUDE\.md/i;
 
 // Opt-out for local pre-build runs only — CI must always exercise this suite
 // against real dist/ artefacts, so a missing build is treated as a test failure.

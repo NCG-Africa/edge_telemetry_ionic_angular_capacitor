@@ -58,8 +58,10 @@ describe.skipIf(SKIP_DIST_CHECK)('npm pack --dry-run', () => {
         expect(files.length).toBeGreaterThan(0);
       });
 
-      it('excludes src/ from pack output', () => {
-        const leaked = files.filter((f) => /(^|\/)src\//.test(f));
+      it('excludes top-level src/ (TypeScript sources) from pack output', () => {
+        // android/src/main/ and ios/Plugin/ ARE shipped intentionally for the
+        // Capacitor native bridge — only the package-root src/ TS dir is banned.
+        const leaked = files.filter((f) => /^src\//.test(f));
         expect(leaked).toEqual([]);
       });
 

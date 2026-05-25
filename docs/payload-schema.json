@@ -52,14 +52,17 @@
             "navigation",
             "screen.duration",
             "http.request",
-            "performance",
             "app.crash",
+            "user.profile.update",
+            "user.interaction",
+            "session.started",
+            "session.finalized",
             "custom_event",
             "app_lifecycle",
             "page_load",
             "network_change"
           ],
-          "description": "Discriminator. Backend routes by this value. Metric items use the separate 'metric' shape (no eventName)."
+          "description": "Discriminator. Backend routes by this value. Web Vitals + long_task + resource_timing are emitted as 'metric' items (no eventName)."
         },
         "timestamp": {
           "type": "string",
@@ -83,11 +86,12 @@
         },
         "metricName": {
           "type": "string",
-          "examples": ["image_upload"]
+          "description": "Web Vitals: 'LCP' | 'INP' | 'CLS' | 'FCP' | 'TTFB'. Custom timings from EdgeRum.time().end() use the caller-supplied name.",
+          "examples": ["FCP", "image_upload"]
         },
         "value": {
           "type": "number",
-          "examples": [890]
+          "examples": [670, 890]
         },
         "timestamp": {
           "type": "string",
@@ -112,7 +116,11 @@
           "description": "App package / bundle ID. Required by the collector for identity resolution.",
           "examples": ["com.yourco.app"]
         },
-        "app.build_number": { "type": "string", "examples": ["42", ""] },
+        "app.build_number": {
+          "type": "string",
+          "description": "Native app build number. Omitted entirely when unknown — never sent as an empty string. Resolved synchronously from EdgeRumConfig.appBuild or asynchronously from @capacitor/app.",
+          "examples": ["42"]
+        },
         "app.environment": {
           "type": "string",
           "enum": ["production", "staging", "development"]
@@ -120,7 +128,7 @@
         "device.id": {
           "type": "string",
           "description": "Persistent device identifier. Required by the collector. Format: device_{timestampMs}_{8hexchars}_{platform}.",
-          "pattern": "^device_\\d+_[a-f0-9]{8}_(ios|android|web)$",
+          "pattern": "^device_\\d+_[a-f0-9]{16}_(ios|android|web)$",
           "examples": ["device_1704067200000_a8b9c2d1_ios"]
         },
         "device.platform": {
@@ -150,7 +158,7 @@
         "session.id": {
           "type": "string",
           "description": "Required by the collector. Format: session_{timestampMs}_{8hexchars}_{platform}.",
-          "pattern": "^session_\\d+_[a-f0-9]{8}_(ios|android|web)$"
+          "pattern": "^session_\\d+_[a-f0-9]{16}_(ios|android|web)$"
         },
         "session.start_time": {
           "type": "string",
@@ -161,6 +169,15 @@
           "minimum": 0,
           "description": "Monotonic counter. Increments on each successfully sent payload."
         },
+        "session.is_first_session": {
+          "type": "boolean",
+          "description": "True on the very first session ever created for this install (no prior total_sessions entry in storage). False once the user has had any prior session."
+        },
+        "session.total_sessions": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Cross-launch monotonic counter of total sessions seen for this install. Bumped at every SessionManager construction and on every startNewSession(). Persisted in localStorage; resets only if storage is cleared."
+        },
         "user.id": {
           "type": "string",
           "description": "Required by the collector. SDK-owned anonymous ID until EdgeRum.identify() attaches details.",
@@ -169,8 +186,13 @@
         "user.name": { "type": "string" },
         "user.email": { "type": "string" },
         "user.phone": { "type": "string" },
-        "sdk.version": { "type": "string", "examples": ["3.0.0"] },
-        "sdk.platform": { "type": "string", "const": "ionic-angular-capacitor" }
+        "sdk.version": { "type": "string", "examples": ["3.1.0"] },
+        "sdk.platform": { "type": "string", "const": "ionic-angular-capacitor" },
+        "sdk.contract_version": {
+          "type": "string",
+          "description": "Wire-contract version. The processor can log 'unknown contract' once per session if it doesn't recognize this value.",
+          "examples": ["3.1.0"]
+        }
       }
     },
     "navigationAttributes": {
@@ -229,30 +251,147 @@
         "http.timestamp": { "type": "string", "format": "date-time" }
       }
     },
-    "performanceAttributes": {
-      "description": "Extra attributes for eventName: performance (Web Vitals)",
+    "sessionStartedAttributes": {
+      "description": "Extra attributes for eventName: session.started. Emitted at SDK init, on foreground after a prior background within timeout (resumed), and on foreground after the 30-minute idle timeout (rotation).",
       "properties": {
-        "performance.metric_name": {
+        "session.start_reason": {
           "type": "string",
-          "enum": ["LCP", "INP", "CLS", "FCP", "TTFB"]
+          "enum": ["init", "resumed", "rotation_timeout"]
+        }
+      }
+    },
+    "sessionFinalizedAttributes": {
+      "description": "Extra attributes for eventName: session.finalized. Emitted on every background, on pagehide/beforeunload (app close), and overrides context with the snapshot taken before any subsequent rotation. Flushes immediately. Includes a journey summary so the processor doesn't have to recompute counts from stored events.",
+      "properties": {
+        "session.id": {
+          "type": "string",
+          "description": "The id of the session being closed — overrides context to lock the pre-rotation value.",
+          "pattern": "^session_\\d+_[a-f0-9]{16}_(ios|android|web)$"
         },
-        "performance.value": { "type": "number" },
-        "performance.unit": { "type": "string", "enum": ["ms", "score"] },
-        "performance.rating": { "type": "string", "enum": ["good", "needs-improvement", "poor"] },
-        "performance.screen": { "type": "string" }
+        "session.start_time": { "type": "string", "format": "date-time" },
+        "session.sequence": { "type": "integer", "minimum": 0 },
+        "session.duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "now - start_time at finalize time."
+        },
+        "session.ended_at": { "type": "string", "format": "date-time" },
+        "session.end_reason": {
+          "type": "string",
+          "enum": ["backgrounded", "app_closed", "timeout"]
+        },
+        "session.visited_screens": {
+          "type": "string",
+          "description": "Comma-separated list of navigation.to_screen values in visit order. Capped at 200 screens; trailing visits are dropped on overflow."
+        },
+        "session.screen_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of navigation events emitted in the session (repeats included). Equals visited_screens.length."
+        },
+        "session.event_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of events emitted in the session at finalize time, excluding the session.finalized event itself."
+        },
+        "session.metric_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of metric items emitted in the session at finalize time."
+        },
+        "session.journey_truncated": {
+          "type": "boolean",
+          "description": "True if more than 200 screens were visited in this session and the journey list was capped. Trailing visits past the cap are dropped."
+        },
+        "sdk.error_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of internal SDK errors (broken instrumentation, capture exceptions, etc.) reported by the HealthMonitor during this session."
+        }
+      }
+    },
+    "userInteractionAttributes": {
+      "description": "Extra attributes for eventName: user.interaction. Emitted by the automatic InteractionCapture on click/tap. NO inner text is captured to avoid PII.",
+      "properties": {
+        "interaction.type": { "type": "string", "enum": ["click"] },
+        "interaction.target_tag": { "type": "string", "description": "Uppercased HTML tag name (e.g. 'BUTTON')." },
+        "interaction.target_id": { "type": "string", "description": "Element id (truncated to 64 chars)." },
+        "interaction.target_class": { "type": "string", "description": "Element className (truncated to 64 chars)." },
+        "interaction.target_role": { "type": "string", "description": "role attribute or aria-label fallback (truncated to 64 chars)." },
+        "interaction.screen": { "type": "string", "description": "Current route at time of interaction." },
+        "interaction.timestamp": { "type": "string", "format": "date-time" }
+      }
+    },
+    "crashBreadcrumbAttributes": {
+      "description": "Extra attributes attached to app.crash events. crash.breadcrumbs is a JSON-string array (exception to flat-primitive purity).",
+      "properties": {
+        "crash.breadcrumbs": {
+          "type": "string",
+          "description": "JSON.stringify of the last 20 user actions as { ts, type, name } objects. Backend parses to recover context leading up to the crash."
+        },
+        "crash.breadcrumb_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        }
+      }
+    },
+    "longTaskMetricAttributes": {
+      "description": "Extra attributes for metric items with metricName: 'long_task'. Value is duration_ms.",
+      "properties": {
+        "metric.unit": { "type": "string", "const": "ms" },
+        "metric.name": { "type": "string", "description": "PerformanceEntry.name (often 'self')." },
+        "metric.screen": { "type": "string" }
+      }
+    },
+    "resourceTimingMetricAttributes": {
+      "description": "Extra attributes for metric items with metricName: 'resource_timing'. Value is duration_ms.",
+      "properties": {
+        "metric.unit": { "type": "string", "const": "ms" },
+        "metric.resource_name": { "type": "string", "description": "Full resource URL." },
+        "metric.resource_type": { "type": "string", "description": "initiatorType (img, script, css, fetch, etc.)." },
+        "metric.transfer_size": { "type": "integer", "minimum": 0 },
+        "metric.screen": { "type": "string" }
+      }
+    },
+    "userProfileUpdateAttributes": {
+      "description": "Extra attributes for eventName: user.profile.update. Emitted by EdgeRum.identify() on each call. The processor uses these to populate / backfill rum_users.",
+      "properties": {
+        "user.name": { "type": "string" },
+        "user.email": { "type": "string" },
+        "user.phone": { "type": "string" },
+        "user.profile_version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Monotonic counter incremented on each identify() call."
+        },
+        "user.profile_updated_at": { "type": "string", "format": "date-time" }
       }
     },
     "crashAttributes": {
-      "description": "Extra attributes for eventName: app.crash",
+      "description": "Extra attributes for eventName: app.crash. Catches both webview JS errors and native crashes (NSException / Throwable / Mach signals / NDK signals / ANRs / hangs).",
       "properties": {
-        "exception_type": { "type": "string", "examples": ["TypeError"] },
+        "exception_type": { "type": "string", "examples": ["TypeError", "java.lang.NullPointerException", "EXC_BAD_ACCESS", "SIGSEGV", "MainThreadHang"] },
         "message": { "type": "string" },
         "stacktrace": { "type": "string" },
         "is_fatal": { "type": "boolean" },
         "handled": { "type": "boolean" },
         "error_context": { "type": "string", "examples": ["screen:/tabs/profile"] },
-        "cause": { "type": "string" },
-        "runtime": { "type": "string", "enum": ["webview", "native"] }
+        "cause": {
+          "type": "string",
+          "enum": ["UnhandledError", "PromiseRejection", "ManualCapture", "ConsoleError", "ConsoleWarn", "NativeCrash", "ANR", "Hang"]
+        },
+        "runtime": { "type": "string", "enum": ["webview", "native"] },
+        "crash.id": { "type": "string", "description": "UUID assigned by the native bridge when the crash was persisted to disk." },
+        "crash.captured_at": { "type": "string", "format": "date-time", "description": "ISO 8601 timestamp of the crash on the device. Distinct from event timestamp (which is when the SDK replayed it on next launch)." },
+        "crash.platform": { "type": "string", "enum": ["ios", "android"] },
+        "crash.platform_version": { "type": "string" },
+        "crash.signal": { "type": "string", "examples": ["SIGSEGV", "SIGABRT"], "description": "Mach / POSIX signal name when applicable." },
+        "crash.thread": { "type": "string", "examples": ["main"] },
+        "crash.symbolication": { "type": "string", "enum": ["required", "symbolicated"], "description": "Whether the backend needs to symbolicate raw addresses against uploaded debug symbols." },
+        "anr.duration_ms": { "type": "integer", "minimum": 0, "description": "Main-thread blocked duration on ANR/Hang causes." },
+        "crash.breadcrumbs": { "type": "string", "description": "JSON-string array of last 20 user actions before the crash (see crashBreadcrumbAttributes)." },
+        "crash.breadcrumb_count": { "type": "integer", "minimum": 0, "maximum": 20 }
       }
     },
     "customEventAttributes": {
@@ -263,9 +402,18 @@
       "additionalProperties": { "type": ["string", "number", "boolean"] }
     },
     "metricAttributes": {
-      "description": "Extra attributes for type: metric items.",
+      "description": "Extra attributes for type: metric items. Web Vitals (LCP/INP/CLS/FCP/TTFB) carry metric.unit, metric.rating, and metric.screen. Custom timings from EdgeRum.time() carry metric.unit: 'ms' plus any caller-supplied attributes.",
       "properties": {
-        "metric.unit": { "type": "string", "const": "ms" }
+        "metric.unit": { "type": "string", "enum": ["ms", "score"] },
+        "metric.rating": {
+          "type": "string",
+          "enum": ["good", "needs-improvement", "poor"],
+          "description": "Present on Web Vital metrics."
+        },
+        "metric.screen": {
+          "type": "string",
+          "description": "Route at the time the metric was captured (Web Vitals)."
+        }
       },
       "additionalProperties": { "type": ["string", "number", "boolean"] }
     },

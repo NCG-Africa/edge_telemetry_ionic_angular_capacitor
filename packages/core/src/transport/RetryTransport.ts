@@ -49,6 +49,14 @@ export class RetryTransport {
     this.fetchFn = fetchFn;
   }
 
+  getEndpoint(): string {
+    return this.endpoint;
+  }
+
+  getApiKey(): string {
+    return this.apiKey;
+  }
+
   async send(body: string): Promise<void> {
     let lastError: unknown;
 

@@ -38,7 +38,7 @@ export interface DeviceContextDeps {
   getLocalStorage?: () => Storage | undefined;
   getCrypto?: () => Crypto | undefined;
   now?: () => number;
-  randomHex8?: () => string;
+  randomHex16?: () => string;
 }
 
 const DEVICE_ID_STORAGE_KEY = 'edge_rum_device_id';
@@ -96,26 +96,25 @@ function toHex(buffer: ArrayBuffer): string {
   return s;
 }
 
-function randomHex8Default(cryptoApi: Crypto | undefined): string {
+function randomHex16Default(cryptoApi: Crypto | undefined): string {
   if (cryptoApi && typeof cryptoApi.getRandomValues === 'function') {
-    const arr = new Uint8Array(4);
+    const arr = new Uint8Array(8);
     cryptoApi.getRandomValues(arr);
     return toHex(arr.buffer);
   }
-  return Math.floor(Math.random() * 0xffffffff)
-    .toString(16)
-    .padStart(8, '0')
-    .slice(0, 8);
+  const high = Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, '0');
+  const low = Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, '0');
+  return `${high}${low}`.slice(0, 16);
 }
 
-async function sha256Hex8(input: string, cryptoApi: Crypto | undefined): Promise<string | undefined> {
+async function sha256Hex16(input: string, cryptoApi: Crypto | undefined): Promise<string | undefined> {
   if (!cryptoApi || !cryptoApi.subtle || typeof cryptoApi.subtle.digest !== 'function') {
     return undefined;
   }
   try {
     const enc = new TextEncoder().encode(input);
     const buf = await cryptoApi.subtle.digest('SHA-256', enc);
-    return toHex(buf).slice(0, 8);
+    return toHex(buf).slice(0, 16);
   } catch {
     return undefined;
   }
@@ -168,7 +167,7 @@ function parseUserAgent(
   return out;
 }
 
-const DEVICE_ID_PATTERN = /^device_\d+_[0-9a-f]{8}_.+$/;
+const DEVICE_ID_PATTERN = /^device_\d+_[0-9a-f]{16}_.+$/;
 
 function getOrCreateDeviceId(
   storage: Storage | undefined,
@@ -231,7 +230,7 @@ export async function getDeviceContext(
   const storage = deps.getLocalStorage ? deps.getLocalStorage() : defaultLocalStorage();
   const cryptoApi = deps.getCrypto ? deps.getCrypto() : defaultCrypto();
   const now = deps.now ?? (() => Date.now());
-  const randomHex8 = deps.randomHex8 ?? (() => randomHex8Default(cryptoApi));
+  const randomHex16 = deps.randomHex16 ?? (() => randomHex16Default(cryptoApi));
   const loadDevice = deps.loadDevice ?? defaultLoadDevice();
 
   const attrs: DeviceContextAttributes = {};
@@ -270,9 +269,9 @@ export async function getDeviceContext(
 
       try {
         const raw = await device.getId();
-        const hex8 = await sha256Hex8(raw.identifier, cryptoApi);
-        if (hex8) {
-          attrs['device.id'] = getOrCreateDeviceId(storage, () => `device_${now()}_${hex8}_${platform}`);
+        const hex16 = await sha256Hex16(raw.identifier, cryptoApi);
+        if (hex16) {
+          attrs['device.id'] = getOrCreateDeviceId(storage, () => `device_${now()}_${hex16}_${platform}`);
         }
       } catch {
         // fall through to fallback id below
@@ -291,7 +290,7 @@ export async function getDeviceContext(
   }
 
   if (!('device.id' in attrs)) {
-    attrs['device.id'] = getOrCreateDeviceId(storage, () => `device_${now()}_${randomHex8()}_${platform}`);
+    attrs['device.id'] = getOrCreateDeviceId(storage, () => `device_${now()}_${randomHex16()}_${platform}`);
   }
 
   addScreenAttributes(attrs, win);
@@ -302,6 +301,6 @@ export async function getDeviceContext(
 export const __internal = {
   DEVICE_ID_STORAGE_KEY,
   parseUserAgent,
-  sha256Hex8,
+  sha256Hex16,
   toHex,
 };

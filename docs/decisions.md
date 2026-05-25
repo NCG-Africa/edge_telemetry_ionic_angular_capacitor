@@ -288,3 +288,279 @@ Documented in `docs/backend-changes.md` as medium priority (not blocking launch)
 - (+) Server-side symbolication is more reliable and maintainable
 - (-) Crash reports for web are less useful until symbolication is implemented.
   Mitigated by `exception_type` + `message` + `cause` being human-readable even without the stack
+
+---
+
+## ADR-016 — Wire-contract realignment for EdgeTelemetryProcessor v3.0.0
+
+**Date:** 2026-05
+
+**Context:** ADR-006's mapping (`screen_view`, `network_request`, `performance`) was based on the
+Android SDK v2 names. The EdgeTelemetryProcessor introduced a new dispatch (`event_processor.py`)
+that branches on different names. Continuing to emit the old names meant the processor's per-event
+handlers never fired and rollup tables stayed empty.
+
+**Decision:** Rename to match the processor:
+
+| Old (v3.0.0 → ADR-006) | New (v3.0.1 → ADR-016) |
+|---|---|
+| `screen_view` | `navigation` (entry hops) + `screen.duration` (dwell on exit) |
+| `network_request` (with `network.*` attrs) | `http.request` (with `http.*` attrs) |
+| `performance` event (Web Vitals) | metric item — `metricName: 'LCP' \| 'FCP' \| 'INP' \| 'CLS' \| 'TTFB'`, value at item root |
+| outer envelope `type: "batch"` | `type: "telemetry_batch"` (and `attributes.app.package_name` instead of `app.package`) |
+
+**Consequences:**
+- (+) Processor handlers now route correctly — `rum_navigation_events`, `rum_screen_durations`,
+  `rum_http_requests`, `rum_performance_metrics` all populate.
+- (+) Metric items use the dedicated `{ type:'metric', metricName, value }` shape so Web Vitals
+  go into the metric pipeline instead of `performance_events` catch-all.
+- (-) This is a wire-breaking change vs ADR-006. Backend rollout coordinated; SDK and processor
+  shipped together as v3.0.1.
+
+---
+
+## ADR-017 — EdgeRum.identify() emits user.profile.update
+
+**Date:** 2026-05
+
+**Context:** Before this change, `EdgeRum.identify()` only updated context attributes — no
+dedicated event fired. The processor has a handler for `user.profile.update` that populates
+`rum_users`, but the SDK never gave it a chance to fire.
+
+**Decision:** Every `EdgeRum.identify()` call now emits one `user.profile.update` event with
+a monotonic `user.profile_version` and `user.profile_updated_at`. Only the fields the caller
+actually passed are echoed in the event payload (we don't re-emit prior name/email/phone if
+they're unchanged).
+
+**Consequences:**
+- (+) `rum_users` populates correctly.
+- (+) `profile_version` lets the backend dedupe rapid identify calls.
+- (-) Critical event allowlist (ADR-019) ensures identify is never sampled out.
+
+---
+
+## ADR-018 — Session lifecycle events (session.started + session.finalized)
+
+**Date:** 2026-05
+
+**Context:** The processor has dedicated handlers for `session.started` and `session.finalized`
+that manage the `rum_sessions` table. The SDK had the internal notion of a session (id, start
+time, rotation) but emitted neither event, so `rum_sessions` was only populated incidentally.
+
+**Decision:** Emit `session.started` at:
+- SDK init (`start_reason: 'init'`)
+- Foreground within the 30-min idle timeout (`start_reason: 'resumed'`)
+- Foreground after the 30-min idle timeout, with id rotation (`start_reason: 'rotation_timeout'`)
+
+Emit `session.finalized` at:
+- Every background transition (`end_reason: 'backgrounded'`)
+- App close via pagehide / beforeunload (`end_reason: 'app_closed'`) — shipped via
+  `navigator.sendBeacon` (or sync XHR on iOS where sendBeacon is unreliable)
+- On the rotation boundary itself the prior background's finalized already covered it, so
+  no extra emission
+
+Both routed through `Collector.recordEvent`; finalized uses the immediate-flush path so it
+ships before the session id stops being valid.
+
+**Consequences:**
+- (+) Clean started/finalized pairs for every visible window — `rum_sessions` populates fully.
+- (+) Session-level analytics (duration, drop-off rates) become queryable on the backend.
+- (-) Brief background → foreground transitions emit a finalized + a started for the same
+  session id — backend dedupes / upserts.
+
+---
+
+## ADR-019 — Per-session sampling + critical-event allowlist
+
+**Date:** 2026-05
+
+**Context:** Original `sampleRate` was per-event (`Math.random()` checked on every emit). At
+`sampleRate: 0.1`, a session would get ~10% of its navigations, ~10% of its http requests, etc.
+— fractional journeys that the backend can't distinguish from missing instrumentation. Worse,
+the gate also dropped `app.crash` and `session.started`/`session.finalized`, so the backend
+saw orphan events with no session boundaries.
+
+**Decision:** Two changes:
+
+1. **Per-session sampling.** Roll `Math.random() < sampleRate` ONCE at session start (and
+   re-roll on rotation). Store the decision on `SessionManager`. The whole session is either
+   fully captured or fully sampled out.
+
+2. **Critical event allowlist.** `app.crash`, `session.started`, `session.finalized`, and
+   `user.profile.update` always bypass the sampling gate. Backend never loses crashes or
+   session boundaries.
+
+**Consequences:**
+- (+) Journeys are coherent — sampled-in sessions are complete, sampled-out sessions are
+  empty (except for the four critical event types).
+- (+) Crash and session counts are accurate regardless of sample rate.
+- (-) `sampleRate: 0.5` no longer halves your bytes-on-the-wire exactly (~50% of sessions get
+  full traffic, others get a sparse trickle of critical events). Acceptable.
+
+---
+
+## ADR-020 — Pipeline freeze + sendBeacon for pagehide
+
+**Date:** 2026-05
+
+**Context:** When the app closes (pagehide / beforeunload), we want to ship a final
+`session.finalized: app_closed`. The Collector's `pushImmediate` triggers an async `flush()`,
+but pagehide is a synchronous moment — the process may die before the flush resolves. We also
+read the buffer via `getBeaconPayload()` to ship via `sendBeacon`, but the async flush could
+drain the buffer first, racing the beacon.
+
+**Decision:** Add `Pipeline.freeze()` / `Pipeline.unfreeze()`. The pagehide handler:
+1. Calls `freeze()` — subsequent `push` / `pushImmediate` calls only buffer, never trigger
+   the async `void this.flush()` kick.
+2. Emits `session.finalized` (which goes through `pushImmediate` → just buffers).
+3. Reads the buffer via `pipeline.buildBeaconPayload()` — synchronously serialises and drains.
+4. Ships via `navigator.sendBeacon` (or sync XHR on iOS).
+
+**Consequences:**
+- (+) Deterministic delivery — no race between async flush and sync beacon.
+- (+) No double-send.
+- (-) New Pipeline API surface. Internal-only.
+
+---
+
+## ADR-021 — Wire-contract version on every event
+
+**Date:** 2026-05
+
+**Context:** SDK and processor are versioned independently. When the SDK ships event shapes
+the processor doesn't yet know, events silently drop into the catch-all. Diagnosing version
+skew required out-of-band coordination.
+
+**Decision:** Every event carries `sdk.contract_version` (currently `'3.1.0'`) in its context
+attributes. The processor can log "unknown contract" once per session if it doesn't recognise
+the value. `SDK_VERSION` (`'3.2.0'`) is separate — it tracks SDK-internal versioning that may
+not change the wire shape (e.g., a bug fix release doesn't bump the contract version).
+
+**Consequences:**
+- (+) Backend gains visibility into deployed SDK versions across the fleet.
+- (+) Skew between SDK and processor becomes immediately diagnosable.
+- (-) ~20 bytes per event for the field. Trivial.
+
+---
+
+## ADR-022 — Native crash bridge via Capacitor plugin
+
+**Date:** 2026-05
+
+**Context:** Until v3.2.0, the SDK only caught webview JS errors (`window.error`,
+`unhandledrejection`, `console.error/warn`). Crashes from outside the webview — NSException,
+Mach signals, JVM Throwables, NDK signals, ANRs — never reached JS and so never reached
+the backend. For a "Capacitor RUM" claim to be credible, we needed native coverage.
+
+**Decision:** Bundle a Capacitor plugin (`EdgeRumCrash`) into `@nathanclaire/rum-capacitor`.
+The plugin wraps:
+
+- **iOS:** PLCrashReporter (CocoaPods dependency) for signal-grade coverage + NSException +
+  uncaught Swift errors. Plus a custom `HangDetector.swift` for main-thread liveness.
+- **Android JVM:** `Thread.setDefaultUncaughtExceptionHandler` chained to the previous handler
+  so the OS still gets the report.
+- **Android ANR:** Custom Kotlin watchdog thread that posts heartbeats to the main `Looper`
+  and captures stacks on >5 s blocks.
+- **Android NDK:** Custom C++ `sigaction` handlers (SIGSEGV/SIGBUS/SIGILL/SIGFPE/SIGABRT) that
+  write async-signal-safe binary records via `write(2)` to a pre-opened file descriptor.
+
+All four paths persist crash records to disk on the dying process. On the **next** `EdgeRum.init()`,
+the JS bridge calls `plugin.fetchPending()` and emits each as an `app.crash` event with
+`cause: 'NativeCrash' | 'ANR' | 'Hang'`, `runtime: 'native'`, plus namespaced `crash.*` attrs.
+
+**Consequences:**
+- (+) Full crash coverage across web + native — single `app.crash` event surface, single
+  Kafka processor.
+- (+) `error_context: 'screen:<route>'` carries over to native crashes via a throttled relay
+  from JS → native (`plugin.setLastScreen`).
+- (-) Adds CocoaPods dependency on PLCrashReporter for iOS consumers.
+- (-) Android requires NDK toolchain for the native signal handler (CMake build). Consumers
+  who can't build NDK can disable via `captureNativeCrashes: false` — they lose only signal-class
+  crashes; JVM + ANR still work.
+- (-) Native code can't be unit-tested in this repo's CI — verification requires running the
+  smoke tests on a real device. The risk is mitigated by leaning on PLCrashReporter (battle-tested)
+  for the iOS path; only the Android NDK handler and Kotlin scaffolding are bespoke.
+
+---
+
+## ADR-023 — Wider ID entropy (8 → 16 hex chars)
+
+**Date:** 2026-05
+
+**Context:** ADR-011 set the random segment of `session.id` / `device.id` / `user.id` to 8 hex
+chars (32 bits of entropy). Birthday-paradox collision probability at 1M IDs/day is non-negligible
+within a tenant. For an SDK that's the source of truth on session id, we want stronger guarantees.
+
+**Decision:** Widen the random segment to 16 hex chars (64 bits of entropy). Backend regex
+patterns updated accordingly. Existing persisted IDs in localStorage are invalidated by the
+stricter regex check on next launch — fresh IDs generate transparently.
+
+**Consequences:**
+- (+) Collision probability vanishes at any realistic scale.
+- (+) Same `crypto.getRandomValues` path, just larger output buffer.
+- (-) Persisted device/user IDs reset once on upgrade (one-time churn).
+- (-) IDs are 8 chars longer on the wire. Negligible.
+
+---
+
+## ADR-024 — Breadcrumbs as JSON-string on app.crash
+
+**Date:** 2026-05
+
+**Context:** Crashes shipped with only `error_context: 'screen:/x'` — minimal forensic value.
+Other RUM SDKs maintain a breadcrumb buffer (last N user actions) and attach it to crashes
+for context. The challenge: ADR-004 enforces flat-primitive `attributes`, but the natural
+representation of "last 20 actions" is an array of objects.
+
+**Decision:** Maintain a ring buffer of 20 `{ ts, type, name }` records inside the Collector
+(every non-crash event pushes a breadcrumb). On every `app.crash` emission, the snapshot is
+serialised as **a single string** in `crash.breadcrumbs` (JSON.stringify of the array). The
+schema documents this as the one and only exception to the flat-primitives rule. The backend
+parses the string.
+
+**Consequences:**
+- (+) Crash forensics — backend can show "what was the user doing just before the crash".
+- (+) No nested attributes on the wire; ADR-004 invariant preserved everywhere else.
+- (-) Backend parses JSON inside a JSON attribute. Slight ergonomic cost vs a structured field.
+  Accepted to avoid a wire-contract break.
+
+---
+
+## ADR-025 — User-interaction capture limited to tag/id/class/role (no inner text)
+
+**Date:** 2026-05
+
+**Context:** Click capture is high-value automatic instrumentation (rage-click detection,
+funnel analysis). The natural temptation is to grab `target.textContent` for context ("which
+button did they click?"). But form-adjacent text (labels, autocomplete suggestions, even
+input values via DOM proximity) is a PII risk and a compliance burden.
+
+**Decision:** Capture only `interaction.target_tag`, `interaction.target_id`,
+`interaction.target_class`, `interaction.target_role` (with `aria-label` fallback). **Never**
+read `textContent`. Consumers who want button-label tracking can add `data-*` attributes and
+capture via explicit `EdgeRum.track()` calls.
+
+**Consequences:**
+- (+) Privacy-safe by default — no risk of leaking form field text.
+- (+) Reduced PII review burden for compliance.
+- (-) Funnel analytics that key on "clicked the 'Buy Now' button" require manual instrumentation.
+  Tradeoff is intentional.
+
+---
+
+## ADR-026 — Per-flush opportunistic offline-queue drain
+
+**Date:** 2026-05
+
+**Context:** Before this change, the offline queue drained only on three triggers: network
+reconnect, app foreground, or `EdgeRum.enable()`. If the SDK booted online but the very first
+send failed (transient 5xx, CORS hiccup), the queue accumulated and never retried until one
+of those triggers fired.
+
+**Decision:** After every successful live `transport.send()`, kick off a non-awaited
+`void this.flushOfflineQueue()`. Cheap because the queue's flush is a no-op when empty.
+
+**Consequences:**
+- (+) Transient outages self-heal — no waiting for foreground / network event.
+- (+) Trivial implementation (one line).
+- (-) Slight extra work per successful send (one empty-queue check). Negligible.

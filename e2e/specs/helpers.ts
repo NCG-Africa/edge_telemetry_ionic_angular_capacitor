@@ -70,6 +70,30 @@ export async function waitForPayloads(
   return getPayloads(request);
 }
 
+/**
+ * Polls the mock ingest until at least one item matching the predicate appears
+ * across all received payloads, then returns the full payload list. Use this
+ * instead of waitForPayloads when the event of interest may not land in the
+ * first batch (the SDK auto-emits vitals/resource_timing/page_load at init,
+ * filling a small batch quickly).
+ */
+export async function waitForItem(
+  request: APIRequestContext,
+  match: (item: BatchItem) => boolean,
+  options: { timeoutMs?: number } = {},
+): Promise<BatchPayload[]> {
+  const timeoutMs = options.timeoutMs ?? 10_000;
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const payloads = await getPayloads(request);
+    for (const p of payloads) {
+      if (Array.isArray(p?.events) && p.events.some(match)) return payloads;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return getPayloads(request);
+}
+
 export async function initHarness(
   page: Page,
   overrides: Record<string, unknown> = {},

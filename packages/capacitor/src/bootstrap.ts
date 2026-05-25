@@ -1,8 +1,25 @@
-import { __getSession, __getCollector, __getContext, __getPipeline, __setTransportFetch } from '@nathanclaire/rum';
+import {
+  __getSession,
+  __getCollector,
+  __getContext,
+  __getPipeline,
+  __setTransportFetch,
+  __subscribeToCurrentRoute,
+  healthMonitor,
+} from '@nathanclaire/rum';
 import { getDeviceContext } from './DeviceContext';
 import { startNetworkCapture, getInitialNetworkContext } from './NetworkCapture';
 import { startLifecycleCapture } from './LifecycleCapture';
+import { registerNativeCrashCapture, type NativeCrashCaptureHandle } from './NativeCrashCapture';
 import { createCapacitorHttpFetch, type CapacitorLike } from './capacitor-http-fetch';
+
+export interface CapacitorCaptureOptions {
+  captureNativeCrashes?: boolean;
+  enableAnrDetection?: boolean;
+  enableHangDetection?: boolean;
+  anrTimeoutMs?: number;
+  hangTimeoutMs?: number;
+}
 
 export interface CapacitorCaptureHandle {
   stop: () => Promise<void>;
@@ -34,7 +51,9 @@ async function loadNativeAppBuild(): Promise<string | null> {
   }
 }
 
-export async function startCapacitorCapture(): Promise<CapacitorCaptureHandle> {
+export async function startCapacitorCapture(
+  options: CapacitorCaptureOptions = {},
+): Promise<CapacitorCaptureHandle> {
   const session = __getSession();
   const collector = __getCollector();
   const context = __getContext();
@@ -79,16 +98,38 @@ export async function startCapacitorCapture(): Promise<CapacitorCaptureHandle> {
     flushQueue: () => void pipeline.flush(),
   });
 
+  const platform = (deviceAttrs['device.platform'] as string | undefined) ?? 'web';
+
   const lifecycleHandle = await startLifecycleCapture({
     recordEvent: (eventName, attrs) => collector.recordEvent(eventName, attrs),
     flushPipeline: () => pipeline.flush(),
+    freezePipeline: () => pipeline.freeze(),
+    getBeaconPayload: () => pipeline.buildBeaconPayload(),
+    getPlatform: () => platform,
     session,
   });
+
+  let nativeCrashHandle: NativeCrashCaptureHandle | null = null;
+  if (isNative && options.captureNativeCrashes !== false) {
+    try {
+      nativeCrashHandle = await registerNativeCrashCapture({
+        recordEvent: (eventName, attrs) => collector.recordEvent(eventName, attrs),
+        subscribeToCurrentRoute: (cb) => __subscribeToCurrentRoute(cb),
+        enableAnrDetection: options.enableAnrDetection,
+        enableHangDetection: options.enableHangDetection,
+        anrTimeoutMs: options.anrTimeoutMs,
+        hangTimeoutMs: options.hangTimeoutMs,
+      });
+    } catch (err) {
+      healthMonitor.reportError('native-crash.bootstrap', err);
+    }
+  }
 
   return {
     stop: async () => {
       await networkHandle.stop();
       await lifecycleHandle.stop();
+      nativeCrashHandle?.stop();
     },
   };
 }

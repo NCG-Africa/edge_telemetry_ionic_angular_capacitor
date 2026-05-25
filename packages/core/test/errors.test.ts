@@ -177,22 +177,27 @@ describe('registerErrorCapture', () => {
     expect(json).not.toMatch(/opentelemetry/i);
   });
 
-  it('uses field names that match the Android SDK v2.0.0 exactly', () => {
+  it('uses field names that match the Android SDK v2.0.0 exactly (plus breadcrumb attachment)', () => {
     setup();
     target.dispatch('error', { message: 'm', error: new Error('m') });
     const keys = Object.keys(recorded[0]!.attributes).sort();
-    expect(keys).toEqual(
-      [
-        'cause',
-        'error_context',
-        'exception_type',
-        'handled',
-        'is_fatal',
-        'message',
-        'runtime',
-        'stacktrace',
-      ].sort(),
-    );
+    // Android SDK v2 core keys
+    const androidKeys = [
+      'cause',
+      'error_context',
+      'exception_type',
+      'handled',
+      'is_fatal',
+      'message',
+      'runtime',
+      'stacktrace',
+    ];
+    for (const k of androidKeys) {
+      expect(keys).toContain(k);
+    }
+    // Plus the SDK's breadcrumb attachment (additive, not a wire-contract break)
+    expect(keys).toContain('crash.breadcrumbs');
+    expect(keys).toContain('crash.breadcrumb_count');
   });
 
   it('handles missing error object on ErrorEvent gracefully', () => {
@@ -241,5 +246,138 @@ describe('registerErrorCapture', () => {
     target.dispatch('error', { message: 'm', error: new Error('m') });
     target.dispatch('unhandledrejection', { reason: new Error('r') });
     expect(flush).toHaveBeenCalledTimes(2);
+  });
+});
+
+import { registerConsoleErrorCapture } from '../src/instrumentation/errors';
+
+describe('registerConsoleErrorCapture', () => {
+  let recorded: Array<{ name: string; attrs: Record<string, unknown> }>;
+  let consoleStub: Console;
+  let originalError: ReturnType<typeof vi.fn>;
+  let originalWarn: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    recorded = [];
+    originalError = vi.fn();
+    originalWarn = vi.fn();
+    consoleStub = {
+      error: originalError,
+      warn: originalWarn,
+    } as unknown as Console;
+  });
+
+  function setup(overrides: { captureWarn?: boolean; route?: string } = {}) {
+    return registerConsoleErrorCapture({
+      recordEvent: (name, attrs) => recorded.push({ name, attrs }),
+      getCurrentRoute: () => overrides.route ?? '/home',
+      consoleTarget: consoleStub,
+      captureWarn: overrides.captureWarn,
+    });
+  }
+
+  it('wraps console.error so each call emits an app.crash with cause=ConsoleError', () => {
+    setup();
+    consoleStub.error('something broke');
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]!.name).toBe('app.crash');
+    expect(recorded[0]!.attrs['cause']).toBe('ConsoleError');
+    expect(recorded[0]!.attrs['handled']).toBe(true);
+    expect(recorded[0]!.attrs['is_fatal']).toBe(false);
+    expect(recorded[0]!.attrs['runtime']).toBe('webview');
+    expect(recorded[0]!.attrs['message']).toBe('something broke');
+  });
+
+  it('wraps console.warn so each call emits an app.crash with cause=ConsoleWarn (default)', () => {
+    setup();
+    consoleStub.warn('deprecated thing');
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]!.attrs['cause']).toBe('ConsoleWarn');
+  });
+
+  it('does NOT wrap console.warn when captureWarn=false', () => {
+    setup({ captureWarn: false });
+    consoleStub.warn('not captured');
+
+    expect(recorded).toHaveLength(0);
+    // original warn still called
+    expect(originalWarn).toHaveBeenCalledWith('not captured');
+  });
+
+  it('still calls the original console.error after wrapping', () => {
+    setup();
+    consoleStub.error('forwarded');
+    expect(originalError).toHaveBeenCalledWith('forwarded');
+  });
+
+  it('uses Error.message + stack when first arg is an Error', () => {
+    setup();
+    const err = new TypeError('cannot read x of undefined');
+    err.stack = 'TypeError: cannot read x of undefined\n  at fn (a.ts:1)';
+    consoleStub.error(err);
+
+    expect(recorded[0]!.attrs['exception_type']).toBe('TypeError');
+    expect(recorded[0]!.attrs['message']).toBe('cannot read x of undefined');
+    expect(recorded[0]!.attrs['stacktrace']).toContain('at fn (a.ts:1)');
+  });
+
+  it('joins multi-arg string + object messages when no Error is present', () => {
+    setup();
+    consoleStub.error('user', 42, { foo: 'bar' });
+    expect(recorded[0]!.attrs['message']).toBe('user 42 {"foo":"bar"}');
+    expect(recorded[0]!.attrs['exception_type']).toBe('Error');
+  });
+
+  it('error_context carries the current route', () => {
+    setup({ route: '/checkout/confirm' });
+    consoleStub.error('x');
+    expect(recorded[0]!.attrs['error_context']).toBe('screen:/checkout/confirm');
+  });
+
+  it('dispose() stops capturing — subsequent console.error does not record', () => {
+    const handle = setup();
+    consoleStub.error('before-dispose');
+    expect(recorded).toHaveLength(1);
+    handle.dispose();
+    consoleStub.error('after-dispose');
+    // Still 1 — post-dispose calls are no longer captured.
+    expect(recorded).toHaveLength(1);
+    // The original is still callable for both invocations.
+    expect(originalError).toHaveBeenCalledTimes(2);
+  });
+
+  it('dispose() also stops capturing console.warn (when it was wrapped)', () => {
+    const handle = setup();
+    consoleStub.warn('w1');
+    expect(recorded).toHaveLength(1);
+    handle.dispose();
+    consoleStub.warn('w2');
+    expect(recorded).toHaveLength(1);
+    expect(originalWarn).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns a no-op handle when consoleTarget lacks console.error', () => {
+    const handle = registerConsoleErrorCapture({
+      recordEvent: (name, attrs) => recorded.push({ name, attrs }),
+      getCurrentRoute: () => '/',
+      consoleTarget: {} as unknown as Console,
+    });
+    expect(typeof handle.dispose).toBe('function');
+    expect(recorded).toHaveLength(0);
+  });
+
+  it('survives a recordEvent throw — the original console.error still fires', () => {
+    const throwingRecord = vi.fn(() => {
+      throw new Error('record-failure');
+    });
+    registerConsoleErrorCapture({
+      recordEvent: throwingRecord,
+      getCurrentRoute: () => '/',
+      consoleTarget: consoleStub,
+    });
+    expect(() => consoleStub.error('x')).not.toThrow();
+    expect(originalError).toHaveBeenCalledWith('x');
   });
 });

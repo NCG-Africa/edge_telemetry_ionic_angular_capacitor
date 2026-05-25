@@ -3,6 +3,7 @@ import {
   allEvents,
   initHarness,
   resetIngest,
+  waitForItem,
   waitForPayloads,
   TELEMETRY_ENDPOINT,
 } from './helpers';
@@ -24,7 +25,10 @@ test.describe('URL hardening', () => {
       }
     });
 
-    const payloads = await waitForPayloads(request);
+    const payloads = await waitForItem(
+      request,
+      (item) => item.type === 'event' && item.eventName === 'http.request',
+    );
     const events = allEvents(payloads);
     const netReqs = events.filter((e) => e.eventName === 'http.request');
     expect(netReqs.length).toBeGreaterThanOrEqual(1);

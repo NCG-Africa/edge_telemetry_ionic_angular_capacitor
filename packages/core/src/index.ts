@@ -1,4 +1,5 @@
-export const SDK_VERSION = '3.0.0';
+export const SDK_VERSION = '3.3.0';
+export const SDK_CONTRACT_VERSION = '3.1.0' as const;
 export const SDK_PLATFORM = 'ionic-angular-capacitor' as const;
 
 export interface EdgeRumConfig {
@@ -7,6 +8,7 @@ export interface EdgeRumConfig {
   appName?: string;
   appVersion?: string;
   appPackage?: string;
+  appBuild?: string;
   environment?: 'production' | 'staging' | 'development';
   location?: string;
   sampleRate?: number;
@@ -17,6 +19,12 @@ export interface EdgeRumConfig {
   sanitizeUrl?: (url: string) => string;
   deferFlush?: boolean;
   debug?: boolean;
+  captureConsoleErrors?: boolean;
+  captureNativeCrashes?: boolean;
+  enableAnrDetection?: boolean;
+  enableHangDetection?: boolean;
+  anrTimeoutMs?: number;
+  hangTimeoutMs?: number;
 }
 
 export interface UserContext {
@@ -31,10 +39,16 @@ export { EdgeRum, type EdgeRumRuntime, type RumTimer } from './EdgeRum';
 export {
   __recordEvent,
   __setCurrentRoute,
+  __getCurrentRoute,
+  __subscribeToCurrentRoute,
+  __setLastNavigationMethod,
+  __getLastNavigationMethod,
+  __flushActiveScreen,
   __getCollector,
   __getSession,
   __getContext,
   __getPipeline,
   __setTransportFetch,
 } from './EdgeRum';
+export { healthMonitor } from './internal/health';
 export type { FetchLike } from './transport/RetryTransport';

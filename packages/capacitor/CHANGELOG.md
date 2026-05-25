@@ -1,5 +1,16 @@
 # @nathanclaire/rum-capacitor
 
+## 3.3.3
+
+### Patch Changes
+
+- Add `EdgeRumCrashPlugin.load()` override as a verification hook for
+  SPM/CocoaPods consumers. Fires at Capacitor framework boot, before JS;
+  emits `[edge-rum] EdgeRumCrashPlugin loaded` to the device console in
+  debug builds. Set a breakpoint on the method to confirm the plugin
+  linked correctly, independent of whether the JS bridge has called
+  `plugin.install()` yet.
+
 ## 3.3.2
 
 ### Patch Changes

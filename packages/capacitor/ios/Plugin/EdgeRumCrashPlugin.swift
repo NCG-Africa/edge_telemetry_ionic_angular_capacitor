@@ -13,6 +13,18 @@ public class EdgeRumCrashPlugin: CAPPlugin {
     private static var installed = false
     private static let installLock = NSLock()
 
+    /// Called once by Capacitor when the plugin is discovered and linked,
+    /// before any JS runs. Set a breakpoint here (or grep the device console
+    /// for the `[edge-rum]` debug log) to verify that SPM/CocoaPods linkage
+    /// is wiring this plugin into the consumer app. The real work happens
+    /// in `install(_:)` which fires when JS calls `plugin.install()`.
+    public override func load() {
+        super.load()
+        #if DEBUG
+        print("[edge-rum] EdgeRumCrashPlugin loaded (SPM/CocoaPods linkage OK; awaiting JS install)")
+        #endif
+    }
+
     @objc func install(_ call: CAPPluginCall) {
         EdgeRumCrashPlugin.installLock.lock()
         defer { EdgeRumCrashPlugin.installLock.unlock() }

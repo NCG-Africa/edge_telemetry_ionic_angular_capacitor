@@ -2,10 +2,20 @@
 //
 // SPM manifest for `@nathanclaire/rum-capacitor`.
 //
-// Capacitor 7+ consumers using SPM-only iOS projects (no Podfile) need a
-// Package.swift at the plugin root for `npx cap sync ios` to discover and
-// link the native plugin. The legacy CocoaPods path remains supported via
-// the parallel podspec at `ios/EdgeRumCapacitor.podspec`.
+// Capacitor 8 SPM-only iOS projects (no Podfile) need this file for
+// `npx cap sync ios` to discover and link the native plugin. The legacy
+// CocoaPods path remains supported via the parallel podspec at
+// `ios/EdgeRumCapacitor.podspec`.
+//
+// Versioning note — `capacitor-swift-pm`'s major version is aligned with
+// Capacitor's major version (7.x for Capacitor 7, 8.x for Capacitor 8).
+// SwiftPM's `from:` is up-to-next-major, so this manifest targets
+// Capacitor 8 consumers only. Capacitor 7 SPM consumers were unreachable
+// from the previous `from: "7.0.0"` declaration because their app's
+// `capacitor-swift-pm` resolves to 8.x and conflicted with our 7.x pin —
+// resulting in either a resolution error or the plugin being silently
+// dropped during `cap sync ios`. Capacitor 7 CocoaPods consumers continue
+// to work via the podspec.
 //
 // Layout matches the official capacitor-team plugin template
 // (https://github.com/ionic-team/capacitor-plugins): a single target rooted
@@ -18,7 +28,7 @@ import PackageDescription
 
 let package = Package(
     name: "EdgeRumCapacitor",
-    platforms: [.iOS(.v14)],
+    platforms: [.iOS(.v15)],
     products: [
         .library(
             name: "EdgeRumCapacitor",
@@ -26,8 +36,7 @@ let package = Package(
         )
     ],
     dependencies: [
-        // Range `from: "7.0.0"` covers both Capacitor 7 and 8 consumers.
-        .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", from: "7.0.0")
+        .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", from: "8.0.0")
     ],
     targets: [
         .target(

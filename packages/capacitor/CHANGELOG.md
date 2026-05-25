@@ -1,5 +1,16 @@
 # @nathanclaire/rum-capacitor
 
+## 3.3.2
+
+### Patch Changes
+
+- Fix SPM resolution for Capacitor 8 consumers. `Package.swift` now depends
+  on `capacitor-swift-pm` `from: "8.0.0"` (was `from: "7.0.0"`, which capped
+  at `<8.0.0` and conflicted with Cap 8 consumers' 8.x resolution) and uses
+  `.iOS(.v15)` to match the `@capacitor/app` v8 template. Capacitor 7 SPM is
+  no longer supported by this package; Capacitor 7 CocoaPods consumers
+  continue to work via the podspec.
+
 ## 3.3.1
 
 ### Patch Changes

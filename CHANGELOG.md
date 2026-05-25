@@ -4,6 +4,24 @@ All notable changes to the edge-rum SDK are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/).
 
+## [@nathanclaire/rum-capacitor 3.3.2] — 2026-05-25
+
+### Fixed
+
+- **`Package.swift` was unresolvable on Capacitor 8 SPM consumers.** The
+  previous declaration depended on `capacitor-swift-pm` `from: "7.0.0"`,
+  which SwiftPM resolves as `7.0.0 ..< 8.0.0`. `capacitor-swift-pm`'s
+  major version is aligned with Capacitor's major version (7.x → Capacitor
+  7, 8.x → Capacitor 8), so a Capacitor 8 consumer's `CapApp-SPM/Package.swift`
+  pulls in 8.x and conflicted with our 7.x pin — manifesting either as a
+  resolution error during `cap sync ios` or as the plugin being silently
+  dropped (which is the warning users were seeing in the wild). Switched
+  the pin to `from: "8.0.0"` and the platform target from `.iOS(.v14)` to
+  `.iOS(.v15)` to match the official `@capacitor/app` v8 template. Capacitor
+  7 CocoaPods consumers continue to work unchanged via the podspec;
+  Capacitor 7 SPM is no longer supported by this package (was effectively
+  broken anyway).
+
 ## [@nathanclaire/rum-capacitor 3.3.1] — 2026-05-25
 
 ### Fixed

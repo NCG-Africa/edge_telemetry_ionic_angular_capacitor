@@ -54,12 +54,26 @@ function defaultLocalStorage(): Storage | undefined {
   }
 }
 
-const PREFERENCES_MODULE = '@capacitor/' + 'preferences';
-
 function defaultLoadPreferences(): () => Promise<PreferencesLike> {
   return async () => {
+    // String-literal import path + magic comments so bundlers leave the call
+    // alone:
+    //   - `webpackIgnore: true` stops webpack from trying to resolve
+    //     `@capacitor/preferences` at build time (it isn't installed in
+    //     pure-web consumer setups). Without this, webpack emits a
+    //     "Critical dependency: the request of a dependency is an expression"
+    //     warning, prevents tree-shaking, and forces the consumer to
+    //     `external` the package manually.
+    //   - `@vite-ignore` is the equivalent for Vite-based consumers.
+    //   - `rollup-disable-resolve` (no flag — Rollup defers to the runtime
+    //     when the import looks dynamic).
+    // The string literal itself is required so webpack can recognise the
+    // `webpackIgnore` directive — the previous `'@capacitor/' + 'preferences'`
+    // concat form tripped webpack's expression analyzer regardless.
     const mod = (await import(
-      /* @vite-ignore */ PREFERENCES_MODULE
+      /* webpackIgnore: true */
+      /* @vite-ignore */
+      '@capacitor/preferences'
     )) as unknown as { Preferences: PreferencesLike };
     return mod.Preferences;
   };

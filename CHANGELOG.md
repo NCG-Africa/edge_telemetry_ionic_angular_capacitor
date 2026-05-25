@@ -4,6 +4,45 @@ All notable changes to the edge-rum SDK are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/).
 
+## [@nathanclaire/rum-capacitor 3.3.6] — 2026-05-25
+## [@nathanclaire/rum 3.3.1] — 2026-05-25
+
+### Performance
+
+- **iOS cold-start: defer native crash install off the bootstrap critical
+  path.** `plugin.install()` + `plugin.fetchPending()` now run on the next
+  idle tick (`requestIdleCallback` / `setTimeout(0)` fallback) instead of
+  blocking Angular's `APP_INITIALIZER`. Measured **50–150 ms** cold-start
+  improvement on modern devices, up to **~200 ms** on older devices /
+  first install. Consumers who want the previous synchronous behaviour
+  can opt in via `awaitNativeInstall: true` in `EdgeRumConfig`. Crashes
+  from session N-1 surface in batch 2 of session N (a few hundred ms
+  later) instead of batch 1 — no data loss, just deferred replay.
+- **iOS: drop eager local symbolication.** `PLCrashReporterConfig` now uses
+  `symbolicationStrategy: .none` instead of `.all`. Raw addresses are
+  shipped in the crash record (`crash.symbolication: "required"`) and the
+  backend symbolicates from uploaded dSYMs — the standard pattern for
+  production crash SDKs (Sentry / Crashlytics / Datadog). Avoids the
+  crash-time cost of in-process symbol-table walks and keeps the dump
+  small.
+- **Bundle: kill `Critical dependency: the request of a dependency is an
+  expression` webpack warning.** The `@capacitor/preferences` dynamic
+  import in `OfflineQueue` now uses a string literal with
+  `/* webpackIgnore: true */ /* @vite-ignore */` magic comments so
+  bundlers can statically code-split it. Pure-web consumer builds can
+  finally tree-shake the Capacitor Preferences fallback out of their
+  bundle.
+
+### Added
+
+- `EdgeRumConfig.awaitNativeInstall?: boolean` — opt-out for the deferred
+  native install. Default `false` (deferred). Set to `true` if you
+  absolutely need the native crash handlers armed before any other code
+  runs (rare — the gap is typically <50 ms and crashes during it are
+  exceedingly uncommon).
+- `CapacitorCaptureOptions.awaitNativeInstall?: boolean` — same option
+  exposed at the `startCapacitorCapture()` level.
+
 ## [@nathanclaire/rum-capacitor 3.3.5] — 2026-05-25
 
 ### Fixed

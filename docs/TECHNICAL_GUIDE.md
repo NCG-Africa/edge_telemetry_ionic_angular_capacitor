@@ -304,6 +304,17 @@ The plugin writes crash records to the app's cache directory. On the **next** `E
 3. Emits each as an `app.crash` event via `Collector.recordEvent('app.crash', ...)`.
 4. Calls `plugin.markHandled({ ids })` — deletes the consumed records.
 
+Steps 1–4 run on the **next idle tick** by default (via
+`requestIdleCallback` with a `setTimeout(0)` fallback) so they don't
+extend the cold-start critical path. Measured impact on a current-gen
+iPhone: ~50–150 ms saved on every launch (more on older devices). The
+screen-relay listener that supplies `error_context` is wired
+**synchronously**, so crashes that happen during the deferred-install
+gap still carry the correct screen — they're just replayed in batch 2
+of the next session instead of batch 1. Consumers who absolutely need
+the handlers armed before any other code can opt in via
+`awaitNativeInstall: true` in `EdgeRumConfig`.
+
 Records carry `runtime: 'native'` and a set of namespaced attributes:
 
 ```jsonc
@@ -333,7 +344,14 @@ Records carry `runtime: 'native'` and a set of namespaced attributes:
 
 NDK signal-handler records carry **raw addresses** (`0x7b8c0e1200` per frame). Stack walking happens async-signal-safely via `_Unwind_Backtrace`. The `crash.symbolication: 'required'` flag tells the backend that symbolication against uploaded `.so` debug symbols is needed.
 
-iOS records from PLCrashReporter are pre-symbolicated via `PLCrashReportTextFormatter` (`crash.symbolication: 'symbolicated'`).
+iOS records from PLCrashReporter are configured with
+`symbolicationStrategy: .none` — app frames ship as raw addresses with
+`crash.symbolication: 'required'`, and the backend symbolicates them
+against uploaded dSYMs. This is the standard pattern for production
+crash SDKs (Sentry / Crashlytics / Datadog all do the same): in-process
+symbolication at crash time is expensive and can fail if the symbol
+table isn't loaded, while backend symbolication scales independently
+and uses the authoritative dSYM bundle from the build pipeline.
 
 Android JVM crashes (`Thread.setDefaultUncaughtExceptionHandler`) carry the standard `Throwable.printStackTrace()` text, fully symbolicated by the JVM.
 

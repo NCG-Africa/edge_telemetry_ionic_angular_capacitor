@@ -4,11 +4,22 @@ import Capacitor
 /// Capacitor plugin bridge. Thin shim — delegates to `CrashReporter` (PLCrashReporter wrapper)
 /// and `HangDetector` for the actual work.
 ///
-/// NOTE: this file ships in `packages/capacitor/ios/` and is built via CocoaPods when the
-/// consumer app runs `pod install`. It has not been built in this repo's CI — see
-/// `goofy-rolling-flask.md` "Manual validation steps" for the smoke tests you need to run.
+/// Uses the `CAPBridgedPlugin` protocol (Capacitor 6+) for Swift-only method
+/// registration. The legacy `.m` file with the `CAP_PLUGIN` macro that lived
+/// alongside this file in 3.3.0–3.3.3 was removed in 3.3.4 because SwiftPM
+/// refuses to resolve targets that mix `.swift` and `.m` sources, which broke
+/// SPM consumers at package-resolution time.
 @objc(EdgeRumCrashPlugin)
-public class EdgeRumCrashPlugin: CAPPlugin {
+public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
+
+    public let identifier = "EdgeRumCrashPlugin"
+    public let jsName = "EdgeRumCrash"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "install", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "fetchPending", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "markHandled", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setLastScreen", returnType: CAPPluginReturnPromise)
+    ]
 
     private static var installed = false
     private static let installLock = NSLock()

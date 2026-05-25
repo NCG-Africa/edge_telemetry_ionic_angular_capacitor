@@ -49,7 +49,10 @@ final class CrashReporter {
 
     func install() throws {
         let config = PLCrashReporterConfig(signalHandlerType: .BSD, symbolicationStrategy: .all)
-        let reporter = PLCrashReporter(configuration: config)
+        guard let reporter = PLCrashReporter(configuration: config) else {
+            throw NSError(domain: "EdgeRumCrash", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "PLCrashReporter(configuration:) returned nil"])
+        }
 
         if reporter.hasPendingCrashReport(),
            let data = try? reporter.loadPendingCrashReportDataAndReturnError() {
@@ -59,12 +62,9 @@ final class CrashReporter {
             reporter.purgePendingCrashReport()
         }
 
-        var enableErr: NSError?
-        let enabled = reporter.enable(&enableErr)
-        if !enabled {
-            throw enableErr ?? NSError(domain: "EdgeRumCrash", code: -1,
-                                       userInfo: [NSLocalizedDescriptionKey: "PLCrashReporter.enable returned false"])
-        }
+        // Modern PLCrashReporter (SPM 1.11+) renames `-enableCrashReporterAndReturnError:`
+        // to a throwing `enable()` in the Swift bridge.
+        try reporter.enable()
     }
 
     func fetchPending() -> [[String: Any]] {
@@ -122,7 +122,9 @@ final class CrashReporter {
 
     private func parseCrashReport(data: Data) -> [String: Any]? {
         guard let report = try? PLCrashReport(data: data) else { return nil }
-        let textual = PLCrashReportTextFormatter.stringValue(for: report, with: .iOS) ?? ""
+        // `PLCrashReportTextFormatiOS` is the bare C-typedef enum case; Swift
+        // does not strip the type prefix for non-NS_ENUM C enums.
+        let textual = PLCrashReportTextFormatter.stringValue(for: report, with: PLCrashReportTextFormatiOS) ?? ""
 
         var exceptionType = "Unknown"
         var message = ""

@@ -21,7 +21,13 @@ test.describe('event types', () => {
       h.track('checkout_started', { currency: 'GBP', amount: 49.99 });
     });
 
-    const payloads = await waitForPayloads(request);
+    const payloads = await waitForItem(
+      request,
+      (item) =>
+        item.type === 'event' &&
+        item.eventName === 'custom_event' &&
+        item.attributes['event.name'] === 'checkout_started',
+    );
     for (const p of payloads) assertEnvelope(p);
     const events = allEvents(payloads);
     const custom = events.find((e) => e.eventName === 'custom_event');
@@ -38,7 +44,10 @@ test.describe('event types', () => {
       h.captureError('boom from test');
     });
 
-    const payloads = await waitForPayloads(request);
+    const payloads = await waitForItem(
+      request,
+      (item) => item.type === 'event' && item.eventName === 'app.crash',
+    );
     for (const p of payloads) assertEnvelope(p);
     const events = allEvents(payloads);
     const crash = events.find((e) => e.eventName === 'app.crash');

@@ -4,6 +4,17 @@ All notable changes to the edge-rum SDK are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/).
 
+## [@nathanclaire/rum-capacitor 3.3.3] — 2026-05-25
+
+### Added
+
+- `EdgeRumCrashPlugin.load()` override on the iOS plugin. Fires once at
+  Capacitor framework boot, before any JS runs — gives consumers a stable
+  breakpoint target in Xcode (and a `[edge-rum]` debug-build console log)
+  to verify SPM/CocoaPods linkage independently of whether the JS bridge
+  has called `plugin.install()` yet. No behavioural change to the install
+  path.
+
 ## [@nathanclaire/rum-capacitor 3.3.2] — 2026-05-25
 
 ### Fixed

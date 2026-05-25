@@ -31,7 +31,14 @@ export interface LifecycleSessionManagerLike {
   getLastActiveAt: () => number;
   setLastActiveAt: (timestampMs: number) => void;
   startNewSession: () => void;
+  getSessionId: () => string;
+  getStartTime: () => string;
+  getStartTimeMs?: () => number;
+  getSequence: () => number;
+  getJourneySnapshot: () => Record<string, string | number | boolean>;
 }
+
+export type LifecycleEventName = 'app_lifecycle' | 'session.started' | 'session.finalized';
 
 export interface BeaconPayload {
   url: string;
@@ -40,8 +47,11 @@ export interface BeaconPayload {
 }
 
 export interface LifecycleCaptureCallbacks {
-  recordEvent: (eventName: 'app_lifecycle', attributes: LifecycleAttributes) => void;
+  recordEvent: (eventName: LifecycleEventName, attributes: LifecycleAttributes) => void;
   flushPipeline: () => Promise<void> | void;
+  freezePipeline?: () => void;
+  flushActiveScreen?: (method: string) => void;
+  getInternalErrorCount?: () => number;
   session: LifecycleSessionManagerLike;
   getBeaconPayload?: () => BeaconPayload | null;
   getPlatform?: () => string;
@@ -140,12 +150,57 @@ export async function startLifecycleCapture(
   const beaconXhrTimeoutMs = deps.beaconXhrTimeoutMs ?? DEFAULT_BEACON_XHR_TIMEOUT_MS;
 
   let firstForeground = true;
+  let hasBackgroundedOnce = false;
+  let appCloseFinalized = false;
+
+  const parseStartMs = (iso: string): number => {
+    const ms = Date.parse(iso);
+    return Number.isFinite(ms) ? ms : 0;
+  };
+
+  const emitFinalized = (endReason: 'backgrounded' | 'app_closed', ts: number): void => {
+    // Flush any in-progress manual screen before snapshotting the journey,
+    // so its screen.duration is captured before the finalize event.
+    if (typeof callbacks.flushActiveScreen === 'function') {
+      try {
+        callbacks.flushActiveScreen(endReason);
+      } catch {
+        // best-effort — never block the finalize emit
+      }
+    }
+    const oldId = callbacks.session.getSessionId();
+    const oldStart = callbacks.session.getStartTime();
+    const oldSeq = callbacks.session.getSequence();
+    const startMsCandidate =
+      typeof callbacks.session.getStartTimeMs === 'function'
+        ? callbacks.session.getStartTimeMs()
+        : parseStartMs(oldStart);
+    const journey = callbacks.session.getJourneySnapshot();
+    const errorCount =
+      typeof callbacks.getInternalErrorCount === 'function'
+        ? callbacks.getInternalErrorCount()
+        : 0;
+    callbacks.recordEvent('session.finalized', {
+      'session.id': oldId,
+      'session.start_time': oldStart,
+      'session.sequence': oldSeq,
+      'session.duration_ms': startMsCandidate > 0 ? Math.max(0, ts - startMsCandidate) : 0,
+      'session.ended_at': new Date(ts).toISOString(),
+      'session.end_reason': endReason,
+      'sdk.error_count': errorCount,
+      ...journey,
+    });
+  };
 
   const handleForeground = (): void => {
     const ts = now();
     const lastActiveAt = callbacks.session.getLastActiveAt();
-    if (lastActiveAt > 0 && ts - lastActiveAt > sessionTimeoutMs) {
+    const expired = lastActiveAt > 0 && ts - lastActiveAt > sessionTimeoutMs;
+    if (expired) {
       callbacks.session.startNewSession();
+      callbacks.recordEvent('session.started', { 'session.start_reason': 'rotation_timeout' });
+    } else if (hasBackgroundedOnce) {
+      callbacks.recordEvent('session.started', { 'session.start_reason': 'resumed' });
     }
     const attrs: LifecycleAttributes = { 'lifecycle.event': 'foreground' };
     if (firstForeground) {
@@ -157,7 +212,9 @@ export async function startLifecycleCapture(
 
   const handleBackground = (): void => {
     const ts = now();
+    emitFinalized('backgrounded', ts);
     callbacks.session.setLastActiveAt(ts);
+    hasBackgroundedOnce = true;
     callbacks.recordEvent('app_lifecycle', { 'lifecycle.event': 'background' });
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -290,6 +347,21 @@ export async function startLifecycleCapture(
   const win = getWindow();
   if (win && typeof win.addEventListener === 'function') {
     beforeUnloadListener = (): void => {
+      if (!appCloseFinalized) {
+        if (typeof callbacks.freezePipeline === 'function') {
+          try {
+            callbacks.freezePipeline();
+          } catch {
+            // best-effort
+          }
+        }
+        try {
+          emitFinalized('app_closed', now());
+        } catch {
+          // best-effort — never block unload
+        }
+        appCloseFinalized = true;
+      }
       sendBeaconPayload();
     };
     win.addEventListener('beforeunload', beforeUnloadListener);

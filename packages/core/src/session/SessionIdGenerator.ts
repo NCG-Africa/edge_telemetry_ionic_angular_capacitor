@@ -7,13 +7,13 @@ export interface StorageLike {
   setItem: (key: string, value: string) => void;
 }
 
-function randomHex8(): string {
+function randomHex16(): string {
   if (
     typeof globalThis !== 'undefined' &&
     'crypto' in globalThis &&
     typeof (globalThis as unknown as { crypto: Crypto }).crypto.getRandomValues === 'function'
   ) {
-    const arr = new Uint8Array(4);
+    const arr = new Uint8Array(8);
     (globalThis as unknown as { crypto: Crypto }).crypto.getRandomValues(arr);
     let s = '';
     for (let i = 0; i < arr.length; i++) {
@@ -22,18 +22,33 @@ function randomHex8(): string {
     }
     return s;
   }
-  return Math.floor(Math.random() * 0xffffffff)
-    .toString(16)
-    .padStart(8, '0')
-    .slice(0, 8);
+  const high = Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, '0');
+  const low = Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, '0');
+  return `${high}${low}`.slice(0, 16);
 }
 
 export function generateSessionId(platform: string): string {
-  return `session_${Date.now()}_${randomHex8()}_${platform}`;
+  return `session_${Date.now()}_${randomHex16()}_${platform}`;
+}
+
+export function detectPlatformSync(): 'ios' | 'android' | 'web' {
+  const g = globalThis as unknown as {
+    Capacitor?: { getPlatform?: () => string };
+  };
+  const cap = g.Capacitor;
+  if (cap && typeof cap.getPlatform === 'function') {
+    try {
+      const p = cap.getPlatform();
+      if (p === 'ios' || p === 'android') return p;
+    } catch {
+      // fall through
+    }
+  }
+  return 'web';
 }
 
 export function generateUserId(): string {
-  return `user_${Date.now()}_${randomHex8()}`;
+  return `user_${Date.now()}_${randomHex16()}`;
 }
 
 function defaultLocalStorage(): StorageLike | undefined {

@@ -1,5 +1,10 @@
 import { Inject, Injectable, InjectionToken, Optional, type OnDestroy } from '@angular/core';
-import { __recordEvent, type EventAttributes } from '@nathanclaire/rum';
+import {
+  __getCurrentRoute,
+  __getLastNavigationMethod,
+  __recordEvent,
+  type EventAttributes,
+} from '@nathanclaire/rum';
 
 export const LIFECYCLE_EVENT_SOURCE = new InjectionToken<EventTarget>('LIFECYCLE_EVENT_SOURCE');
 
@@ -12,8 +17,14 @@ const DID_ENTER = 'ionViewDidEnter';
 const DID_LEAVE = 'ionViewDidLeave';
 
 function resolveScreenName(target: EventTarget | null): string {
+  // Prefer the canonical route from the SDK state — keeps screen.* keys in
+  // sync with the navigation.to_screen used by visited_screens / dashboards.
+  const route = __getCurrentRoute();
+  if (route && route !== '/') return route;
+  // Fall back to the Ionic component tag for the pre-first-navigation case.
   if (target && typeof (target as Element).tagName === 'string') {
-    return (target as Element).tagName.toLowerCase();
+    const tag = (target as Element).tagName;
+    if (tag) return tag.toLowerCase();
   }
   return 'unknown';
 }
@@ -60,7 +71,7 @@ export class IonicLifecycleCapture implements OnDestroy {
     const attrs: EventAttributes = {
       'screen.name': name,
       'screen.duration_ms': durationMs,
-      'screen.exit_method': 'navigate',
+      'screen.exit_method': __getLastNavigationMethod(),
       'screen.timestamp': timestamp,
     };
 

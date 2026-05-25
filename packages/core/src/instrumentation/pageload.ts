@@ -1,3 +1,5 @@
+import { healthMonitor } from '../internal/health';
+
 export type PageLoadEventAttributes = {
   'page.ttfb_ms': number;
   'page.dom_content_loaded_ms': number;
@@ -60,23 +62,24 @@ export function registerPageLoadCapture(deps: PageLoadDeps): PageLoadHandle {
       let route = '/';
       try {
         route = getRoute();
-      } catch {
+      } catch (err) {
+        healthMonitor.reportError('pageload.getRoute', err);
         route = '/';
       }
       const attributes = buildAttributes(perf, route);
       if (!attributes) return;
       emitted = true;
       deps.recordEvent('page_load', attributes);
-    } catch {
-      // Never let capture errors escape.
+    } catch (err) {
+      healthMonitor.reportError('pageload.emit', err);
     }
   };
 
   const onLoad = (): void => {
-    // Defer one task so loadEventEnd is finalised.
     try {
       setTimeout(emit, 0);
-    } catch {
+    } catch (err) {
+      healthMonitor.reportError('pageload.setTimeout', err);
       emit();
     }
   };
@@ -92,8 +95,8 @@ export function registerPageLoadCapture(deps: PageLoadDeps): PageLoadHandle {
     dispose: () => {
       try {
         target.removeEventListener('load', onLoad as EventListener);
-      } catch {
-        // ignore
+      } catch (err) {
+        healthMonitor.reportError('pageload.dispose', err);
       }
     },
   };

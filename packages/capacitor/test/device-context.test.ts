@@ -89,7 +89,7 @@ describe('getDeviceContext', () => {
     expect(attrs['device.screenWidth']).toBe(1440);
     expect(attrs['device.screenHeight']).toBe(900);
     expect(attrs['device.pixelRatio']).toBe(2);
-    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{8}_web$/);
+    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{16}_web$/);
   });
 
   it('non-native without navigator still returns a valid context', async () => {
@@ -103,7 +103,7 @@ describe('getDeviceContext', () => {
     });
     expect(attrs['device.platform']).toBe('web');
     expect(attrs['device.os']).toBe('unknown');
-    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{8}_web$/);
+    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{16}_web$/);
   });
 
   it('non-native: does not throw when capacitor.isNativePlatform throws', async () => {
@@ -135,25 +135,25 @@ describe('getDeviceContext', () => {
     expect(attrs['device.isVirtual']).toBe(false);
   });
 
-  it('device.id matches device_{ts}_{8hex}_{platform} pattern', async () => {
+  it('device.id matches device_{ts}_{16hex}_{platform} pattern', async () => {
     const attrs = await getDeviceContext({
       capacitor: nativeCapacitor(),
       loadDevice: async () => mockDevice(),
       getCrypto: () => realCrypto,
       now: () => fixedNow,
     });
-    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{8}_ios$/);
+    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{16}_ios$/);
     expect(attrs['device.id']).toBe(`device_${fixedNow}_${(attrs['device.id'] as string).split('_')[2]}_ios`);
   });
 
-  it('device.id derives 8 hex chars from SHA-256 of raw identifier', async () => {
-    // SHA-256 of "RAW-DEVICE-UUID-123" — verify first 8 hex chars match
+  it('device.id derives 16 hex chars from SHA-256 of raw identifier', async () => {
+    // SHA-256 of "RAW-DEVICE-UUID-123" — verify first 16 hex chars match
     const raw = 'RAW-DEVICE-UUID-123';
     const enc = new TextEncoder().encode(raw);
     const digest = await realCrypto.subtle.digest('SHA-256', enc);
     const bytes = new Uint8Array(digest);
     let expectedHex = '';
-    for (let i = 0; i < 4; i++) expectedHex += bytes[i]!.toString(16).padStart(2, '0');
+    for (let i = 0; i < 8; i++) expectedHex += bytes[i]!.toString(16).padStart(2, '0');
 
     const attrs = await getDeviceContext({
       capacitor: nativeCapacitor(),
@@ -240,7 +240,7 @@ describe('getDeviceContext', () => {
       now: () => fixedNow,
     });
     // Falls back to a web-suffixed id since platform is unknown
-    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{8}_web$/);
+    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{16}_web$/);
   });
 
   it('returns context even if @capacitor/device fails to load', async () => {
@@ -253,7 +253,7 @@ describe('getDeviceContext', () => {
       getLocalStorage: () => new FakeStorage(),
       now: () => fixedNow,
     });
-    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{8}_web$/);
+    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{16}_web$/);
   });
 
   it('persists the full device ID across calls via localStorage', async () => {
@@ -280,7 +280,7 @@ describe('getDeviceContext', () => {
       getCrypto: () => realCrypto,
       now: () => fixedNow,
     });
-    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{8}_web$/);
+    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{16}_web$/);
     expect(storage.getItem('edge_rum_device_id')).toBe(attrs['device.id']);
   });
 
@@ -301,7 +301,7 @@ describe('getDeviceContext', () => {
       getCrypto: () => realCrypto,
       now: () => fixedNow,
     });
-    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{8}_web$/);
+    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{16}_web$/);
   });
 
   it('all attribute values are primitives (string | number | boolean) — no nested objects', async () => {
@@ -370,7 +370,7 @@ describe('getDeviceContext', () => {
       getCrypto: () => partialCrypto,
       now: () => fixedNow,
     });
-    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{8}_web$/);
+    expect(attrs['device.id']).toMatch(/^device_\d+_[0-9a-f]{16}_web$/);
     spy.mockRestore();
   });
 });

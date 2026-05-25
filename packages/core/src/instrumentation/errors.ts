@@ -1,3 +1,6 @@
+import { healthMonitor } from '../internal/health';
+import { breadcrumbs } from '../internal/breadcrumbs';
+
 export type ErrorEventAttributes = {
   exception_type: string;
   message: string;
@@ -7,6 +10,8 @@ export type ErrorEventAttributes = {
   error_context: string;
   cause: string;
   runtime: 'webview';
+  'crash.breadcrumbs'?: string;
+  'crash.breadcrumb_count'?: number;
 };
 
 export interface ErrorsDeps {
@@ -46,10 +51,16 @@ export function registerErrorCapture(deps: ErrorsDeps): ErrorsHandle {
 
   const emit = (attributes: ErrorEventAttributes): void => {
     try {
-      deps.recordEvent('app.crash', attributes);
+      const crumbs = breadcrumbs.snapshot();
+      const withCrumbs = {
+        ...attributes,
+        'crash.breadcrumbs': JSON.stringify(crumbs),
+        'crash.breadcrumb_count': crumbs.length,
+      } as ErrorEventAttributes;
+      deps.recordEvent('app.crash', withCrumbs);
       deps.flushPipeline();
-    } catch {
-      // Never let capture errors escape into consumer code.
+    } catch (err) {
+      healthMonitor.reportError('errors.capture', err);
     }
   };
 
@@ -69,8 +80,8 @@ export function registerErrorCapture(deps: ErrorsDeps): ErrorsHandle {
         cause: 'UnhandledError',
         runtime: 'webview',
       });
-    } catch {
-      // Never let capture errors escape into consumer code.
+    } catch (err) {
+      healthMonitor.reportError('errors.capture', err);
     }
   };
 
@@ -95,8 +106,8 @@ export function registerErrorCapture(deps: ErrorsDeps): ErrorsHandle {
         cause: 'PromiseRejection',
         runtime: 'webview',
       });
-    } catch {
-      // Never let capture errors escape into consumer code.
+    } catch (err) {
+      healthMonitor.reportError('errors.capture', err);
     }
   };
 
@@ -108,8 +119,102 @@ export function registerErrorCapture(deps: ErrorsDeps): ErrorsHandle {
       try {
         target.removeEventListener('error', onError as EventListener);
         target.removeEventListener('unhandledrejection', onRejection as EventListener);
+      } catch (err) {
+        healthMonitor.reportError('errors.dispose', err);
+      }
+    },
+  };
+}
+
+export interface ConsoleErrorDeps {
+  recordEvent: (eventName: 'app.crash', attributes: ErrorEventAttributes) => void;
+  getCurrentRoute: () => string;
+  consoleTarget?: Console;
+  captureWarn?: boolean;
+}
+
+export interface ConsoleErrorHandle {
+  dispose: () => void;
+}
+
+function stringifyArgs(args: unknown[]): { message: string; stacktrace: string; exceptionType: string } {
+  for (const a of args) {
+    if (a instanceof Error) {
+      return {
+        message: safeString(a.message, ''),
+        stacktrace: safeString(a.stack, ''),
+        exceptionType: safeString(a.name, 'Error'),
+      };
+    }
+  }
+  const joined = args
+    .map((a) => {
+      if (typeof a === 'string') return a;
+      try {
+        return JSON.stringify(a);
       } catch {
-        // ignore
+        return safeString(a);
+      }
+    })
+    .join(' ');
+  return { message: joined, stacktrace: '', exceptionType: 'Error' };
+}
+
+export function registerConsoleErrorCapture(deps: ConsoleErrorDeps): ConsoleErrorHandle {
+  const consoleObj = deps.consoleTarget ?? (typeof console !== 'undefined' ? console : undefined);
+  if (!consoleObj || typeof consoleObj.error !== 'function') {
+    return { dispose: () => undefined };
+  }
+
+  const captureWarn = deps.captureWarn !== false;
+  const originalError = consoleObj.error.bind(consoleObj);
+  const originalWarn = captureWarn ? consoleObj.warn.bind(consoleObj) : undefined;
+
+  const emitConsole = (level: 'error' | 'warn', args: unknown[]): void => {
+    try {
+      const { message, stacktrace, exceptionType } = stringifyArgs(args);
+      deps.recordEvent('app.crash', {
+        exception_type: exceptionType,
+        message,
+        stacktrace,
+        is_fatal: false,
+        handled: true,
+        error_context: resolveContext(deps.getCurrentRoute),
+        cause: level === 'error' ? 'ConsoleError' : 'ConsoleWarn',
+        runtime: 'webview',
+      });
+    } catch (err) {
+      healthMonitor.reportError('console.emit', err);
+    }
+  };
+
+  consoleObj.error = ((...args: unknown[]) => {
+    emitConsole('error', args);
+    try {
+      originalError(...args);
+    } catch (err) {
+      healthMonitor.reportError('console.original-error', err);
+    }
+  }) as Console['error'];
+
+  if (captureWarn && originalWarn) {
+    consoleObj.warn = ((...args: unknown[]) => {
+      emitConsole('warn', args);
+      try {
+        originalWarn(...args);
+      } catch (err) {
+        healthMonitor.reportError('console.original-warn', err);
+      }
+    }) as Console['warn'];
+  }
+
+  return {
+    dispose: () => {
+      try {
+        consoleObj.error = originalError;
+        if (originalWarn) consoleObj.warn = originalWarn;
+      } catch (err) {
+        healthMonitor.reportError('console.dispose', err);
       }
     },
   };

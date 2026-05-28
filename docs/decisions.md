@@ -564,3 +564,65 @@ of those triggers fired.
 - (+) Transient outages self-heal — no waiting for foreground / network event.
 - (+) Trivial implementation (one line).
 - (-) Slight extra work per successful send (one empty-queue check). Negligible.
+
+---
+
+## ADR-027 — `frame_render_time` and `memory_usage` metrics
+
+**Date:** 2026-05
+
+**Context:** The EdgeTelemetryProcessor's `/sessions/{id}/performance` endpoint buckets frame
+samples (good / slow / frozen / drop_rate) and renders a memory timeline. Both were empty for
+SDK 3.3.x because the SDK never emitted the underlying `frame_render_time` or `memory_usage`
+metrics. The processor team flagged Android session 82307 specifically as having zero rows in
+`rum_performance_events`. They asked us to commit to a single attribute-key convention per
+signal — they accept dotted or dotless but the Flutter SDK is already on dotless.
+
+**Decision:**
+
+1. Add two new metric items emitted by the SDK:
+   - `frame_render_time` — one event per slow frame (default). Value = total interval in ms.
+   - `memory_usage` — periodic (every `memorySamplingIntervalMs`, default 10s) plus on memory
+     pressure callbacks and foreground/background transitions. Value = MB.
+2. Use **dotless** attribute keys for these two metrics only (`unit`, `frame_build_duration`,
+   `memory_pressure_level`, etc.). Existing metric emitters (`vitals.ts`, `perf-observer.ts`,
+   `EdgeRum.time()`) keep their dotted (`metric.unit`) convention. Migrating existing dashboards
+   to dotless isn't worth the wire-break.
+3. **Three frame sources, one wire shape**:
+   - WebView `requestAnimationFrame` (web + native fallback). Build = longest overlapping
+     `PerformanceObserver({type:'longtask'})` entry; raster = max(0, total − build).
+   - iOS CADisplayLink. Build = total, raster = 0 (CADisplayLink surfaces no sub-frame split).
+   - Android Choreographer. Build = total, raster = 0 (same reasoning; FrameMetrics was not
+     adopted because the plugin can't reliably attach to the host activity window).
+4. **Slow-only by default**: only frames with total ≥ `frameSlowThresholdMs` (16.67ms) ship.
+   `frame_dropped: true` when total ≥ 2x that threshold (a missed vsync at 60Hz). Both fields
+   are always present and numeric; never null. `captureAllFrames: true` exists for debugging.
+5. **Memory pressure mapping** (iOS / Android):
+   - iOS `DISPATCH_SOURCE_TYPE_MEMORYPRESSURE`: `.normal → "normal"`, `.warning → "moderate"`,
+     `.critical → "critical"`. `"high"` is not produced on iOS.
+   - Android `ComponentCallbacks2.onTrimMemory(level)`:
+     `TRIM_MEMORY_RUNNING_MODERATE → "moderate"`, `TRIM_MEMORY_RUNNING_LOW → "high"`,
+     `TRIM_MEMORY_RUNNING_CRITICAL` + `_COMPLETE` + `_BACKGROUND` + `_MODERATE` → `"critical"`,
+     `TRIM_MEMORY_UI_HIDDEN` → `"normal"`, otherwise `"normal"`.
+   - Web (`performance.memory`): no pressure signal → attribute omitted entirely. The processor
+     omits the bucket rather than defaulting it.
+6. **Native bridge**: extends the existing `EdgeRumCrash` plugin with four methods —
+   `startPerfSampling`, `stopPerfSampling`, `fetchFrameSamples`, `fetchMemorySamples` — rather
+   than registering a sibling plugin. Same single-plugin pattern the rest of the native bridge
+   uses; minimises bridge surface.
+
+**Consequences:**
+
+- (+) Processor's `/sessions/{id}/performance` returns real data for new SDK sessions
+  (frame buckets populated, memory timeline non-empty).
+- (+) Wire contract honoured: `frame_build_duration` / `frame_raster_duration` are always
+  numbers and `frame_dropped` is always boolean — no null fallbacks.
+- (+) Volume safe by default: idle screens emit zero frame events; a constant 30fps animation
+  emits ~30 events/sec only while it runs.
+- (−) The build/raster split on iOS / Android is approximated (total / 0). The processor's
+  per-bucket aggregation still works because `frame_dropped` and total `value` drive it; the
+  per-thread breakdown isn't faithful on non-Flutter platforms. Documenting in the schema is
+  enough for now; we revisit FrameMetrics integration when the processor needs more.
+- (−) `lastPressure` on iOS / Android is sticky between events — a critical event keeps
+  influencing samples until the next normal callback. Acceptable: pressure events are sparse
+  and the processor only uses the highest pressure observed per session.

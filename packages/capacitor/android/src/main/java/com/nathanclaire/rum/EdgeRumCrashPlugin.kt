@@ -78,5 +78,65 @@ class EdgeRumCrashPlugin : Plugin() {
         call.resolve()
     }
 
+    @PluginMethod
+    fun startPerfSampling(call: PluginCall) {
+        val captureFrames = call.getBoolean("captureFrames", true) ?: true
+        val captureMemory = call.getBoolean("captureMemory", true) ?: true
+        val memoryIntervalMs = call.getInt("memoryIntervalMs", 10_000) ?: 10_000
+        // `getDouble` is missing on PluginCall; JS sends a number, JSON parses
+        // as Double, getString round-trip is the simplest cross-bridge option.
+        val slowThresholdMs = call.data.optDouble("frameSlowThresholdMs", 16.67)
+        val captureAllFrames = call.getBoolean("captureAllFrames", false) ?: false
+
+        if (captureMemory) {
+            MemorySampler.start(context, memoryIntervalMs.toLong())
+        }
+        if (captureFrames) {
+            FrameSampler.start(slowThresholdMs, captureAllFrames)
+        }
+        call.resolve(JSObject().put("started", true))
+    }
+
+    @PluginMethod
+    fun stopPerfSampling(call: PluginCall) {
+        runCatching { MemorySampler.stop() }
+        runCatching { FrameSampler.stop() }
+        call.resolve()
+    }
+
+    @PluginMethod
+    fun fetchFrameSamples(call: PluginCall) {
+        val frames = runCatching { FrameSampler.fetchPending() }.getOrDefault(emptyList())
+        val arr = JSArray()
+        for (f in frames) arr.put(toJsObject(f))
+        call.resolve(JSObject().put("frames", arr))
+    }
+
+    @PluginMethod
+    fun fetchMemorySamples(call: PluginCall) {
+        val samples = runCatching { MemorySampler.fetchPending() }.getOrDefault(emptyList())
+        val arr = JSArray()
+        for (s in samples) arr.put(toJsObject(s))
+        call.resolve(JSObject().put("samples", arr))
+    }
+
+    private fun toJsObject(map: Map<String, Any?>): JSObject {
+        val obj = JSObject()
+        for ((k, v) in map) {
+            // JSObject has overloaded put() for primitives; nulls are dropped
+            // (matches the wire contract — omit instead of sending null).
+            when (v) {
+                null -> Unit
+                is Boolean -> obj.put(k, v)
+                is Int -> obj.put(k, v)
+                is Long -> obj.put(k, v)
+                is Double -> obj.put(k, v)
+                is Float -> obj.put(k, v.toDouble())
+                else -> obj.put(k, v.toString())
+            }
+        }
+        return obj
+    }
+
     private fun lastScreen(): String = storage.getLastScreen()
 }

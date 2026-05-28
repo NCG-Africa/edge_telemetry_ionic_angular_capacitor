@@ -18,6 +18,10 @@ import { registerInteractionCapture } from './instrumentation/interactions';
 import type { InteractionsHandle } from './instrumentation/interactions';
 import { registerPerfObserver } from './instrumentation/perf-observer';
 import type { PerfObserverHandle } from './instrumentation/perf-observer';
+import { registerFrameCapture } from './instrumentation/frames';
+import type { FramesHandle } from './instrumentation/frames';
+import { registerMemoryWebCapture } from './instrumentation/memory-web';
+import type { MemoryWebHandle } from './instrumentation/memory-web';
 
 export interface RumTimer {
   end: (attributes?: EventAttributes) => void;
@@ -52,6 +56,8 @@ interface InternalState {
   requestsHandle: RequestsHandle | null;
   interactionsHandle: InteractionsHandle | null;
   perfObserverHandle: PerfObserverHandle | null;
+  framesHandle: FramesHandle | null;
+  memoryWebHandle: MemoryWebHandle | null;
   enabled: boolean;
   initialized: boolean;
   currentRoute: string;
@@ -72,6 +78,8 @@ const state: InternalState = {
   requestsHandle: null,
   interactionsHandle: null,
   perfObserverHandle: null,
+  framesHandle: null,
+  memoryWebHandle: null,
   enabled: true,
   initialized: false,
   currentRoute: '/',
@@ -219,6 +227,30 @@ export const EdgeRum: EdgeRumRuntime = {
       healthMonitor.reportError('perf-observer.register', err);
     }
 
+    if (config.captureFrames !== false) {
+      try {
+        state.framesHandle = registerFrameCapture({
+          recordMetric: (name, value, attrs) => collector.recordMetric(name, value, attrs),
+          getCurrentRoute: () => state.currentRoute,
+          slowThresholdMs: config.frameSlowThresholdMs,
+          captureAllFrames: config.captureAllFrames === true,
+        });
+      } catch (err) {
+        healthMonitor.reportError('frames.register', err);
+      }
+    }
+
+    if (config.captureMemory !== false) {
+      try {
+        state.memoryWebHandle = registerMemoryWebCapture({
+          recordMetric: (name, value, attrs) => collector.recordMetric(name, value, attrs),
+          intervalMs: config.memorySamplingIntervalMs,
+        });
+      } catch (err) {
+        healthMonitor.reportError('memory-web.register', err);
+      }
+    }
+
     pipeline.start();
 
     state.initialized = true;
@@ -332,6 +364,12 @@ export const EdgeRum: EdgeRumRuntime = {
     state.enabled = false;
     state.collector?.setEnabled(false);
     state.pipeline?.stop();
+    // Stop the rAF/longtask loop and the heap poller so a disabled SDK has
+    // zero ongoing cost beyond the public-API stubs.
+    state.framesHandle?.dispose();
+    state.framesHandle = null;
+    state.memoryWebHandle?.dispose();
+    state.memoryWebHandle = null;
     if (state.queue) {
       void state.queue.clear();
     }
@@ -341,6 +379,32 @@ export const EdgeRum: EdgeRumRuntime = {
     state.enabled = true;
     state.collector?.setEnabled(true);
     state.pipeline?.start();
+    const collector = state.collector;
+    const config = state.config;
+    if (collector && config) {
+      if (config.captureFrames !== false && !state.framesHandle) {
+        try {
+          state.framesHandle = registerFrameCapture({
+            recordMetric: (name, value, attrs) => collector.recordMetric(name, value, attrs),
+            getCurrentRoute: () => state.currentRoute,
+            slowThresholdMs: config.frameSlowThresholdMs,
+            captureAllFrames: config.captureAllFrames === true,
+          });
+        } catch (err) {
+          healthMonitor.reportError('frames.register', err);
+        }
+      }
+      if (config.captureMemory !== false && !state.memoryWebHandle) {
+        try {
+          state.memoryWebHandle = registerMemoryWebCapture({
+            recordMetric: (name, value, attrs) => collector.recordMetric(name, value, attrs),
+            intervalMs: config.memorySamplingIntervalMs,
+          });
+        } catch (err) {
+          healthMonitor.reportError('memory-web.register', err);
+        }
+      }
+    }
     if (state.pipeline) {
       void state.pipeline.flushOfflineQueue();
     }
@@ -442,6 +506,8 @@ export function __resetEdgeRumForTests(): void {
   state.requestsHandle?.dispose();
   state.interactionsHandle?.dispose();
   state.perfObserverHandle?.dispose();
+  state.framesHandle?.dispose();
+  state.memoryWebHandle?.dispose();
   state.config = null;
   state.session = null;
   state.context = null;
@@ -454,6 +520,8 @@ export function __resetEdgeRumForTests(): void {
   state.requestsHandle = null;
   state.interactionsHandle = null;
   state.perfObserverHandle = null;
+  state.framesHandle = null;
+  state.memoryWebHandle = null;
   state.enabled = true;
   state.initialized = false;
   state.currentRoute = '/';

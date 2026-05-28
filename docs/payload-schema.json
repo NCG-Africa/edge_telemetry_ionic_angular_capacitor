@@ -86,8 +86,8 @@
         },
         "metricName": {
           "type": "string",
-          "description": "Web Vitals: 'LCP' | 'INP' | 'CLS' | 'FCP' | 'TTFB'. Custom timings from EdgeRum.time().end() use the caller-supplied name.",
-          "examples": ["FCP", "image_upload"]
+          "description": "Web Vitals: 'LCP' | 'INP' | 'CLS' | 'FCP' | 'TTFB'. Custom timings from EdgeRum.time().end() use the caller-supplied name. Performance signals: 'long_task' | 'resource_timing' | 'frame_render_time' | 'memory_usage'.",
+          "examples": ["FCP", "image_upload", "frame_render_time", "memory_usage"]
         },
         "value": {
           "type": "number",
@@ -354,6 +354,38 @@
         "metric.screen": { "type": "string" }
       }
     },
+    "frameRenderTimeMetricAttributes": {
+      "description": "Extra attributes for metric items with metricName: 'frame_render_time'. Value is total frame interval in ms (one event per measured frame; default mode emits slow frames only — interval >= frameSlowThresholdMs). Attribute keys are dotless to match the EdgeTelemetryProcessor's frame-bucketing API.",
+      "properties": {
+        "unit": { "type": "string", "const": "ms" },
+        "frame_build_duration": { "type": "number", "minimum": 0, "description": "Main-thread build slice in ms. WebView: derived from overlapping PerformanceObserver longtask entries (falls back to total when no overlap). iOS CADisplayLink: total. Android Choreographer: total. Never null." },
+        "frame_raster_duration": { "type": "number", "minimum": 0, "description": "Raster slice in ms. 0 on iOS / Android when no separate raster signal is available. Never null." },
+        "frame_type": { "type": "string", "enum": ["ui", "raster"], "description": "Frame category. WebView and CADisplayLink/Choreographer always emit 'ui'." },
+        "frame_dropped": { "type": "boolean", "description": "True when the interval is >= 2x frameSlowThresholdMs (a missed vsync at 60Hz). Always boolean, never omitted." },
+        "metric.screen": { "type": "string", "description": "Route at frame time. Retains the dotted prefix for parity with other metric.screen usage." }
+      }
+    },
+    "memoryUsageMetricAttributes": {
+      "description": "Extra attributes for metric items with metricName: 'memory_usage'. Value is megabytes at the top-level metric.value, NOT inside attributes. Attribute keys are dotless to match the EdgeTelemetryProcessor's memory-timeline API.",
+      "properties": {
+        "unit": { "type": "string", "const": "MB" },
+        "memory_pressure_level": {
+          "type": "string",
+          "enum": ["normal", "moderate", "high", "critical"],
+          "description": "OMITTED (not sent) when the platform exposes no pressure signal (Web). iOS: mapped from DISPATCH_SOURCE_TYPE_MEMORYPRESSURE. Android: mapped from ComponentCallbacks2.onTrimMemory."
+        },
+        "memory_type": {
+          "type": "string",
+          "enum": ["heap", "rss", "pss"],
+          "description": "Web: 'heap' (performance.memory.usedJSHeapSize). iOS: 'rss' (mach_task_basic_info.resident_size). Android: 'pss' (Debug.MemoryInfo.totalPss)."
+        },
+        "memory_source": {
+          "type": "string",
+          "enum": ["javascript", "native"],
+          "description": "'javascript' for the V8/JSC heap path, 'native' for the platform process memory."
+        }
+      }
+    },
     "userProfileUpdateAttributes": {
       "description": "Extra attributes for eventName: user.profile.update. Emitted by EdgeRum.identify() on each call. The processor uses these to populate / backfill rum_users.",
       "properties": {
@@ -402,7 +434,7 @@
       "additionalProperties": { "type": ["string", "number", "boolean"] }
     },
     "metricAttributes": {
-      "description": "Extra attributes for type: metric items. Web Vitals (LCP/INP/CLS/FCP/TTFB) carry metric.unit, metric.rating, and metric.screen. Custom timings from EdgeRum.time() carry metric.unit: 'ms' plus any caller-supplied attributes.",
+      "description": "Extra attributes for type: metric items. Web Vitals (LCP/INP/CLS/FCP/TTFB) carry metric.unit, metric.rating, and metric.screen. Custom timings from EdgeRum.time() carry metric.unit: 'ms' plus any caller-supplied attributes. Performance signals (long_task, resource_timing, frame_render_time, memory_usage) carry their own attribute sets — see longTaskMetricAttributes, resourceTimingMetricAttributes, frameRenderTimeMetricAttributes, and memoryUsageMetricAttributes.",
       "properties": {
         "metric.unit": { "type": "string", "enum": ["ms", "score"] },
         "metric.rating": {

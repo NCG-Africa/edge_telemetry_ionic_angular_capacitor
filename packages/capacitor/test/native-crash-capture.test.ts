@@ -12,6 +12,10 @@ function makePlugin(overrides: Partial<EdgeRumCrashPluginLike> = {}): EdgeRumCra
     fetchPending: vi.fn().mockResolvedValue({ crashes: [] }),
     markHandled: vi.fn().mockResolvedValue(undefined),
     setLastScreen: vi.fn().mockResolvedValue(undefined),
+    startPerfSampling: vi.fn().mockResolvedValue({ started: true }),
+    stopPerfSampling: vi.fn().mockResolvedValue(undefined),
+    fetchFrameSamples: vi.fn().mockResolvedValue({ frames: [] }),
+    fetchMemorySamples: vi.fn().mockResolvedValue({ samples: [] }),
     ...overrides,
   };
 }

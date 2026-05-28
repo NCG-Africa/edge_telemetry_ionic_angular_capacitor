@@ -20,6 +20,12 @@ export type {
 } from './NetworkCapture';
 
 export { startCapacitorCapture, type CapacitorCaptureHandle } from './bootstrap';
+export {
+  startPerfSamplerCapture,
+  type PerfSamplerCaptureDeps,
+  type PerfSamplerCaptureHandle,
+  type PerfSamplerCaptureOptions,
+} from './PerfSamplerCapture';
 export { createCapacitorHttpFetch } from './capacitor-http-fetch';
 export type {
   CapacitorHttpFetchDeps,

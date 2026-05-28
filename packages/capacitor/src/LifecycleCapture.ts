@@ -55,6 +55,11 @@ export interface LifecycleCaptureCallbacks {
   session: LifecycleSessionManagerLike;
   getBeaconPayload?: () => BeaconPayload | null;
   getPlatform?: () => string;
+  // Fired on every foreground/background transition so the native perf
+  // sampler can drain its in-memory buffers without owning its own listener.
+  // Best-effort — errors are swallowed; this hook must never block the
+  // lifecycle event from emitting.
+  onLifecycleSample?: () => void;
 }
 
 export interface LifecycleDocumentLike {
@@ -192,6 +197,16 @@ export async function startLifecycleCapture(
     });
   };
 
+  const fireSampleHook = (): void => {
+    const hook = callbacks.onLifecycleSample;
+    if (typeof hook !== 'function') return;
+    try {
+      hook();
+    } catch {
+      // best-effort — the hook is purely advisory.
+    }
+  };
+
   const handleForeground = (): void => {
     const ts = now();
     const lastActiveAt = callbacks.session.getLastActiveAt();
@@ -208,6 +223,7 @@ export async function startLifecycleCapture(
       firstForeground = false;
     }
     callbacks.recordEvent('app_lifecycle', attrs);
+    fireSampleHook();
   };
 
   const handleBackground = (): void => {
@@ -216,6 +232,7 @@ export async function startLifecycleCapture(
     callbacks.session.setLastActiveAt(ts);
     hasBackgroundedOnce = true;
     callbacks.recordEvent('app_lifecycle', { 'lifecycle.event': 'background' });
+    fireSampleHook();
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const flushed = (async () => {

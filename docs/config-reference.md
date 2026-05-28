@@ -27,6 +27,11 @@ interface EdgeRumConfig {
   anrTimeoutMs?: number;
   hangTimeoutMs?: number;
   awaitNativeInstall?: boolean;
+  captureFrames?: boolean;
+  captureAllFrames?: boolean;
+  frameSlowThresholdMs?: number;
+  captureMemory?: boolean;
+  memorySamplingIntervalMs?: number;
 
   // --- Network ---
   ignoreUrls?: (string | RegExp)[];
@@ -205,6 +210,60 @@ armed before any other code in the app can run. The window is typically
 <50 ms and crashes during it are exceedingly rare; the default is
 recommended.
 
+### `captureFrames`
+
+- Type: `boolean`
+- Default: `true`
+
+Emits `frame_render_time` metric items measuring WebView (and native) frame intervals.
+
+| Platform | Source |
+|---|---|
+| Web / WebView | `requestAnimationFrame` deltas with the build slice derived from overlapping `PerformanceObserver` `longtask` entries |
+| iOS native | `CADisplayLink` on the main thread |
+| Android native | `Choreographer.FrameCallback` on the main looper |
+
+By default only **slow** frames (interval ≥ `frameSlowThresholdMs`) are emitted, so idle screens cost nothing. `frame_dropped` is `true` when the interval is ≥ 2× the slow threshold (≥ one missed vsync at 60Hz). Both `frame_build_duration` and `frame_raster_duration` are always numbers — never null.
+
+Set to `false` to disable frame capture entirely (web *and* native).
+
+### `captureAllFrames`
+
+- Type: `boolean`
+- Default: `false`
+
+Debug-only escape hatch. When `true`, emits a `frame_render_time` event for **every** measured frame regardless of duration — useful when investigating jank but **very** noisy at 60fps. Leave `false` in production.
+
+### `frameSlowThresholdMs`
+
+- Type: `number`
+- Default: `16.67` (one frame at 60Hz)
+
+Frames whose total interval is shorter than this value are skipped (when `captureAllFrames` is the default `false`). Raise it to `20` or `25` for tighter signal; lower it (e.g. `12`) on 90Hz / 120Hz devices to flag frames that miss the higher refresh budget.
+
+### `captureMemory`
+
+- Type: `boolean`
+- Default: `true`
+
+Emits `memory_usage` metric items with the process resident-set value in MB and a coarse pressure level.
+
+| Platform | Source | `memory_type` |
+|---|---|---|
+| Web / WebView | `performance.memory.usedJSHeapSize` (Chromium only) | `heap` |
+| iOS native | `mach_task_basic_info.resident_size` + `DISPATCH_SOURCE_TYPE_MEMORYPRESSURE` | `rss` |
+| Android native | `Debug.MemoryInfo.totalPss` + `ComponentCallbacks2.onTrimMemory` | `pss` |
+
+Samples are emitted every `memorySamplingIntervalMs` plus on every memory-pressure callback and every foreground/background transition. `memory_pressure_level` is omitted when no platform signal is available (web).
+
+### `memorySamplingIntervalMs`
+
+- Type: `number`
+- Default: `10000` (10 s)
+- Minimum: `1000`
+
+How often to take a periodic memory sample. The pressure-driven and lifecycle samples are independent of this — they always fire.
+
 ---
 
 ## Network
@@ -314,6 +373,10 @@ EdgeRum.init({
   enableHangDetection: true,
   anrTimeoutMs: 5000,
   hangTimeoutMs: 5000,
+  captureFrames: true,
+  frameSlowThresholdMs: 16.67,
+  captureMemory: true,
+  memorySamplingIntervalMs: 10_000,
 
   // Network filtering
   ignoreUrls: [/\/health$/, 'https://maps.googleapis.com'],

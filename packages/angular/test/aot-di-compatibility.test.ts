@@ -140,22 +140,24 @@ describe('IonicLifecycleCapture DI constructor', () => {
   });
 
   it('uses injected EventTarget when provided', () => {
-    const spy = vi.spyOn(rumInternals, '__recordEvent');
+    const collector = rumInternals.__getCollector()!;
+    const spy = vi.spyOn(collector, 'recordEvent');
     const bus = new EventTarget();
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewDidEnter', 'APP-INJECTED');
     dispatch(bus, 'ionViewDidLeave', 'APP-INJECTED');
 
-    expect(spy).toHaveBeenCalledTimes(1);
-    const [eventName, attrs] = spy.mock.calls[0]!;
-    expect(eventName).toBe('screen.duration');
-    expect((attrs as Record<string, unknown>)['screen.name']).toBe('app-injected');
+    const screenCalls = spy.mock.calls.filter((c) => c[0] === 'screen.duration');
+    expect(screenCalls).toHaveLength(1);
+    const attrs = screenCalls[0]![1] as Record<string, unknown>;
+    expect(attrs['screen.name']).toBe('app-injected');
     capture.ngOnDestroy();
   });
 
   it('stops listening on injected source after ngOnDestroy', () => {
-    const spy = vi.spyOn(rumInternals, '__recordEvent');
+    const collector = rumInternals.__getCollector()!;
+    const spy = vi.spyOn(collector, 'recordEvent');
     const bus = new EventTarget();
     const capture = new IonicLifecycleCapture(bus);
 
@@ -164,7 +166,8 @@ describe('IonicLifecycleCapture DI constructor', () => {
     dispatch(bus, 'ionViewDidEnter', 'APP-GONE');
     dispatch(bus, 'ionViewDidLeave', 'APP-GONE');
 
-    expect(spy).not.toHaveBeenCalled();
+    const screenCalls = spy.mock.calls.filter((c) => c[0] === 'screen.duration');
+    expect(screenCalls).toHaveLength(0);
   });
 
   it('falls back to document when no source injected and document exists', () => {

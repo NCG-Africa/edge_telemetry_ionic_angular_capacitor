@@ -1,5 +1,28 @@
 # @nathanclaire/rum-angular
 
+## 3.3.1
+
+### Patch Changes
+
+- **Fix: `IonicLifecycleCapture` now emits a closing `screen.duration`
+  on `session.finalized`.** Previously the capture kept a private
+  `currentScreen` field and only emitted on `ionViewDidLeave`, so apps
+  that backgrounded / closed without first navigating away from a screen
+  silently dropped the final `screen.duration`. The capture now
+  registers the active screen via the new core helper
+  `__beginScreen(name)` on `ionViewDidEnter` and calls
+  `__flushActiveScreen(method)` on `ionViewDidLeave`. The existing
+  lifecycle finalize wiring in `@nathanclaire/rum-capacitor` then closes
+  the in-flight screen automatically on backgrounding and on
+  `pagehide` / `beforeunload`. Requires `@nathanclaire/rum@^3.3.2`. See
+  issue #37.
+- **Behavior change:** an `ionViewDidLeave` without a preceding
+  `ionViewDidEnter` no longer synthesises a duration-0 `screen.duration`
+  event. The old emission was noise; the processor side handles
+  orphaned navigations.
+- Updated dependencies
+  - @nathanclaire/rum@3.3.2
+
 ## 1.0.6
 
 ### Patch Changes

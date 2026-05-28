@@ -1,5 +1,15 @@
 # @nathanclaire/rum
 
+## 3.3.2
+
+### Patch Changes
+
+- **New internal export `__beginScreen(name)`** to register the in-flight
+  screen in core's `state.activeScreen`. Used by
+  `@nathanclaire/rum-angular@3.3.1`'s `IonicLifecycleCapture` so that the
+  closing `screen.duration` fires automatically on `session.finalized`
+  (background / app close). No public API change. See tracking issue #37.
+
 ## 3.3.1
 
 ### Patch Changes

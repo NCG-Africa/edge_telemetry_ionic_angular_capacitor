@@ -15,6 +15,7 @@ const getPipeline = vi.fn(() => ({
 
 const subscribeToCurrentRoute = vi.fn<(cb: (route: string) => void) => () => void>(() => () => undefined);
 const reportError = vi.fn<(scope: string, err: unknown) => void>();
+const flushActiveScreen = vi.fn<(method?: string) => void>();
 
 vi.mock('@nathanclaire/rum', () => ({
   __getSession: () => getSession(),
@@ -23,6 +24,7 @@ vi.mock('@nathanclaire/rum', () => ({
   __getPipeline: () => getPipeline(),
   __setTransportFetch: (fn: unknown) => setTransportFetch(fn),
   __subscribeToCurrentRoute: (cb: (route: string) => void) => subscribeToCurrentRoute(cb),
+  __flushActiveScreen: (method?: string) => flushActiveScreen(method),
   healthMonitor: {
     reportError: (scope: string, err: unknown) => reportError(scope, err),
     setDebug: vi.fn(),
@@ -135,6 +137,31 @@ describe('startCapacitorCapture native crash wiring', () => {
     };
     await startCapacitorCapture();
     expect(registerNativeCrashCapture).not.toHaveBeenCalled();
+  });
+
+  it('passes flushActiveScreen to startLifecycleCapture so backgrounding closes the in-flight Ionic screen', async () => {
+    setGlobalCapacitor({ isNativePlatform: () => true });
+    flushActiveScreen.mockClear();
+    const { startLifecycleCapture } = (await import('../src/LifecycleCapture')) as unknown as {
+      startLifecycleCapture: ReturnType<typeof vi.fn>;
+    };
+    startLifecycleCapture.mockClear();
+    const { startCapacitorCapture } = await import('../src/bootstrap');
+    await startCapacitorCapture();
+
+    expect(startLifecycleCapture).toHaveBeenCalledTimes(1);
+    const callbacks = startLifecycleCapture.mock.calls[0]![0] as {
+      flushActiveScreen?: (method: string) => void;
+    };
+    expect(typeof callbacks.flushActiveScreen).toBe('function');
+
+    // Invoking the callback the way LifecycleCapture.emitFinalized does
+    // must reach core's __flushActiveScreen with the same method.
+    callbacks.flushActiveScreen!('backgrounded');
+    expect(flushActiveScreen).toHaveBeenCalledWith('backgrounded');
+
+    callbacks.flushActiveScreen!('app_closed');
+    expect(flushActiveScreen).toHaveBeenCalledWith('app_closed');
   });
 
   it('survives a registration failure (reports to healthMonitor, returns a working handle)', async () => {

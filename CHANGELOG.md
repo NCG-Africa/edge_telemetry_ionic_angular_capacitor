@@ -4,6 +4,43 @@ All notable changes to the edge-rum SDK are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/).
 
+## [@nathanclaire/rum-angular 3.3.1] — 2026-05-28
+## [@nathanclaire/rum 3.3.2] — 2026-05-28
+
+### Fixed
+
+- **`IonicLifecycleCapture` now emits a closing `screen.duration` on
+  `session.finalized` (background / app close / pagehide).** Previously
+  the Angular capture kept a private `currentScreen` field that was
+  invisible to the core's finalize flush, so apps using the default
+  `EdgeRumModule` wiring silently dropped the final `screen.duration`
+  whenever the user didn't navigate away before backgrounding. The
+  capture now registers the active screen with core via the new
+  internal helper `__beginScreen(name)` on `ionViewDidEnter` and calls
+  `__flushActiveScreen(method)` on `ionViewDidLeave`. The existing
+  `packages/capacitor/src/LifecycleCapture.ts` finalize wiring then
+  closes the in-flight screen automatically with
+  `screen.exit_method = "backgrounded"` or `"app_closed"`. Tracking
+  issue #37.
+
+  Note: this does not fix the case of an OS process kill or a hard
+  native crash — by definition the JS heap is gone before any handler
+  runs. The processor-side synthesis fallback is the correct backstop
+  for those cases.
+
+- **Behavior change in `IonicLifecycleCapture`:** an `ionViewDidLeave`
+  fired without a preceding `ionViewDidEnter` no longer synthesises a
+  duration-0 `screen.duration` event with a fallback `"unknown"` name.
+  The old emission was noise.
+
+### Added
+
+- **`@nathanclaire/rum`: new internal export `__beginScreen(name)`.**
+  Registers an active screen in core's `state.activeScreen` so the
+  existing `__flushActiveScreen` finalize path can close it. Internal
+  API (underscore-prefixed) — consumed by
+  `@nathanclaire/rum-angular@3.3.1`. No public API change.
+
 ## [@nathanclaire/rum-capacitor 3.3.6] — 2026-05-25
 ## [@nathanclaire/rum 3.3.1] — 2026-05-25
 

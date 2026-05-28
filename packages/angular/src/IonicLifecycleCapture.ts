@@ -1,17 +1,12 @@
 import { Inject, Injectable, InjectionToken, Optional, type OnDestroy } from '@angular/core';
 import {
+  __beginScreen,
+  __flushActiveScreen,
   __getCurrentRoute,
   __getLastNavigationMethod,
-  __recordEvent,
-  type EventAttributes,
 } from '@nathanclaire/rum';
 
 export const LIFECYCLE_EVENT_SOURCE = new InjectionToken<EventTarget>('LIFECYCLE_EVENT_SOURCE');
-
-interface CurrentScreen {
-  readonly name: string;
-  readonly enteredAt: number;
-}
 
 const DID_ENTER = 'ionViewDidEnter';
 const DID_LEAVE = 'ionViewDidLeave';
@@ -33,9 +28,7 @@ function resolveScreenName(target: EventTarget | null): string {
 export class IonicLifecycleCapture implements OnDestroy {
   private readonly source: EventTarget | null;
   private readonly didEnter = (e: Event): void => this.onDidEnter(e);
-  private readonly didLeave = (e: Event): void => this.onDidLeave(e);
-
-  private currentScreen: CurrentScreen | null = null;
+  private readonly didLeave = (): void => this.onDidLeave();
 
   constructor(
     @Optional() @Inject(LIFECYCLE_EVENT_SOURCE) source?: EventTarget | null,
@@ -56,26 +49,10 @@ export class IonicLifecycleCapture implements OnDestroy {
   }
 
   private onDidEnter(event: Event): void {
-    this.currentScreen = {
-      name: resolveScreenName(event.target),
-      enteredAt: Date.now(),
-    };
+    __beginScreen(resolveScreenName(event.target));
   }
 
-  private onDidLeave(event: Event): void {
-    const name = this.currentScreen?.name ?? resolveScreenName(event.target);
-    const enteredAt = this.currentScreen?.enteredAt ?? Date.now();
-    const durationMs = Math.max(0, Date.now() - enteredAt);
-    const timestamp = new Date().toISOString();
-
-    const attrs: EventAttributes = {
-      'screen.name': name,
-      'screen.duration_ms': durationMs,
-      'screen.exit_method': __getLastNavigationMethod(),
-      'screen.timestamp': timestamp,
-    };
-
-    __recordEvent('screen.duration', attrs);
-    this.currentScreen = null;
+  private onDidLeave(): void {
+    __flushActiveScreen(__getLastNavigationMethod());
   }
 }

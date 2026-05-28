@@ -1,4 +1,5 @@
 import {
+  __flushActiveScreen,
   __getSession,
   __getCollector,
   __getContext,
@@ -106,6 +107,7 @@ export async function startCapacitorCapture(
     recordEvent: (eventName, attrs) => collector.recordEvent(eventName, attrs),
     flushPipeline: () => pipeline.flush(),
     freezePipeline: () => pipeline.freeze(),
+    flushActiveScreen: (method) => __flushActiveScreen(method),
     getBeaconPayload: () => pipeline.buildBeaconPayload(),
     getPlatform: () => platform,
     session,

@@ -25,6 +25,20 @@ function dispatch(bus: EventTarget, type: string, tagName: string): void {
   bus.dispatchEvent(event);
 }
 
+function spyCollector(): ReturnType<typeof vi.spyOn> {
+  const collector = rumInternals.__getCollector();
+  if (!collector) throw new Error('collector not initialised in test setup');
+  return vi.spyOn(collector, 'recordEvent');
+}
+
+function screenDurationCalls(
+  spy: ReturnType<typeof vi.spyOn>,
+): Array<[string, Record<string, unknown>]> {
+  return spy.mock.calls.filter(
+    (call) => call[0] === 'screen.duration',
+  ) as Array<[string, Record<string, unknown>]>;
+}
+
 let bus: EventTarget;
 
 beforeEach(() => {
@@ -40,65 +54,64 @@ afterEach(() => {
 
 describe('IonicLifecycleCapture', () => {
   it('does not emit on ionViewDidEnter — only on exit', () => {
-    const spy = vi.spyOn(rumInternals, '__recordEvent');
+    const spy = spyCollector();
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewDidEnter', 'APP-HOME');
 
-    expect(spy).not.toHaveBeenCalled();
+    expect(screenDurationCalls(spy)).toHaveLength(0);
     capture.ngOnDestroy();
   });
 
   it('emits screen.duration on ionViewDidLeave with the full dwell time', () => {
-    const spy = vi.spyOn(rumInternals, '__recordEvent');
     let now = 1000;
     vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const spy = spyCollector();
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewDidEnter', 'APP-PRODUCT');
     now = 5331;
     dispatch(bus, 'ionViewDidLeave', 'APP-PRODUCT');
 
-    expect(spy).toHaveBeenCalledTimes(1);
-    const [eventName, attrs] = spy.mock.calls[0]!;
-    expect(eventName).toBe('screen.duration');
-    const a = attrs as Record<string, unknown>;
-    expect(a['screen.name']).toBe('app-product');
-    expect(a['screen.duration_ms']).toBe(4331);
-    expect(a['screen.exit_method']).toBe('navigate');
-    expect(a['screen.timestamp']).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    const calls = screenDurationCalls(spy);
+    expect(calls).toHaveLength(1);
+    const attrs = calls[0]![1];
+    expect(attrs['screen.name']).toBe('app-product');
+    expect(attrs['screen.duration_ms']).toBe(4331);
+    expect(attrs['screen.exit_method']).toBe('navigate');
+    expect(attrs['screen.timestamp']).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     capture.ngOnDestroy();
   });
 
   it('produces a non-negative screen.duration_ms', () => {
-    const spy = vi.spyOn(rumInternals, '__recordEvent');
+    const spy = spyCollector();
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewDidEnter', 'APP-X');
     dispatch(bus, 'ionViewDidLeave', 'APP-X');
 
-    const attrs = spy.mock.calls[0]![1] as Record<string, unknown>;
+    const attrs = screenDurationCalls(spy)[0]![1];
     expect(typeof attrs['screen.duration_ms']).toBe('number');
     expect(attrs['screen.duration_ms'] as number).toBeGreaterThanOrEqual(0);
     capture.ngOnDestroy();
   });
 
   it('uses the Ionic component tag name as screen.name', () => {
-    const spy = vi.spyOn(rumInternals, '__recordEvent');
+    const spy = spyCollector();
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewDidEnter', 'APP-PRODUCT-DETAIL');
     dispatch(bus, 'ionViewDidLeave', 'APP-PRODUCT-DETAIL');
 
-    const attrs = spy.mock.calls[0]![1] as Record<string, unknown>;
+    const attrs = screenDurationCalls(spy)[0]![1];
     expect(attrs['screen.name']).toBe('app-product-detail');
     capture.ngOnDestroy();
   });
 
   it('tracks consecutive screens independently', () => {
-    const spy = vi.spyOn(rumInternals, '__recordEvent');
     let now = 0;
     vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const spy = spyCollector();
     const capture = new IonicLifecycleCapture(bus);
 
     now = 100;
@@ -111,69 +124,65 @@ describe('IonicLifecycleCapture', () => {
     now = 1700;
     dispatch(bus, 'ionViewDidLeave', 'APP-B');
 
-    expect(spy).toHaveBeenCalledTimes(2);
-    const first = spy.mock.calls[0]![1] as Record<string, unknown>;
-    expect(first['screen.name']).toBe('app-a');
-    expect(first['screen.duration_ms']).toBe(400);
-
-    const second = spy.mock.calls[1]![1] as Record<string, unknown>;
-    expect(second['screen.name']).toBe('app-b');
-    expect(second['screen.duration_ms']).toBe(1100);
+    const calls = screenDurationCalls(spy);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]![1]['screen.name']).toBe('app-a');
+    expect(calls[0]![1]['screen.duration_ms']).toBe(400);
+    expect(calls[1]![1]['screen.name']).toBe('app-b');
+    expect(calls[1]![1]['screen.duration_ms']).toBe(1100);
     capture.ngOnDestroy();
   });
 
-  it('emits with duration 0 when leave fires without a preceding enter', () => {
-    const spy = vi.spyOn(rumInternals, '__recordEvent');
+  it('does not emit when leave fires without a preceding enter', () => {
+    // After 3.3.x: no enter ⇒ no active screen ⇒ no event. Synthesis of
+    // duration-0 orphans was noise; the processor side handles those cases.
+    const spy = spyCollector();
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewDidLeave', 'APP-ORPHAN');
 
-    expect(spy).toHaveBeenCalledTimes(1);
-    const attrs = spy.mock.calls[0]![1] as Record<string, unknown>;
-    expect(attrs['screen.name']).toBe('app-orphan');
-    expect(attrs['screen.duration_ms']).toBe(0);
+    expect(screenDurationCalls(spy)).toHaveLength(0);
     capture.ngOnDestroy();
   });
 
-  it('falls back to "unknown" when the leaving event has no target tagName', () => {
-    const spy = vi.spyOn(rumInternals, '__recordEvent');
+  it('does not emit when the leaving event has no target tagName and no preceding enter', () => {
+    const spy = spyCollector();
     const capture = new IonicLifecycleCapture(bus);
 
     bus.dispatchEvent(new Event('ionViewDidLeave'));
 
-    const attrs = spy.mock.calls[0]![1] as Record<string, unknown>;
-    expect(attrs['screen.name']).toBe('unknown');
+    expect(screenDurationCalls(spy)).toHaveLength(0);
     capture.ngOnDestroy();
   });
 
   it('screen.exit_method reflects the most recent navigation method (pop)', () => {
-    const spy = vi.spyOn(rumInternals, '__recordEvent');
     rumInternals.__setLastNavigationMethod('pop');
+    const spy = spyCollector();
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewDidEnter', 'APP-PROFILE');
     dispatch(bus, 'ionViewDidLeave', 'APP-PROFILE');
 
-    const attrs = spy.mock.calls[0]![1] as Record<string, unknown>;
+    const attrs = screenDurationCalls(spy)[0]![1];
     expect(attrs['screen.exit_method']).toBe('pop');
     capture.ngOnDestroy();
   });
 
   it('screen.exit_method reflects "replace" when set by the router', () => {
-    const spy = vi.spyOn(rumInternals, '__recordEvent');
     rumInternals.__setLastNavigationMethod('replace');
+    const spy = spyCollector();
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewDidEnter', 'APP-LOGIN');
     dispatch(bus, 'ionViewDidLeave', 'APP-LOGIN');
 
-    const attrs = spy.mock.calls[0]![1] as Record<string, unknown>;
+    const attrs = screenDurationCalls(spy)[0]![1];
     expect(attrs['screen.exit_method']).toBe('replace');
     capture.ngOnDestroy();
   });
 
   it('stops listening after ngOnDestroy', () => {
-    const spy = vi.spyOn(rumInternals, '__recordEvent');
+    const spy = spyCollector();
     const capture = new IonicLifecycleCapture(bus);
 
     capture.ngOnDestroy();
@@ -181,17 +190,17 @@ describe('IonicLifecycleCapture', () => {
     dispatch(bus, 'ionViewDidEnter', 'APP-GONE');
     dispatch(bus, 'ionViewDidLeave', 'APP-GONE');
 
-    expect(spy).not.toHaveBeenCalled();
+    expect(screenDurationCalls(spy)).toHaveLength(0);
   });
 
   it('emits attributes that are only primitives and free of OTel identifiers', () => {
-    const spy = vi.spyOn(rumInternals, '__recordEvent');
+    const spy = spyCollector();
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewDidEnter', 'APP-CHECK');
     dispatch(bus, 'ionViewDidLeave', 'APP-CHECK');
 
-    const attrs = spy.mock.calls[0]![1] as Record<string, unknown>;
+    const attrs = screenDurationCalls(spy)[0]![1];
     for (const value of Object.values(attrs)) {
       expect(typeof value).toMatch(/^(string|number|boolean)$/);
     }
@@ -201,6 +210,26 @@ describe('IonicLifecycleCapture', () => {
     expect(serialised).not.toContain('resourceSpans');
     expect(serialised).not.toContain('instrumentationScope');
     expect(serialised).not.toContain('opentelemetry');
+    capture.ngOnDestroy();
+  });
+
+  it('closes the in-flight screen when __flushActiveScreen is called externally', () => {
+    // Simulates LifecycleCapture.emitFinalized → callbacks.flushActiveScreen(endReason).
+    let now = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const spy = spyCollector();
+    const capture = new IonicLifecycleCapture(bus);
+
+    now = 1000;
+    dispatch(bus, 'ionViewDidEnter', 'APP-DASHBOARD');
+    now = 4500;
+    rumInternals.__flushActiveScreen('backgrounded');
+
+    const calls = screenDurationCalls(spy);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![1]['screen.name']).toBe('app-dashboard');
+    expect(calls[0]![1]['screen.duration_ms']).toBe(3500);
+    expect(calls[0]![1]['screen.exit_method']).toBe('backgrounded');
     capture.ngOnDestroy();
   });
 });

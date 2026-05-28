@@ -437,6 +437,83 @@ describe('startLifecycleCapture', () => {
       expect(finalized!.attrs['session.metric_count']).toBe(1);
     });
 
+    it('invokes flushActiveScreen before recording session.finalized on background', async () => {
+      // Regression: the Ionic auto-capture wires its in-flight screen via
+      // __beginScreen → state.activeScreen, and __flushActiveScreen is plumbed
+      // through callbacks.flushActiveScreen so the closing screen.duration
+      // lands BEFORE session.finalized on backgrounding.
+      const app = fakeApp();
+      const cb = makeCallbacks();
+      const order: string[] = [];
+      cb.flushActiveScreen = vi.fn((method: string) => {
+        order.push(`flush:${method}`);
+      });
+      const recordEventSpy = cb.recordEvent;
+      cb.recordEvent = (name, attrs) => {
+        order.push(`record:${name}`);
+        recordEventSpy(name, attrs);
+      };
+      await startLifecycleCapture(cb, {
+        capacitor: nativeCap(),
+        loadApp: async () => app,
+        now: () => 1_000,
+        moduleLoadTime: 0,
+        flushTimeoutMs: 10,
+      });
+
+      app.emit({ isActive: false });
+
+      expect(cb.flushActiveScreen).toHaveBeenCalledWith('backgrounded');
+      const flushIdx = order.indexOf('flush:backgrounded');
+      const finalizedIdx = order.indexOf('record:session.finalized');
+      expect(flushIdx).toBeGreaterThanOrEqual(0);
+      expect(finalizedIdx).toBeGreaterThan(flushIdx);
+    });
+
+    it('invokes flushActiveScreen with app_closed before session.finalized on pagehide', async () => {
+      const win = (() => {
+        const listeners: Record<string, (() => void)[]> = {};
+        return {
+          addEventListener: (name: string, cb: () => void) => {
+            (listeners[name] ??= []).push(cb);
+          },
+          removeEventListener: () => undefined,
+          fire: (name: 'beforeunload' | 'pagehide') => {
+            (listeners[name] ?? []).forEach((l) => l());
+          },
+        };
+      })();
+      const order: string[] = [];
+      const cb: LifecycleCaptureCallbacks = {
+        recordEvent: (name) => {
+          order.push(`record:${name}`);
+        },
+        flushPipeline: vi.fn(),
+        flushActiveScreen: vi.fn((method: string) => {
+          order.push(`flush:${method}`);
+        }),
+        session: makeSession(),
+        getBeaconPayload: () => ({ url: 'u', body: 'b' }),
+        getPlatform: () => 'web',
+      };
+      await startLifecycleCapture(cb, {
+        capacitor: { isNativePlatform: () => false },
+        getDocument: () => undefined,
+        getWindow: () => win,
+        getNavigator: () => ({ sendBeacon: vi.fn(() => true) }),
+        now: () => 1_000,
+        moduleLoadTime: 0,
+      });
+
+      win.fire('pagehide');
+
+      expect(cb.flushActiveScreen).toHaveBeenCalledWith('app_closed');
+      const flushIdx = order.indexOf('flush:app_closed');
+      const finalizedIdx = order.indexOf('record:session.finalized');
+      expect(flushIdx).toBeGreaterThanOrEqual(0);
+      expect(finalizedIdx).toBeGreaterThan(flushIdx);
+    });
+
     it('does not double-emit session.finalized when both beforeunload and pagehide fire', async () => {
       const win = (() => {
         const listeners: Record<string, (() => void)[]> = {};
@@ -880,5 +957,130 @@ describe('startLifecycleCapture', () => {
     });
     await handle.stop();
     expect(doc.removeEventListener).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+  });
+
+  describe('end-to-end: __beginScreen + __flushActiveScreen + emitFinalized', () => {
+    // Exercises the full production seam without mocking core helpers.
+    // Mirrors what IonicLifecycleCapture does on ionViewDidEnter, then drives
+    // the lifecycle background event and checks that the in-flight screen
+    // closes via collector.recordEvent('screen.duration', ...) BEFORE
+    // session.finalized lands.
+    it('emits screen.duration before session.finalized on background', async () => {
+      const { EdgeRum, __beginScreen, __flushActiveScreen, __getCollector, __getSession } =
+        await import('@nathanclaire/rum');
+      const { __resetEdgeRumForTests } = await import('../../core/src/EdgeRum');
+
+      __resetEdgeRumForTests();
+      EdgeRum.init({
+        apiKey: 'edge_e2e_key',
+        endpoint: 'https://example.com/collector/telemetry',
+        appName: 'E2E',
+        appVersion: '1.0.0',
+      });
+
+      const collector = __getCollector()!;
+      const order: string[] = [];
+      const originalRecord = collector.recordEvent.bind(collector);
+      const spy = vi.spyOn(collector, 'recordEvent').mockImplementation((name, attrs) => {
+        order.push(`record:${name}`);
+        originalRecord(name, attrs);
+      });
+
+      const app = fakeApp();
+      let nowVal = 1_000;
+      vi.spyOn(Date, 'now').mockImplementation(() => nowVal);
+      const realSession = __getSession()!;
+      const session: LifecycleSessionManagerLike = {
+        getLastActiveAt: () => 0,
+        setLastActiveAt: () => undefined,
+        startNewSession: () => undefined,
+        getSessionId: () => realSession.getSessionId(),
+        getStartTime: () => realSession.getStartTime(),
+        getSequence: () => realSession.getSequence(),
+        getJourneySnapshot: () => ({}),
+      };
+
+      await startLifecycleCapture(
+        {
+          recordEvent: (name, attrs) => collector.recordEvent(name, attrs),
+          flushPipeline: vi.fn(),
+          flushActiveScreen: (method) => __flushActiveScreen(method),
+          session,
+        },
+        {
+          capacitor: nativeCap(),
+          loadApp: async () => app,
+          now: () => nowVal,
+          moduleLoadTime: 0,
+          flushTimeoutMs: 10,
+        },
+      );
+
+      // Simulate ionViewDidEnter — the only thing the rewired
+      // IonicLifecycleCapture does on the active-screen side. enteredAt
+      // is captured via Date.now() (spied above).
+      __beginScreen('/tabs/dashboard');
+      nowVal = 4_500;
+
+      app.emit({ isActive: false });
+
+      const screenIdx = order.indexOf('record:screen.duration');
+      const finalizedIdx = order.indexOf('record:session.finalized');
+      expect(screenIdx).toBeGreaterThanOrEqual(0);
+      expect(finalizedIdx).toBeGreaterThan(screenIdx);
+
+      const screenCall = spy.mock.calls.find((c) => c[0] === 'screen.duration');
+      expect(screenCall).toBeDefined();
+      const screenAttrs = screenCall![1] as Record<string, unknown>;
+      expect(screenAttrs['screen.name']).toBe('/tabs/dashboard');
+      expect(screenAttrs['screen.duration_ms']).toBe(3_500);
+      expect(screenAttrs['screen.exit_method']).toBe('backgrounded');
+
+      __resetEdgeRumForTests();
+    });
+
+    it('no-op when there is no active screen (e.g. session backgrounded before any didEnter)', async () => {
+      const { EdgeRum, __flushActiveScreen, __getCollector } = await import('@nathanclaire/rum');
+      const { __resetEdgeRumForTests } = await import('../../core/src/EdgeRum');
+
+      __resetEdgeRumForTests();
+      EdgeRum.init({
+        apiKey: 'edge_e2e_key',
+        endpoint: 'https://example.com/collector/telemetry',
+        appName: 'E2E',
+        appVersion: '1.0.0',
+      });
+
+      const collector = __getCollector()!;
+      const spy = vi.spyOn(collector, 'recordEvent');
+
+      const app = fakeApp();
+      await startLifecycleCapture(
+        {
+          recordEvent: (name, attrs) => collector.recordEvent(name, attrs),
+          flushPipeline: vi.fn(),
+          flushActiveScreen: (method) => __flushActiveScreen(method),
+          session: makeSession(),
+        },
+        {
+          capacitor: nativeCap(),
+          loadApp: async () => app,
+          now: () => 1_000,
+          moduleLoadTime: 0,
+          flushTimeoutMs: 10,
+        },
+      );
+
+      // No __beginScreen call — session.finalized must still emit, just
+      // without a preceding screen.duration.
+      app.emit({ isActive: false });
+
+      const screenCalls = spy.mock.calls.filter((c) => c[0] === 'screen.duration');
+      const finalized = spy.mock.calls.find((c) => c[0] === 'session.finalized');
+      expect(screenCalls).toHaveLength(0);
+      expect(finalized).toBeDefined();
+
+      __resetEdgeRumForTests();
+    });
   });
 });

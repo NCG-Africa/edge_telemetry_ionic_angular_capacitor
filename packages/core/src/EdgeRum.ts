@@ -404,6 +404,12 @@ function flushActiveScreenInternal(method: string, collector: Collector | null):
   state.activeScreen = null;
 }
 
+export function __beginScreen(name: string): void {
+  if (!state.enabled) return;
+  if (typeof name !== 'string' || name.length === 0) return;
+  state.activeScreen = { name, enteredAt: Date.now() };
+}
+
 export function __flushActiveScreen(method = 'finalize'): void {
   if (!state.enabled) return;
   flushActiveScreenInternal(method, state.collector);

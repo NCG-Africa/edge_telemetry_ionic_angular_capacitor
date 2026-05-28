@@ -45,13 +45,17 @@ interface CallbackState extends NetworkCaptureCallbacks {
   readonly flushCount: () => number;
 }
 
-function makeCallbacks(): CallbackState {
+function makeCallbacks(opts: { withContextSink?: boolean } = {}): CallbackState & {
+  contextUpdates: NetworkAttributes[];
+} {
   const onlineLog: boolean[] = [];
   const events: Array<{ name: string; attrs: NetworkAttributes }> = [];
+  const contextUpdates: NetworkAttributes[] = [];
   let flushCount = 0;
   return {
     onlineLog,
     events,
+    contextUpdates,
     flushCount: () => flushCount,
     setOnline: vi.fn((online: boolean) => {
       onlineLog.push(online);
@@ -62,6 +66,13 @@ function makeCallbacks(): CallbackState {
     recordEvent: vi.fn((name, attrs) => {
       events.push({ name, attrs });
     }),
+    ...(opts.withContextSink
+      ? {
+          setNetworkAttributes: vi.fn((attrs: NetworkAttributes) => {
+            contextUpdates.push(attrs);
+          }),
+        }
+      : {}),
   };
 }
 
@@ -144,6 +155,41 @@ describe('getInitialNetworkContext', () => {
     });
     expect(typeof attrs['network.connected']).toBe('boolean');
     expect(typeof attrs['network.type']).toBe('string');
+  });
+
+  it('falls back to navigator when native getStatus throws', async () => {
+    const broken: NetworkModuleLike = {
+      getStatus: async () => {
+        throw new Error('plugin missing');
+      },
+      addListener: () => ({ remove: async () => undefined }),
+    };
+    const attrs = await getInitialNetworkContext({
+      capacitor: nativeCap(),
+      loadNetwork: async () => broken,
+      getNavigator: () => ({
+        onLine: false,
+        connection: { type: 'cellular', effectiveType: '3g', downlink: 1.6 },
+      }),
+    });
+    // Without the fallback, this would silently return defaults
+    // ({ connected: true, type: 'unknown' }) — masking the offline state.
+    expect(attrs['network.connected']).toBe(false);
+    expect(attrs['network.type']).toBe('cellular');
+    expect(attrs['network.effectiveType']).toBe('3g');
+    expect(attrs['network.downlinkMbps']).toBe(1.6);
+  });
+
+  it('falls back to navigator when @capacitor/network loadNetwork rejects', async () => {
+    const attrs = await getInitialNetworkContext({
+      capacitor: nativeCap(),
+      loadNetwork: async () => {
+        throw new Error('module not installed');
+      },
+      getNavigator: () => ({ onLine: true }),
+    });
+    expect(attrs['network.connected']).toBe(true);
+    expect(attrs['network.type']).toBe('unknown');
   });
 });
 
@@ -300,6 +346,50 @@ describe('startNetworkCapture', () => {
     });
     expect(winListeners['online']?.length).toBe(1);
     expect(winListeners['offline']?.length).toBe(1);
+  });
+
+  it('writes through to setNetworkAttributes on every status change', async () => {
+    const network = fakeNetwork({ connected: true, connectionType: 'wifi' });
+    const cb = makeCallbacks({ withContextSink: true });
+    await startNetworkCapture(cb, {
+      capacitor: nativeCap(),
+      loadNetwork: async () => network,
+      getNavigator: () => ({ connection: { effectiveType: '4g', downlink: 12 } }),
+      getWindow: () => win,
+    });
+
+    network.emit({ connected: true, connectionType: 'cellular' });
+    network.emit({ connected: false, connectionType: 'none' });
+
+    expect(cb.contextUpdates).toHaveLength(2);
+    expect(cb.contextUpdates[0]).toMatchObject({
+      'network.connected': true,
+      'network.type': 'cellular',
+      'network.effectiveType': '4g',
+      'network.downlinkMbps': 12,
+    });
+    expect(cb.contextUpdates[0]).not.toHaveProperty('network.previous_type');
+    expect(cb.contextUpdates[1]).toMatchObject({
+      'network.connected': false,
+      'network.type': 'none',
+    });
+    for (const attrs of cb.contextUpdates) {
+      assertPrimitive(attrs);
+    }
+  });
+
+  it('does not invoke setNetworkAttributes when the callback is omitted', async () => {
+    const network = fakeNetwork({ connected: true, connectionType: 'wifi' });
+    const cb = makeCallbacks();
+    await startNetworkCapture(cb, {
+      capacitor: nativeCap(),
+      loadNetwork: async () => network,
+      getNavigator: () => undefined,
+      getWindow: () => win,
+    });
+    network.emit({ connected: true, connectionType: 'cellular' });
+    expect(cb.contextUpdates).toHaveLength(0);
+    expect(cb.events).toHaveLength(1);
   });
 
   it('swallows flushQueue rejection', async () => {

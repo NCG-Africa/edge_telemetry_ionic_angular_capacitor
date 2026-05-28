@@ -72,7 +72,19 @@ async function defaultLoadPlugin(): Promise<EdgeRumCrashPluginLike | null> {
       registerPlugin: <T>(name: string) => T;
     };
     if (typeof mod.registerPlugin !== 'function') return null;
-    return mod.registerPlugin<EdgeRumCrashPluginLike>('EdgeRumCrash');
+    const proxy = mod.registerPlugin<EdgeRumCrashPluginLike>('EdgeRumCrash');
+    // The Capacitor proxy intercepts *every* property access — including `.then` —
+    // and forwards it as a native plugin call. Returning it directly from an async
+    // function (or any Promise resolution) triggers thenable assimilation: JS calls
+    // `proxy.then(resolve, reject)`, Capacitor routes that to the native side, and
+    // Android responds with "EdgeRumCrash.then() is not implemented on android".
+    // Wrap in a plain object so only the methods we actually use cross the bridge.
+    return {
+      install: (opts) => proxy.install(opts),
+      fetchPending: () => proxy.fetchPending(),
+      markHandled: (opts) => proxy.markHandled(opts),
+      setLastScreen: (opts) => proxy.setLastScreen(opts),
+    };
   } catch (err) {
     healthMonitor.reportError('native-crash.loadPlugin', err);
     return null;

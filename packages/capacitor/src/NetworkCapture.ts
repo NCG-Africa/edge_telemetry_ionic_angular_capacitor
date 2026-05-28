@@ -40,6 +40,12 @@ export interface NetworkCaptureCallbacks {
   setOnline: (online: boolean) => void;
   flushQueue: () => void | Promise<void>;
   recordEvent: (eventName: 'network_change', attributes: NetworkAttributes) => void;
+  // Pipe latest network attrs back into ContextManager so subsequent events
+  // carry the current network.type / network.connected. Without this, events
+  // are stuck with whatever getInitialNetworkContext() returned at bootstrap —
+  // on iOS the first getStatus() often races with NWPathMonitor's first report
+  // and resolves as 'unknown', and that stale value sticks for the session.
+  setNetworkAttributes?: (attrs: NetworkAttributes) => void;
 }
 
 export interface NetworkCaptureDeps {
@@ -129,16 +135,19 @@ export async function getInitialNetworkContext(
     }
   })();
 
+  let nativeResolved = false;
   if (isNative) {
     try {
       const network = await loadNetwork();
       const status = await network.getStatus();
       connected = status.connected;
       type = normaliseType(status.connectionType);
+      nativeResolved = true;
     } catch {
-      // fall back to navigator-derived values
+      // Native plugin missing or threw — fall through to navigator below.
     }
-  } else {
+  }
+  if (!nativeResolved) {
     if (nav && typeof nav.onLine === 'boolean') {
       connected = nav.onLine;
     }
@@ -199,6 +208,15 @@ export async function startNetworkCapture(
     }
 
     callbacks.recordEvent('network_change', attrs);
+
+    if (callbacks.setNetworkAttributes) {
+      const contextAttrs: NetworkAttributes = {
+        'network.connected': nextConnected,
+        'network.type': nextType,
+      };
+      addConnectionDetails(contextAttrs, nav);
+      callbacks.setNetworkAttributes(contextAttrs);
+    }
 
     previousType = nextType;
     previousConnected = nextConnected;

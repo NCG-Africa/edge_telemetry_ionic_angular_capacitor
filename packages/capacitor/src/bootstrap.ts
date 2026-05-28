@@ -97,6 +97,7 @@ export async function startCapacitorCapture(
       }
     },
     flushQueue: () => void pipeline.flush(),
+    setNetworkAttributes: (attrs) => context.setNetworkAttributes(attrs),
   });
 
   const platform = (deviceAttrs['device.platform'] as string | undefined) ?? 'web';

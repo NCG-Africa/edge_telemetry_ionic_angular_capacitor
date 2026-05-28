@@ -1,4 +1,4 @@
-export const SDK_VERSION = '3.3.1';
+export const SDK_VERSION = '3.3.2';
 export const SDK_CONTRACT_VERSION = '3.1.0' as const;
 export const SDK_PLATFORM = 'ionic-angular-capacitor' as const;
 
@@ -49,6 +49,7 @@ export {
   __subscribeToCurrentRoute,
   __setLastNavigationMethod,
   __getLastNavigationMethod,
+  __beginScreen,
   __flushActiveScreen,
   __getCollector,
   __getSession,

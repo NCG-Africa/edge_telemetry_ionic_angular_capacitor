@@ -1,5 +1,33 @@
 # @nathanclaire/rum-capacitor
 
+## 3.3.7
+
+### Patch Changes
+
+- **Fix `"EdgeRumCrash.then() is not implemented on android"` error.**
+  `defaultLoadPlugin` returned the Capacitor plugin proxy directly from an
+  `async` function. The proxy intercepts every property access — including
+  `.then` — so JavaScript's thenable assimilation called `proxy.then()` when
+  resolving the returned Promise, Capacitor routed that to the native side,
+  and Android responded with the "not implemented" error (which then got
+  captured by the SDK's own error pipeline and sent as telemetry, creating a
+  feedback loop). Fixed by wrapping the proxy in a plain object exposing only
+  the four methods we actually call (`install`, `fetchPending`,
+  `markHandled`, `setLastScreen`).
+- **iOS: `network.type` no longer stuck as `unknown` for the session.**
+  `startNetworkCapture`'s `networkStatusChange` listener now writes the
+  latest `network.type` / `network.connected` (plus `effectiveType` /
+  `downlinkMbps` when available) back to `ContextManager` so subsequent
+  events carry the current value. Previously the listener only emitted a
+  `network_change` event, so iOS's NWPathMonitor cold-start race
+  (first `getStatus()` resolves as `'unknown'`) was never corrected and
+  every event in the session carried the stale value.
+- **Honour the documented navigator fallback in `getInitialNetworkContext`.**
+  When the native `@capacitor/network` `getStatus()` throws (e.g. plugin
+  not installed in the consuming app), the code now actually falls through
+  to `navigator.onLine` / `navigator.connection` instead of silently leaving
+  the defaults — matching the existing comment.
+
 ## 3.3.6
 
 ### Patch Changes

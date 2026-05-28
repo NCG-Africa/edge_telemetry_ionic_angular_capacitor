@@ -27,11 +27,40 @@ export interface NativeCrashInstallOptions {
   anrTimeoutMs?: number;
 }
 
+export interface PerfSamplingOptions {
+  memoryIntervalMs?: number;
+  captureFrames?: boolean;
+  captureMemory?: boolean;
+  frameSlowThresholdMs?: number;
+  captureAllFrames?: boolean;
+}
+
+export interface NativeFrameSample {
+  ts: string;
+  total_ms: number;
+  build_ms: number;
+  raster_ms: number;
+  dropped: boolean;
+  type: 'ui' | 'raster';
+}
+
+export interface NativeMemorySample {
+  ts: string;
+  value_mb: number;
+  pressure?: 'normal' | 'moderate' | 'high' | 'critical';
+  type: 'heap' | 'rss' | 'pss';
+  source: 'javascript' | 'native';
+}
+
 export interface EdgeRumCrashPluginLike {
   install: (opts: NativeCrashInstallOptions) => Promise<{ installed: boolean }>;
   fetchPending: () => Promise<{ crashes: NativeCrashRecord[] }>;
   markHandled: (opts: { ids: string[] }) => Promise<void>;
   setLastScreen: (opts: { screen: string }) => Promise<void>;
+  startPerfSampling: (opts: PerfSamplingOptions) => Promise<{ started: boolean }>;
+  stopPerfSampling: () => Promise<void>;
+  fetchFrameSamples: () => Promise<{ frames: NativeFrameSample[] }>;
+  fetchMemorySamples: () => Promise<{ samples: NativeMemorySample[] }>;
 }
 
 export interface NativeCrashCaptureDeps {
@@ -66,7 +95,9 @@ export interface NativeCrashCaptureHandle {
 
 const SCREEN_RELAY_THROTTLE_MS = 1000;
 
-async function defaultLoadPlugin(): Promise<EdgeRumCrashPluginLike | null> {
+// Exported so PerfSamplerCapture (and tests) can reuse the same plain-object
+// wrapper that defeats Capacitor's thenable-assimilation pitfall.
+export async function loadEdgeRumCrashPlugin(): Promise<EdgeRumCrashPluginLike | null> {
   try {
     const mod = (await import('@capacitor/core')) as unknown as {
       registerPlugin: <T>(name: string) => T;
@@ -84,6 +115,10 @@ async function defaultLoadPlugin(): Promise<EdgeRumCrashPluginLike | null> {
       fetchPending: () => proxy.fetchPending(),
       markHandled: (opts) => proxy.markHandled(opts),
       setLastScreen: (opts) => proxy.setLastScreen(opts),
+      startPerfSampling: (opts) => proxy.startPerfSampling(opts),
+      stopPerfSampling: () => proxy.stopPerfSampling(),
+      fetchFrameSamples: () => proxy.fetchFrameSamples(),
+      fetchMemorySamples: () => proxy.fetchMemorySamples(),
     };
   } catch (err) {
     healthMonitor.reportError('native-crash.loadPlugin', err);
@@ -129,7 +164,7 @@ function defaultScheduleIdle(fn: () => void | Promise<void>): void {
 export async function registerNativeCrashCapture(
   deps: NativeCrashCaptureDeps,
 ): Promise<NativeCrashCaptureHandle> {
-  const loadPlugin = deps.loadPlugin ?? defaultLoadPlugin;
+  const loadPlugin = deps.loadPlugin ?? loadEdgeRumCrashPlugin;
   const plugin = deps.plugin ?? (await loadPlugin());
   if (!plugin) {
     return { stop: () => undefined };

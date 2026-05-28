@@ -12,6 +12,10 @@ import { getDeviceContext } from './DeviceContext';
 import { startNetworkCapture, getInitialNetworkContext } from './NetworkCapture';
 import { startLifecycleCapture } from './LifecycleCapture';
 import { registerNativeCrashCapture, type NativeCrashCaptureHandle } from './NativeCrashCapture';
+import {
+  startPerfSamplerCapture,
+  type PerfSamplerCaptureHandle,
+} from './PerfSamplerCapture';
 import { createCapacitorHttpFetch, type CapacitorLike } from './capacitor-http-fetch';
 
 export interface CapacitorCaptureOptions {
@@ -21,6 +25,11 @@ export interface CapacitorCaptureOptions {
   anrTimeoutMs?: number;
   hangTimeoutMs?: number;
   awaitNativeInstall?: boolean;
+  captureFrames?: boolean;
+  captureAllFrames?: boolean;
+  frameSlowThresholdMs?: number;
+  captureMemory?: boolean;
+  memorySamplingIntervalMs?: number;
 }
 
 export interface CapacitorCaptureHandle {
@@ -103,6 +112,31 @@ export async function startCapacitorCapture(
 
   const platform = (deviceAttrs['device.platform'] as string | undefined) ?? 'web';
 
+  // Native perf sampler — frames + memory. Started before lifecycle capture so
+  // the lifecycle hook below can request a drain on every foreground/background
+  // transition. Started even when captureNativeCrashes is off, since perf
+  // sampling is independent of crash reporting.
+  let perfSamplerHandle: PerfSamplerCaptureHandle | null = null;
+  if (
+    isNative &&
+    (options.captureFrames !== false || options.captureMemory !== false)
+  ) {
+    try {
+      perfSamplerHandle = await startPerfSamplerCapture({
+        recordMetric: (name, value, attrs) => collector.recordMetric(name, value, attrs),
+        options: {
+          captureFrames: options.captureFrames,
+          captureMemory: options.captureMemory,
+          memorySamplingIntervalMs: options.memorySamplingIntervalMs,
+          frameSlowThresholdMs: options.frameSlowThresholdMs,
+          captureAllFrames: options.captureAllFrames,
+        },
+      });
+    } catch (err) {
+      healthMonitor.reportError('perf-sampler.bootstrap', err);
+    }
+  }
+
   const lifecycleHandle = await startLifecycleCapture({
     recordEvent: (eventName, attrs) => collector.recordEvent(eventName, attrs),
     flushPipeline: () => pipeline.flush(),
@@ -110,6 +144,9 @@ export async function startCapacitorCapture(
     flushActiveScreen: (method) => __flushActiveScreen(method),
     getBeaconPayload: () => pipeline.buildBeaconPayload(),
     getPlatform: () => platform,
+    onLifecycleSample: () => {
+      if (perfSamplerHandle) void perfSamplerHandle.drainNow();
+    },
     session,
   });
 
@@ -135,6 +172,7 @@ export async function startCapacitorCapture(
       await networkHandle.stop();
       await lifecycleHandle.stop();
       nativeCrashHandle?.stop();
+      if (perfSamplerHandle) await perfSamplerHandle.stop();
     },
   };
 }

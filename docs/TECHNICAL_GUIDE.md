@@ -582,6 +582,11 @@ Grouped by capture domain. Every option is on `EdgeRumConfig`. Full per-option d
 | `enableHangDetection` | `true` (iOS) | Starts main-thread hang watchdog |
 | `anrTimeoutMs` | `5000` | ANR threshold |
 | `hangTimeoutMs` | `5000` | iOS hang threshold |
+| `captureFrames` | `true` | Emits `frame_render_time` metrics (WebView rAF + iOS CADisplayLink + Android Choreographer) |
+| `captureAllFrames` | `false` | Debug-only — emit every frame, not just slow ones |
+| `frameSlowThresholdMs` | `16.67` | Below this interval frames are skipped; ≥ 2× this value sets `frame_dropped: true` |
+| `captureMemory` | `true` | Emits `memory_usage` metrics (web heap + iOS RSS + Android PSS, MB) |
+| `memorySamplingIntervalMs` | `10000` | Periodic memory-sample cadence (plus on pressure + lifecycle) |
 
 ### 11.5 Network
 

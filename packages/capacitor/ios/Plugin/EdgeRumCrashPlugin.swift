@@ -18,7 +18,11 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "install", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "fetchPending", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "markHandled", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "setLastScreen", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "setLastScreen", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startPerfSampling", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopPerfSampling", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "fetchFrameSamples", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "fetchMemorySamples", returnType: CAPPluginReturnPromise)
     ]
 
     private static var installed = false
@@ -83,5 +87,37 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         let screen = call.getString("screen") ?? ""
         CrashReporter.shared.setLastScreen(screen)
         call.resolve()
+    }
+
+    @objc func startPerfSampling(_ call: CAPPluginCall) {
+        let captureFrames = call.getBool("captureFrames") ?? true
+        let captureMemory = call.getBool("captureMemory") ?? true
+        let memoryIntervalMs = call.getInt("memoryIntervalMs") ?? 10_000
+        let slowThresholdMs = call.getDouble("frameSlowThresholdMs") ?? 16.67
+        let captureAllFrames = call.getBool("captureAllFrames") ?? false
+
+        if captureMemory {
+            MemorySampler.shared.start(intervalMs: memoryIntervalMs)
+        }
+        if captureFrames {
+            FrameSampler.shared.start(slowThresholdMs: slowThresholdMs, captureAllFrames: captureAllFrames)
+        }
+        call.resolve(["started": true])
+    }
+
+    @objc func stopPerfSampling(_ call: CAPPluginCall) {
+        MemorySampler.shared.stop()
+        FrameSampler.shared.stop()
+        call.resolve()
+    }
+
+    @objc func fetchFrameSamples(_ call: CAPPluginCall) {
+        let frames = FrameSampler.shared.fetchPending()
+        call.resolve(["frames": frames])
+    }
+
+    @objc func fetchMemorySamples(_ call: CAPPluginCall) {
+        let samples = MemorySampler.shared.fetchPending()
+        call.resolve(["samples": samples])
     }
 }

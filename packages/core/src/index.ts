@@ -1,4 +1,4 @@
-export const SDK_VERSION = '3.3.2';
+export const SDK_VERSION = '3.4.0';
 export const SDK_CONTRACT_VERSION = '3.1.0' as const;
 export const SDK_PLATFORM = 'ionic-angular-capacitor' as const;
 
@@ -31,6 +31,18 @@ export interface EdgeRumConfig {
   // cold-start improvement on iOS. Opt in to `true` if you absolutely need
   // the native handlers armed before any other code runs (rare).
   awaitNativeInstall?: boolean;
+  // Frame-render metrics — emitted as `metric` items with metricName
+  // `frame_render_time`. Default on; slow-only by default to keep volume sane
+  // (a fully idle screen emits zero events). Set `captureAllFrames` only when
+  // debugging — emits one event per WebView frame regardless of duration.
+  captureFrames?: boolean;
+  captureAllFrames?: boolean;
+  frameSlowThresholdMs?: number;
+  // Memory samples — emitted as `metric` items with metricName `memory_usage`,
+  // value in megabytes. Periodic plus on memory-pressure callbacks and
+  // foreground/background transitions.
+  captureMemory?: boolean;
+  memorySamplingIntervalMs?: number;
 }
 
 export interface UserContext {

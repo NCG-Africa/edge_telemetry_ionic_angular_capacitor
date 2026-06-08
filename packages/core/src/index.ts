@@ -11,6 +11,17 @@ export interface EdgeRumConfig {
   appBuild?: string;
   environment?: 'production' | 'staging' | 'development';
   location?: string;
+  // Opt-in IP-based location resolution. When true and `location` is not
+  // explicitly set, the SDK calls `locationProviderUrl` once on init and
+  // stamps the resulting "City/Country" string into the batch envelope.
+  // Off by default — enabling it sends the device IP to a third-party
+  // provider, so consumers should confirm this is acceptable for their
+  // privacy/compliance posture.
+  resolveLocation?: boolean;
+  // Override the IP-geolocation provider. Defaults to https://ipapi.co/json/.
+  // Response must include `city` and either `country_name` (ipapi.co) or
+  // `country` (ipinfo.io and most others).
+  locationProviderUrl?: string;
   sampleRate?: number;
   ignoreUrls?: (string | RegExp)[];
   maxQueueSize?: number;

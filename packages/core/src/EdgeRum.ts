@@ -6,6 +6,7 @@ import { breadcrumbs } from './internal/breadcrumbs';
 import { ContextManager } from './internal/context';
 import { Collector } from './internal/collector';
 import { Pipeline } from './internal/pipeline';
+import { resolveLocation, DEFAULT_LOCATION_PROVIDER_URL } from './internal/locationResolver';
 import { RetryTransport, type FetchLike } from './transport/RetryTransport';
 import { OfflineQueue } from './queue/OfflineQueue';
 import { registerConsoleErrorCapture, registerErrorCapture } from './instrumentation/errors';
@@ -200,7 +201,21 @@ export const EdgeRum: EdgeRumRuntime = {
     // Always exclude the SDK's own telemetry endpoint so request capture
     // never records its own POSTs — prevents an infinite self-capture loop
     // and removes a quiet footgun for consumers.
-    const effectiveIgnoreUrls = [config.endpoint, ...(config.ignoreUrls ?? [])];
+    const shouldResolveLocation =
+      config.resolveLocation === true &&
+      (typeof config.location !== 'string' || config.location.length === 0);
+    const locationProviderUrl = config.locationProviderUrl ?? DEFAULT_LOCATION_PROVIDER_URL;
+    const effectiveIgnoreUrls = [
+      config.endpoint,
+      ...(shouldResolveLocation ? [locationProviderUrl] : []),
+      ...(config.ignoreUrls ?? []),
+    ];
+
+    if (shouldResolveLocation) {
+      void resolveLocation({ url: locationProviderUrl, debug: config.debug }).then((value) => {
+        if (value !== null) pipeline.setLocation(value);
+      });
+    }
 
     state.requestsHandle = registerRequestCapture({
       recordEvent: (eventName, attributes) => collector.recordEvent(eventName, attributes),

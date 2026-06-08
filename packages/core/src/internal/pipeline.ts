@@ -24,7 +24,7 @@ export class Pipeline {
   private readonly context: ContextManager;
   private readonly batchSize: number;
   private readonly flushIntervalMs: number;
-  private readonly location: string | undefined;
+  private location: string | undefined;
   private readonly debug: boolean;
   private buffer: BatchItem[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -49,6 +49,12 @@ export class Pipeline {
       });
     } else {
       this.readyPromise = Promise.resolve();
+    }
+  }
+
+  setLocation(location: string): void {
+    if (typeof location === 'string' && location.length > 0) {
+      this.location = location;
     }
   }
 

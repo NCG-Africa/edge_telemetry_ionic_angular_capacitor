@@ -431,6 +431,12 @@ interface EdgeRumConfig {
   appBuild?: string;                 // used as app.build_number — omitted entirely when unset
   environment?: 'production' | 'staging' | 'development';
   location?: string;                 // batch envelope location, e.g. "Nairobi/Kenya"
+  resolveLocation?: boolean;         // default false. Opt-in IP geolocation: when true and `location` is unset,
+                                     // SDK calls `locationProviderUrl` once on init and stamps "City/Country"
+                                     // into every batch envelope. Result cached in localStorage for 24h.
+                                     // Sends device IP to a third-party provider — confirm privacy posture.
+  locationProviderUrl?: string;      // default "https://ipapi.co/json/". Provider must return {city, country_name}
+                                     // (ipapi.co) or {city, country} (ipinfo.io).
   sampleRate?: number;               // 0.0–1.0, default 1.0
   ignoreUrls?: (string | RegExp)[];
   maxQueueSize?: number;             // default 200

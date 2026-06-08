@@ -678,6 +678,7 @@ For a smoke test, open dev tools, foreground the app, watch the network tab:
 | 3.0.1 | 3.0.0 | Same — `sdk.contract_version` not yet emitted, backend can't tell them apart |
 | 3.1.0 | 3.1.0 (adds `user.interaction`, `long_task`, `resource_timing`, `crash.breadcrumbs`, `sdk.error_count`, 16-hex IDs, `sdk.contract_version`) | Backend needs to accept new event names; unknown ones land in catch-all (non-breaking) |
 | 3.2.0 | 3.1.0 | Same wire contract. Adds native crash bridge (NSException, signals, Throwable, NDK, ANR, Hang) — all under existing `app.crash` shape, just new `cause` values + native `crash.*` attrs |
+| 3.5.0 | 3.1.0 | Same wire contract. Adds opt-in IP-based location resolution — populates the existing envelope `location` field at runtime from a configurable provider URL (default `https://ipapi.co/json/`). Off by default; backend behavior unchanged. |
 
 **`sdk.contract_version`** is on every event from 3.1.0+. The backend can log "unknown contract" once per session if it doesn't recognize the value, helping detect skew between SDK and processor deployments.
 

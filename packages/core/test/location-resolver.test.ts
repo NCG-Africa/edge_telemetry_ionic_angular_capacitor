@@ -175,7 +175,6 @@ describe('resolveLocation', () => {
 
   it('returns null when global fetch is unavailable and no override provided', async () => {
     const originalFetch = (globalThis as { fetch?: typeof fetch }).fetch;
-    // @ts-expect-error simulating an environment without global fetch
     delete (globalThis as { fetch?: typeof fetch }).fetch;
     try {
       const result = await resolveLocation({ storage: fakeStorage(), now: () => 1000 });

@@ -433,7 +433,7 @@ skew required out-of-band coordination.
 
 **Decision:** Every event carries `sdk.contract_version` (currently `'3.1.0'`) in its context
 attributes. The processor can log "unknown contract" once per session if it doesn't recognise
-the value. `SDK_VERSION` (`'3.2.0'`) is separate — it tracks SDK-internal versioning that may
+the value. `SDK_VERSION` (`'3.5.0'`) is separate — it tracks SDK-internal versioning that may
 not change the wire shape (e.g., a bug fix release doesn't bump the contract version).
 
 **Consequences:**

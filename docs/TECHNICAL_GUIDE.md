@@ -2,7 +2,7 @@
 
 **Audience:** Ionic / Angular / Capacitor developers integrating the `@nathanclaire/rum` SDK.
 
-**SDK version:** 3.2.0 · **Wire-contract version:** 3.1.0
+**SDK version:** 3.5.0 · **Wire-contract version:** 3.1.0
 
 This document is the authoritative technical reference for what the SDK captures, when it captures it, what each event contains, and how to configure or disable each piece. Companion docs:
 
@@ -523,7 +523,7 @@ These attributes are merged into **every** event via the `ContextManager`. The c
 | `session.total_sessions` | int (≥1) | always | SessionManager — cross-launch counter |
 | `user.id` | string | required | SDK-owned anonymous id |
 | `user.name`, `user.email`, `user.phone` | string | optional | `EdgeRum.identify()` |
-| `sdk.version` | string | always | `'3.2.0'` |
+| `sdk.version` | string | always | `'3.5.0'` |
 | `sdk.contract_version` | string | always | `'3.1.0'` — wire-contract version |
 | `sdk.platform` | string | always | `'ionic-angular-capacitor'` |
 

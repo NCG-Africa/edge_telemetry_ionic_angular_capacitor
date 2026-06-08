@@ -2,7 +2,7 @@
 
 Real User Monitoring SDK for **Ionic Angular Capacitor** apps. Captures user journey, errors, performance, native crashes, and interactions automatically — then ships them as JSON to your backend.
 
-**Current version:** 3.2.0 · **Wire contract:** 3.1.0
+**Current version:** 3.5.0 · **Wire contract:** 3.1.0
 
 ## Packages
 

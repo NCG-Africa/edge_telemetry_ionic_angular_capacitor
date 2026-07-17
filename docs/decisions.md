@@ -626,3 +626,126 @@ signal — they accept dotted or dotless but the Flutter SDK is already on dotle
 - (−) `lastPressure` on iOS / Android is sticky between events — a critical event keeps
   influencing samples until the next normal callback. Acceptable: pressure events are sparse
   and the processor only uses the highest pressure observed per session.
+
+---
+
+## ADR-028 — Bounded buffer + off-hot-path retry seam (Candidate 01)
+
+**Date:** 2026-07
+
+**Context:** `Pipeline.buffer` was an uncapped array, and `flush()` held the `flushing` gate
+while `RetryTransport.send()` walked the full `[0, 2s, 8s, 30s]` ladder inline (~40s per failing
+batch). During a backend brownout the gate stayed held while `push()` piled events into the
+buffer unbounded — the memory monitor grows, worst case OOMs the host it is supposed to be
+observing. There were effectively two buffers: the uncapped live `buffer` and the already-capped
+`OfflineQueue` (200 batches, drop-oldest FIFO). This is the root amplifier the other
+operational-safety candidates feed into. Resolves ticket #44.
+
+**Decision:**
+
+1. **Fail-fast flush, one paced background drain owns the ladder.** `flush()` attempts each
+   batch **once** — a single POST, no inline backoff. Any non-success routes straight to
+   `OfflineQueue`. The `[2s, 8s, 30s]` backoff moves entirely off the flush path into a drain
+   scheduler. This collapses "failed live batch" and "already-queued batch" into one retry path
+   and removes the ~40s gate that was the actual root cause.
+2. **`RetryTransport` → stateless `sendOnce()`.** It does one POST and classifies the result as
+   `ok` / `retryable` (carrying any `Retry-After`) / `fatal`. It no longer sleeps; all timing
+   lives in the drain.
+3. **Bounded live buffer.** `Pipeline.buffer` becomes a bounded array (not a ring — the buffer
+   is small and short-lived under fail-fast flush; a ring is premature). Overflow **drops
+   oldest** (FIFO), matching `OfflineQueue` so the SDK tells one story: under pressure, freshest
+   data wins. Crash/error events bypass this via `pushImmediate`. Cap = **`batchSize × 10`**
+   (default 300 events), an **internal constant**, not a public config field. `maxQueueSize`
+   (200 batches) stays the one user-facing volume knob.
+4. **Drop self-report.** Both caps discard silently otherwise. Introduce a single monotonic
+   per-session counter surfaced as **`sdk.dropped_count`** on `session.finalized` (which already
+   rides immediate-flush and carries `sdk.error_count`), plus a debug-mode `console.warn` on each
+   drop. One total (live-buffer + queue combined); the debug log names the source. No new
+   `eventName`.
+5. **Drain ownership & pacing.** The drain scheduler (backoff state + `setTimeout`) lives in
+   **`OfflineQueue`** — it owns the persisted batches and the retry lifecycle. `Pipeline` feeds
+   failed batches in and pokes the drain. On a `retryable` result the drain walks `[2s, 8s, 30s]`
+   then **holds at 30s**, honoring `Retry-After` when present (it overrides the step), resetting
+   to fast on any success. `fatal` (non-retryable 4xx) batches are dropped immediately and
+   counted toward `sdk.dropped_count`. **No artificial gap between successful sends** — the drain
+   runs contiguously: bursting POSTs lets the cellular radio return to idle sooner (better for
+   battery than a throttled drip), and the backend's own `429`/`503`+`Retry-After` is the real
+   backpressure valve.
+6. **Zero new `EdgeRumConfig` fields.** The whole deepening rides existing knobs (`batchSize`,
+   `maxQueueSize`) and internal constants. Its only wire-shape output is the `sdk.dropped_count`
+   attribute.
+
+**Consequences:**
+
+- (+) The ~40s flush gate is gone; a brownout can no longer grow the live buffer unbounded.
+  Memory stays bounded by `batchSize × 10` live + `maxQueueSize` queued.
+- (+) No request stampede: one paced drain instead of N concurrent inline ladders.
+- (+) Data loss is no longer silent — `sdk.dropped_count` makes "the app is too chatty" visible
+  and distinct from `sdk.error_count` ("the SDK is buggy").
+- (+) No public config growth — a backpressure fix that adds no surface consumers must reason about.
+- (−) `sdk.dropped_count` is a new wire attribute → needs backend-team confirmation and a
+  `docs/payload-schema.json` update before implementation ships (tracked by the map's
+  config-consolidation fog item).
+- (−) Fail-fast flush means a single transient failure sends a batch to the offline queue rather
+  than retrying inline — one extra persist/drain round-trip on flaky-but-recovering networks.
+  Acceptable: the drain reclaims it within the first backoff step, and the alternative was the
+  40s gate.
+
+## ADR-029 — Console noise → breadcrumbs, never `app.crash` (Candidate 02)
+
+**Date:** 2026-07
+
+**Context:** `captureConsoleErrors` defaults on and wrapped **both** `console.error` and
+`console.warn`, each calling `recordEvent('app.crash', …)`. Because the eventName is literally
+`app.crash`, every console line landed in **both** `CRITICAL_EVENT_NAMES` (bypasses `sampleRate`,
+`collector.ts:9`) and `IMMEDIATE_FLUSH_EVENT_NAMES` (synchronous `pushImmediate → flush()`,
+`collector.ts:8`). So a chatty dependency = one un-sampled **immediate POST per log line**: it
+floods the crash dashboard, and it double-counts real errors (the window `error` handler fires,
+then a framework re-`console.error`s the same throwable). This is the amplification feeding the
+bounded-buffer/backpressure fix in ADR-028. Resolves ticket #45.
+
+**Decision:**
+
+1. **Route to breadcrumbs only — no standalone event, no POST.** Captured console output stops
+   emitting `app.crash` (or any event). It pushes a breadcrumb into the existing ring instead, so
+   it rides along inside the next genuine `app.crash`'s `crash.breadcrumbs` (ADR-024). Console
+   noise costs zero network and zero un-sampled traffic; it becomes crash *context*, not a crash.
+2. **`app.crash` reserved for genuine crashes.** With console de-routed, the `CRITICAL` and
+   `IMMEDIATE_FLUSH` sets are **unchanged** — both stay `{app.crash, session.finalized}` (plus the
+   `CRITICAL`-only `session.started`, `user.profile.update`). `app.crash` now means only: uncaught
+   error, unhandled rejection, native crash. Nothing console-sourced is immediate or sampling-exempt.
+3. **Double-count dissolves.** A framework's post-throw `console.error` re-log of an uncaught
+   exception is now just another breadcrumb, not a second immediate `app.crash`. No dedup logic
+   between the `error` handler and the console wrapper is needed — the two can no longer both mint
+   an event.
+4. **Rate-limit console breadcrumbs so they don't evict the action trail.** The ring keeps only
+   the last 20 actions; an unbounded console-spam loop would push every navigation/interaction
+   crumb out before a crash, leaving `crash.breadcrumbs` full of noise. **Collapse consecutive
+   duplicate** console breadcrumbs (same level + message) into a single crumb carrying a `count`,
+   rather than pushing one crumb per line. The dedup key is `level + message`; a non-matching line
+   starts a fresh crumb. (Implementation may additionally cap console crumbs per rolling window;
+   the collapse is the required behaviour.)
+5. **`captureConsoleErrors` stays default `true`, but wraps `console.error` only.** `console.warn`
+   is **no longer captured at all** — low signal as a crash-trail crumb. The internal `captureWarn`
+   sub-option on `ConsoleErrorDeps` is removed. The public flag keeps its name and default, but its
+   semantics change: it now means "add `console.error` lines to the crash breadcrumb trail," not
+   "capture console output as crashes."
+
+**Consequences:**
+
+- (+) A chatty dependency can no longer generate un-sampled immediate POSTs — the single biggest
+  console-driven amplifier is gone. The crash dashboard stops filling with non-crashes.
+- (+) Real crashes are counted once; `sdk.error_count` and the crash dashboard stop double-counting
+  the handler + re-log pair.
+- (+) Console lines survive as crash *context* exactly where they're useful — inside the breadcrumb
+  trail of the crash they preceded — without their own network cost.
+- (+) **No new wire event and no `docs/payload-schema.json` change**: breadcrumbs-only means no new
+  `eventName` and no new attribute on the wire. (Contrast ADR-028's `sdk.dropped_count`.)
+- (−) **Behaviour change on upgrade:** `console.error`/`console.warn` no longer surface as
+  standalone `app.crash` events, and `console.warn` is dropped entirely. Consumers who relied on
+  console lines appearing as crashes lose that; they appear only in `crash.breadcrumbs` now. The
+  `captureConsoleErrors` semantics shift and the removed `captureWarn` behaviour are noted for the
+  map's config-consolidation fog item.
+- (−) A crash that is *not* preceded by any genuine error handler firing (pure console-only
+  failure) produces no telemetry at all. Accepted: console output is not a crash, and the cardinal
+  rule is that the monitor must not degrade the app it watches.

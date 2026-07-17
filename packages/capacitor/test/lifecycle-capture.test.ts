@@ -284,6 +284,31 @@ describe('startLifecycleCapture', () => {
       expect(finalizedIdx).toBeLessThan(bgIdx);
     });
 
+    it('uses the monotonic elapsed for duration even when the wall clock jumps backward', async () => {
+      const app = fakeApp();
+      const cb = makeCallbacks();
+      cb.fakeSession.startTime = '2026-04-15T10:00:00.000Z';
+      // Monotonic clock reads a real 60s of elapsed session time.
+      cb.fakeSession.getElapsedMs = () => 60_000;
+      // Wall clock has jumped 33.217s BEFORE session start (NTP correction / manual
+      // clock change) — a wallEnd - wallStart computation would be -33217.
+      const nowVal = Date.parse('2026-04-15T10:00:00.000Z') - 33_217;
+      await startLifecycleCapture(cb, {
+        capacitor: nativeCap(),
+        loadApp: async () => app,
+        now: () => nowVal,
+        moduleLoadTime: 0,
+        flushTimeoutMs: 10,
+      });
+
+      app.emit({ isActive: false });
+
+      const finalized = cb.events.find((e) => e.name === 'session.finalized');
+      expect(finalized).toBeDefined();
+      expect(finalized!.attrs['session.duration_ms']).toBe(60_000);
+      expect(finalized!.attrs['session.duration_ms'] as number).toBeGreaterThanOrEqual(0);
+    });
+
     it('emits session.started with start_reason=resumed on foreground within timeout (after a prior background)', async () => {
       const app = fakeApp();
       const cb = makeCallbacks();

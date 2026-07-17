@@ -14,6 +14,16 @@ export interface SessionManagerOptions {
   sessionTimeoutMs?: number;
   storage?: StorageLike;
   sampleRate?: number;
+  /** Monotonic clock source (ms). Injectable for tests; defaults to performance.now(). */
+  monotonicNow?: () => number;
+}
+
+// Monotonic clock: unaffected by wall-clock jumps (NTP/DST/manual changes), so
+// session duration derived from it can never go backward. Falls back to Date.now()
+// only where performance is unavailable — the emit-site clamp covers that case.
+function defaultMonotonicNow(): number {
+  const g = globalThis as unknown as { performance?: { now?: () => number } };
+  return typeof g.performance?.now === 'function' ? g.performance.now() : Date.now();
 }
 
 export type JourneySnapshot = Record<string, string | number | boolean>;
@@ -84,6 +94,7 @@ export class SessionManager {
   private sessionId: string;
   private startTime: string;
   private startTimeMs: number;
+  private startMonotonicMs: number;
   private sequence: number;
   private lastActiveAt: number;
   private visitedScreens: string[] = [];
@@ -97,14 +108,17 @@ export class SessionManager {
   private readonly sessionTimeoutMs: number;
   private readonly sampleRate: number;
   private readonly storage: StorageLike | undefined;
+  private readonly monotonicNow: () => number;
 
   constructor(options: SessionManagerOptions = {}) {
     this.platform = options.platform ?? 'web';
     this.sessionTimeoutMs = options.sessionTimeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS;
     this.sampleRate = clampSampleRate(options.sampleRate);
     this.storage = options.storage ?? defaultLocalStorage();
+    this.monotonicNow = options.monotonicNow ?? defaultMonotonicNow;
     this.sessionId = generateSessionId(this.platform);
     this.startTimeMs = Date.now();
+    this.startMonotonicMs = this.monotonicNow();
     this.startTime = new Date(this.startTimeMs).toISOString();
     this.sequence = 0;
     this.lastActiveAt = this.startTimeMs;
@@ -122,6 +136,11 @@ export class SessionManager {
 
   getStartTimeMs(): number {
     return this.startTimeMs;
+  }
+
+  /** Monotonic elapsed since session start (ms). Immune to wall-clock jumps; never negative. */
+  getElapsedMs(): number {
+    return Math.max(0, this.monotonicNow() - this.startMonotonicMs);
   }
 
   getSessionId(): string {
@@ -155,6 +174,7 @@ export class SessionManager {
   startNewSession(): void {
     this.sessionId = generateSessionId(this.platform);
     this.startTimeMs = Date.now();
+    this.startMonotonicMs = this.monotonicNow();
     this.startTime = new Date(this.startTimeMs).toISOString();
     this.sequence = 0;
     this.lastActiveAt = this.startTimeMs;

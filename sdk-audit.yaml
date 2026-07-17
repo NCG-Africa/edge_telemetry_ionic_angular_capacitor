@@ -1,0 +1,738 @@
+repo: nathanclaire/edge-rum (edge-rum-monorepo)
+component_type: sdk
+platform: ionic-capacitor  # monorepo also ships an angular integration package
+language: TypeScript (core/angular/capacitor) + Swift (iOS native) + Kotlin/C++ (Android native)
+current_version: "3.5.0"  # SDK_VERSION in packages/core/src/index.ts; all 3 pkgs at 3.5.0
+build_variants: none  # SDK_CONTRACT_VERSION="3.1.0" const also stamped on every event as sdk.contract_version
+registry: npm  # @nathanclaire/rum, @nathanclaire/rum-angular, @nathanclaire/rum-capacitor (publishConfig.access=public)
+
+# ─────────────────────────────────────────────────────────────────────────
+# 1. Events emitted — verbatim wire names.
+# Every event/metric is wrapped in an outer envelope:
+#   { type:"telemetry_batch", timestamp:ISO, location?, batch_size, events:[...] }
+#   (packages/core/src/transport/PayloadBuilder.ts buildBatchPayload)
+# Each item is either {type:"event", eventName, timestamp, attributes}
+#   or {type:"metric", metricName, value, timestamp, attributes}.
+# Every item's attributes also carries all common_attributes (section 2).
+# ─────────────────────────────────────────────────────────────────────────
+events:
+  - name: session.started
+    trigger: EdgeRum.init() (start_reason=init); also on foreground rotation/resume (capacitor LifecycleCapture)
+    evidence: packages/core/src/EdgeRum.ts init(); packages/capacitor/src/LifecycleCapture.ts
+    payload_fields:
+      - field: session.start_reason
+        type: string   # "init" | "rotation_timeout" | "resumed"
+        unit: none
+        always_present: true
+
+  - name: session.finalized
+    trigger: app background or app close (beforeunload/pagehide); immediate-flush, carries journey summary
+    evidence: packages/capacitor/src/LifecycleCapture.ts
+    payload_fields:
+      - field: session.id
+        type: string
+        unit: none
+        always_present: true
+      - field: session.start_time
+        type: string   # ISO 8601
+        unit: none
+        always_present: true
+      - field: session.sequence
+        type: int
+        unit: none
+        always_present: true
+      - field: session.duration_ms
+        type: int
+        unit: ms
+        always_present: true
+      - field: session.ended_at
+        type: string   # ISO 8601
+        unit: none
+        always_present: true
+      - field: session.end_reason
+        type: string   # "backgrounded" | "app_closed"
+        unit: none
+        always_present: true
+      - field: sdk.error_count
+        type: int
+        unit: none
+        always_present: true
+      - field: session.visited_screens
+        type: string   # comma-joined (getJourneySnapshot)
+        unit: none
+        always_present: true
+      - field: session.screen_count
+        type: int
+        unit: none
+        always_present: true
+      - field: session.event_count
+        type: int
+        unit: none
+        always_present: true
+      - field: session.metric_count
+        type: int
+        unit: none
+        always_present: true
+      - field: session.journey_truncated
+        type: bool
+        unit: none
+        always_present: true
+
+  - name: navigation
+    trigger: Angular NavigationEnd/NavigationCancel (RouterCapture); also EdgeRum.trackScreen()
+    evidence: packages/angular/src/RouterCapture.ts; packages/core/src/EdgeRum.ts trackScreen()
+    payload_fields:
+      - field: navigation.to_screen
+        type: string   # normalized route; params kept literal (/products/:id NOT collapsed)
+        unit: none
+        always_present: true
+      - field: navigation.from_screen
+        type: string
+        unit: none
+        always_present: false   # omitted on first navigation
+      - field: navigation.method
+        type: string   # "push" | "pop" | "replace" | "initial" | "cancel"
+        unit: none
+        always_present: true
+      - field: navigation.route_type
+        type: string   # "main_flow" | "deeplink" | "settings" | "modal" (RouterCapture only)
+        unit: none
+        always_present: false   # not set by trackScreen()
+      - field: navigation.has_arguments
+        type: bool
+        unit: none
+        always_present: true
+      - field: navigation.timestamp
+        type: string   # ISO 8601
+        unit: none
+        always_present: true
+
+  - name: screen.duration
+    trigger: Ionic ionViewDidLeave / route change / session finalize — closes active screen dwell timer
+    evidence: packages/angular/src/IonicLifecycleCapture.ts; packages/core/src/EdgeRum.ts flushActiveScreenInternal()
+    payload_fields:
+      - field: screen.name
+        type: string
+        unit: none
+        always_present: true
+      - field: screen.duration_ms
+        type: int
+        unit: ms
+        always_present: true
+      - field: screen.exit_method
+        type: string   # last navigation method, or "finalize"
+        unit: none
+        always_present: true
+      - field: screen.timestamp
+        type: string   # ISO 8601
+        unit: none
+        always_present: true
+
+  - name: http.request
+    trigger: patched global fetch() resolves or rejects (SDK endpoint + ignoreUrls excluded)
+    evidence: packages/core/src/instrumentation/requests.ts registerRequestCapture
+    payload_fields:
+      - field: http.url
+        type: string   # passed through defaultSanitizeUrl (strips token/email/phone/key/secret/password/auth params)
+        unit: none
+        always_present: true
+      - field: http.method
+        type: string   # uppercased
+        unit: none
+        always_present: true
+      - field: http.status_code
+        type: int   # 0 on network failure
+        unit: none
+        always_present: true
+      - field: http.duration_ms
+        type: int
+        unit: ms
+        always_present: true
+      - field: http.success
+        type: bool   # status 200-399 (isSuccess) — 3xx counts as success
+        unit: none
+        always_present: true
+      - field: http.timestamp
+        type: string   # ISO 8601
+        unit: none
+        always_present: true
+
+  - name: app.crash
+    trigger: window error/unhandledrejection, console.error/warn, EdgeRum.captureError, Angular ErrorHandler, RouterCapture NavigationError, and native crashes replayed on next launch
+    evidence: packages/core/src/instrumentation/errors.ts; EdgeRum.ts captureError(); packages/angular/src/ErrorCapture.ts + RouterCapture.ts; packages/capacitor/src/NativeCrashCapture.ts
+    payload_fields:
+      - field: exception_type
+        type: string
+        unit: none
+        always_present: true
+      - field: message
+        type: string
+        unit: none
+        always_present: true
+      - field: stacktrace
+        type: string
+        unit: none
+        always_present: true
+      - field: is_fatal
+        type: bool
+        unit: none
+        always_present: true
+      - field: handled
+        type: bool
+        unit: none
+        always_present: true
+      - field: error_context
+        type: string   # "screen:<route>" or "navigation:<url>"
+        unit: none
+        always_present: true
+      - field: cause
+        type: string   # UnhandledError|PromiseRejection|ConsoleError|ConsoleWarn|ManualCapture|AngularError|NavigationError|NativeCrash|Hang|ANR
+        unit: none
+        always_present: true
+      - field: runtime
+        type: string   # "webview" (JS) | "native" (iOS/Android crash records)
+        unit: none
+        always_present: true
+      - field: crash.breadcrumbs
+        type: string   # JSON-stringified array of last <=20 {ts,type,name}
+        unit: none
+        always_present: false   # JS crashes only; not on native records
+      - field: crash.breadcrumb_count
+        type: int
+        unit: none
+        always_present: false
+      - field: component
+        type: string   # Angular component name parsed from stack (ErrorCapture)
+        unit: none
+        always_present: false
+      - field: crash.platform
+        type: string   # "ios" | "android" — native records only
+        unit: none
+        always_present: false
+      - field: crash.id
+        type: string
+        unit: none
+        always_present: false
+      - field: crash.captured_at
+        type: string   # ISO 8601 from native
+        unit: none
+        always_present: false
+      - field: crash.platform_version
+        type: string
+        unit: none
+        always_present: false
+      - field: crash.signal
+        type: string   # SIGSEGV etc — native NDK/Mach
+        unit: none
+        always_present: false
+      - field: crash.thread
+        type: string   # "main"(iOS) | "unknown"(Android NDK)
+        unit: none
+        always_present: false
+      - field: crash.symbolication
+        type: string   # "required" — raw addresses; backend symbolicates
+        unit: none
+        always_present: false
+      - field: anr.duration_ms
+        type: int   # native CrashRecordStorage.toJson emits key "anr.duration_ms"
+        unit: ms
+        always_present: false
+
+  - name: user.profile.update
+    trigger: EdgeRum.identify()
+    evidence: packages/core/src/EdgeRum.ts identify()
+    payload_fields:
+      - field: user.profile_version
+        type: int
+        unit: none
+        always_present: true
+      - field: user.profile_updated_at
+        type: string   # ISO 8601
+        unit: none
+        always_present: true
+      - field: user.name
+        type: string
+        unit: none
+        always_present: false
+      - field: user.email
+        type: string
+        unit: none
+        always_present: false
+      - field: user.phone
+        type: string
+        unit: none
+        always_present: false
+
+  - name: custom_event
+    trigger: EdgeRum.track(name, attributes)
+    evidence: packages/core/src/EdgeRum.ts track()
+    payload_fields:
+      - field: event.name
+        type: string
+        unit: none
+        always_present: true
+      # plus arbitrary caller-supplied primitive attributes
+
+  - name: user.interaction
+    trigger: capture-phase click on document (50ms dedup window)
+    evidence: packages/core/src/instrumentation/interactions.ts
+    payload_fields:
+      - field: interaction.type
+        type: string   # "click"
+        unit: none
+        always_present: true
+      - field: interaction.screen
+        type: string
+        unit: none
+        always_present: true
+      - field: interaction.timestamp
+        type: string   # ISO 8601
+        unit: none
+        always_present: true
+      - field: interaction.target_tag
+        type: string   # uppercased tagName
+        unit: none
+        always_present: true
+      - field: interaction.target_id
+        type: string   # truncated to 64 chars
+        unit: none
+        always_present: false
+      - field: interaction.target_class
+        type: string   # truncated 64
+        unit: none
+        always_present: false
+      - field: interaction.target_role
+        type: string   # role or aria-label, truncated 64
+        unit: none
+        always_present: false
+
+  - name: page_load
+    trigger: window load event (once)
+    evidence: packages/core/src/instrumentation/pageload.ts
+    payload_fields:
+      - field: page.ttfb_ms
+        type: int
+        unit: ms
+        always_present: true
+      - field: page.dom_content_loaded_ms
+        type: int
+        unit: ms
+        always_present: true
+      - field: page.load_duration_ms
+        type: int
+        unit: ms
+        always_present: true
+      - field: page.resource_count
+        type: int
+        unit: none
+        always_present: true
+      - field: page.route
+        type: string
+        unit: none
+        always_present: true
+
+  - name: app_lifecycle
+    trigger: every foreground/background transition
+    evidence: packages/capacitor/src/LifecycleCapture.ts
+    payload_fields:
+      - field: lifecycle.event
+        type: string   # "foreground" | "background"
+        unit: none
+        always_present: true
+      - field: lifecycle.cold_start_ms
+        type: int
+        unit: ms
+        always_present: false   # first foreground only
+
+  - name: network_change
+    trigger: Capacitor networkStatusChange / navigator.connection change
+    evidence: packages/capacitor/src/NetworkCapture.ts
+    payload_fields:
+      - field: network.connected
+        type: bool
+        unit: none
+        always_present: true
+      - field: network.type
+        type: string   # "wifi" | "cellular" | "none" | "unknown"
+        unit: none
+        always_present: true
+      - field: network.previous_type
+        type: string
+        unit: none
+        always_present: true
+      - field: network.effectiveType
+        type: string   # "4g" etc
+        unit: none
+        always_present: false
+      - field: network.downlinkMbps
+        type: float
+        unit: none
+        always_present: false
+
+  # ── metric items (type:"metric", top-level metricName + numeric value) ──
+  - name: "metric: LCP|FCP|CLS|INP|TTFB"
+    trigger: web-vitals subscriptions
+    evidence: packages/core/src/instrumentation/vitals.ts
+    payload_fields:
+      - field: value
+        type: float   # top-level on the metric item
+        unit: ms   # score for CLS
+        always_present: true
+      - field: metric.unit
+        type: string   # "ms" | "score"
+        unit: none
+        always_present: true
+      - field: metric.rating
+        type: string   # "good"|"needs-improvement"|"poor"
+        unit: none
+        always_present: true
+      - field: metric.screen
+        type: string
+        unit: none
+        always_present: true
+
+  - name: "metric: long_task"
+    trigger: PerformanceObserver longtask entries
+    evidence: packages/core/src/instrumentation/perf-observer.ts
+    payload_fields:
+      - field: value
+        type: float
+        unit: ms
+        always_present: true
+      - field: metric.unit
+        type: string   # "ms"
+        unit: none
+        always_present: true
+      - field: metric.name
+        type: string
+        unit: none
+        always_present: true
+      - field: metric.screen
+        type: string
+        unit: none
+        always_present: true
+
+  - name: "metric: resource_timing"
+    trigger: PerformanceObserver resource entries (SDK endpoint excluded)
+    evidence: packages/core/src/instrumentation/perf-observer.ts
+    payload_fields:
+      - field: value
+        type: float
+        unit: ms
+        always_present: true
+      - field: metric.unit
+        type: string
+        unit: none
+        always_present: true
+      - field: metric.resource_name
+        type: string
+        unit: none
+        always_present: true
+      - field: metric.resource_type
+        type: string   # initiatorType
+        unit: none
+        always_present: true
+      - field: metric.screen
+        type: string
+        unit: none
+        always_present: true
+      - field: metric.transfer_size
+        type: int
+        unit: bytes
+        always_present: false
+
+  - name: "metric: frame_render_time"
+    trigger: WebView rAF+longtask overlap; iOS CADisplayLink; Android Choreographer (slow-only unless captureAllFrames)
+    evidence: packages/core/src/instrumentation/frames.ts; packages/capacitor/src/PerfSamplerCapture.ts (+ native FrameSampler)
+    payload_fields:
+      - field: value
+        type: float   # total frame ms
+        unit: ms
+        always_present: true
+      - field: unit
+        type: string   # DOTLESS key "unit"="ms" (not metric.unit)
+        unit: none
+        always_present: true
+      - field: frame_build_duration
+        type: float
+        unit: ms
+        always_present: true
+      - field: frame_raster_duration
+        type: float   # 0 on native iOS/Android (no raster split available)
+        unit: ms
+        always_present: true
+      - field: frame_type
+        type: string   # "ui"
+        unit: none
+        always_present: true
+      - field: frame_dropped
+        type: bool
+        unit: none
+        always_present: true
+      - field: metric.screen
+        type: string   # web only (dotted); native samples omit it
+        unit: none
+        always_present: false
+
+  - name: "metric: memory_usage"
+    trigger: WebView performance.memory (Chromium only); iOS mach RSS; Android Debug PSS. Periodic + pressure callbacks
+    evidence: packages/core/src/instrumentation/memory-web.ts; packages/capacitor/src/PerfSamplerCapture.ts (+ native MemorySampler)
+    payload_fields:
+      - field: value
+        type: float
+        unit: MB
+        always_present: true
+      - field: unit
+        type: string   # DOTLESS "unit"="MB"
+        unit: none
+        always_present: true
+      - field: memory_type
+        type: string   # web "heap" | iOS "rss" | Android "pss"
+        unit: none
+        always_present: true
+      - field: memory_source
+        type: string   # web "javascript" | native "native"
+        unit: none
+        always_present: true
+      - field: memory_pressure_level
+        type: string   # native only: normal|moderate|high|critical
+        unit: none
+        always_present: false
+
+  - name: "metric: <EdgeRum.time() name>"
+    trigger: EdgeRum.time(name).end()
+    evidence: packages/core/src/EdgeRum.ts time()
+    payload_fields:
+      - field: value
+        type: float   # elapsed Date.now() delta
+        unit: ms
+        always_present: true
+      - field: metric.unit
+        type: string   # "ms"
+        unit: none
+        always_present: true
+
+# ─────────────────────────────────────────────────────────────────────────
+# 2. Common attributes — merged into every event/metric via
+#    ContextManager.getContextAttributes() (packages/core/src/internal/context.ts)
+#    order: app.* , device.* , network.* , session.* , user.* , sdk.*
+#    device.* only present when the capacitor bootstrap ran (getDeviceContext);
+#    stable app.*/device.*/sdk.* are back-filled at flush time if missing.
+# ─────────────────────────────────────────────────────────────────────────
+common_attributes:
+  - {field: app.name, type: string, unit: none, always_present: false}   # only if config.appName set
+  - {field: app.version, type: string, unit: none, always_present: false}
+  - {field: app.package_name, type: string, unit: none, always_present: false}
+  - {field: app.build_number, type: string, unit: none, always_present: false}   # omitted when unset/blank
+  - {field: app.environment, type: string, unit: none, always_present: true}   # defaults "production"
+  - {field: device.id, type: string, unit: none, always_present: false}   # "device_{ms}_{16hex}_{platform}"; set by capacitor DeviceContext (key edge_rum_device_id). Absent on pure web w/o capacitor bootstrap
+  - {field: device.platform, type: string, unit: none, always_present: false}   # ios|android|web
+  - {field: device.model, type: string, unit: none, always_present: false}
+  - {field: device.manufacturer, type: string, unit: none, always_present: false}
+  - {field: device.os, type: string, unit: none, always_present: false}
+  - {field: device.platform_version, type: string, unit: none, always_present: false}
+  - {field: device.isVirtual, type: bool, unit: none, always_present: false}
+  - {field: device.batteryLevel, type: float, unit: none, always_present: false}   # 0..1
+  - {field: device.batteryCharging, type: bool, unit: none, always_present: false}
+  - {field: device.screenWidth, type: int, unit: none, always_present: false}
+  - {field: device.screenHeight, type: int, unit: none, always_present: false}
+  - {field: device.pixelRatio, type: float, unit: none, always_present: false}
+  - {field: network.connected, type: bool, unit: none, always_present: false}
+  - {field: network.type, type: string, unit: none, always_present: false}
+  - {field: network.effectiveType, type: string, unit: none, always_present: false}
+  - {field: network.downlinkMbps, type: float, unit: none, always_present: false}
+  - {field: session.id, type: string, unit: none, always_present: true}   # "session_{ms}_{16hex}_{platform}"
+  - {field: session.start_time, type: string, unit: none, always_present: true}   # ISO 8601
+  - {field: session.sequence, type: int, unit: none, always_present: true}   # increments per successful send
+  - {field: session.is_first_session, type: bool, unit: none, always_present: true}   # NOT in CLAUDE.md contract
+  - {field: session.total_sessions, type: int, unit: none, always_present: true}   # NOT in CLAUDE.md contract
+  - {field: user.id, type: string, unit: none, always_present: true}   # "user_{ms}_{16hex}"; SDK-owned anon, persisted key edge_rum_anon_uid
+  - {field: user.name, type: string, unit: none, always_present: false}
+  - {field: user.email, type: string, unit: none, always_present: false}
+  - {field: user.phone, type: string, unit: none, always_present: false}
+  - {field: sdk.version, type: string, unit: none, always_present: true}   # "3.5.0"
+  - {field: sdk.platform, type: string, unit: none, always_present: true}   # "ionic-angular-capacitor"
+  - {field: sdk.contract_version, type: string, unit: none, always_present: true}   # "3.1.0" — NOT in CLAUDE.md contract
+
+# ─────────────────────────────────────────────────────────────────────────
+# 3. Session logic
+# ─────────────────────────────────────────────────────────────────────────
+session:
+  start_rule: new SessionManager on EdgeRum.init() generates id + startTime; sampling rolled once at session start (packages/core/src/session/SessionManager.ts constructor)
+  idle_timeout: 30 min (DEFAULT_SESSION_TIMEOUT_MS = 30*60*1000; isExpired vs lastActiveAt). Rotation driven by capacitor LifecycleCapture on foreground.
+  max_duration: none
+  background_behavior: LifecycleCapture emits session.finalized (immediate flush + journey summary + sdk.error_count), then app_lifecycle=background; new session on next qualifying foreground (start_reason rotation_timeout/resumed). On app close, pipeline frozen + beacon send.
+  id_format: custom "session_{Date.now()ms}_{16 hex}_{platform}" — NOT uuid v4 (SessionIdGenerator.ts generateSessionId, randomHex16 via crypto.getRandomValues, Math.random fallback)
+
+# ─────────────────────────────────────────────────────────────────────────
+# 4. Transport
+# ─────────────────────────────────────────────────────────────────────────
+transport:
+  endpoint_path: config.endpoint (POSTed verbatim; no path appended by SDK). Auth header X-API-Key. (RetryTransport.ts)
+  serialization: json (JSON.stringify; Content-Type application/json)
+  compression: none
+  batching:
+    flush_interval: 5000ms default (config.flushIntervalMs); setInterval in Pipeline
+    max_batch_size: 30 default (config.batchSize); buffer flushes when >= batchSize
+    flush_on_background: true (capacitor LifecycleCapture: session.finalized immediate-flush + beacon on close)
+  retry:
+    strategy: fixed delays [0, 2000, 8000, 30000] ms (RETRY_DELAYS_MS). Retryable status {0,429,503}; 429 honors Retry-After header. Non-retryable 4xx discarded (warn in debug).
+    max_attempts: 4
+    drop_policy: after 4th attempt throws -> Pipeline catches -> OfflineQueue.push(body). Non-retryable 4xx dropped silently.
+  offline:
+    persistence: Capacitor Preferences on native, else localStorage, else no-op (OfflineQueue.ts createDefaultStorage). Key edge_rum_q = JSON array of batch-payload strings.
+    caps: maxQueueSize default 200; FIFO drop oldest on overflow. Flushed sequentially on successful live send, network reconnect, foreground, EdgeRum.enable(). EdgeRum.disable() clears the queue.
+  sampling_or_throttling: >
+    PER-SESSION SAMPLING EXISTS (config.sampleRate, default 1.0 = no sampling).
+    Rolled ONCE per session at SessionManager construction via Math.random()<rate
+    (rollSampled); a session is entirely sampled-in or sampled-out for its lifetime
+    (SessionManager.ts isSampled). Collector.recordEvent drops non-critical events
+    when !isSampled(); CRITICAL_EVENT_NAMES {app.crash, session.started,
+    session.finalized, user.profile.update} BYPASS sampling. Collector.recordMetric
+    has NO critical bypass — all metrics honor sampling (collector.ts).
+    Other volume controls: interactions dedup within 50ms window
+    (interactions.ts DEDUP_WINDOW_MS); frames slow-only by default
+    (>=16.67ms unless captureAllFrames); journey screen list capped at 200
+    (MAX_VISITED_SCREENS, sets session.journey_truncated); breadcrumbs capped
+    at last 20. No server-side/rate-limit throttling in SDK.
+
+# ─────────────────────────────────────────────────────────────────────────
+# 5. Privacy & data handling
+# ─────────────────────────────────────────────────────────────────────────
+privacy:
+  ip_handling: >
+    No IP collected from the device directly. OPT-IN IP geolocation:
+    config.resolveLocation=true calls locationProviderUrl (default
+    https://ipapi.co/json/) once on init, sending device IP to that third party;
+    result "City/Country" cached 24h in localStorage (key edge_rum_location) and
+    stamped into every batch envelope's `location`. Provider URL auto-added to
+    ignoreUrls so it isn't self-captured. (internal/locationResolver.ts, EdgeRum.ts init)
+  url_sanitization: >
+    defaultSanitizeUrl strips query params named token/email/phone/key/secret/
+    password/auth (case-insensitive); path, hash, and other params preserved.
+    Composed with optional config.sanitizeUrl (default runs first). Applied to
+    http.request only; resource_timing metric.resource_name is NOT sanitized.
+    (instrumentation/url-sanitizer.ts, requests.ts)
+  user_identifiers: >
+    Auto anonymous user.id ("user_..." persisted localStorage edge_rum_anon_uid),
+    device.id (persisted edge_rum_device_id), session.id. EdgeRum.identify() attaches
+    OPT-IN user.name/email/phone (PII) verbatim; does not change the anon user.id.
+  pii_risks: >
+    identify() name/email/phone stored and sent raw. app.crash message/stacktrace
+    may contain PII. crash.breadcrumbs embed navigation/http/interaction targets
+    (URLs, element ids/classes/aria-labels). interaction.target_* capture DOM
+    identifiers. http.url only default-sanitized. No redaction of error bodies.
+
+# ─────────────────────────────────────────────────────────────────────────
+# 6. Public API surface
+# ─────────────────────────────────────────────────────────────────────────
+api:
+  init_config_options:
+    - apiKey (required, must start "edge_")
+    - endpoint (required)
+    - appName
+    - appVersion
+    - appPackage
+    - appBuild
+    - environment (production|staging|development)
+    - location
+    - resolveLocation (default false)
+    - locationProviderUrl (default https://ipapi.co/json/)
+    - sampleRate (default 1.0)
+    - ignoreUrls
+    - maxQueueSize (default 200)
+    - flushIntervalMs (default 5000)
+    - batchSize (default 30)
+    - sanitizeUrl
+    - deferFlush   # NOT documented in CLAUDE.md; gates pipeline readiness until bootstrap
+    - debug
+    - captureConsoleErrors (default true)
+    - captureNativeCrashes (default true)
+    - enableAnrDetection (default true)
+    - enableHangDetection (default true)
+    - anrTimeoutMs (default 5000)
+    - hangTimeoutMs (default 5000)
+    - awaitNativeInstall (default false)
+    - captureFrames (default true)
+    - captureAllFrames (default false)
+    - frameSlowThresholdMs (default 16.67)
+    - captureMemory (default true)
+    - memorySamplingIntervalMs (default 10000)
+  custom_event_api: "EdgeRum.track(name: string, attributes?: Record<string,string|number|boolean>): void -> custom_event"
+  user_id_api: "EdgeRum.identify(user: {name?,email?,phone? : string|null}): void -> user.profile.update (anon user.id unchanged; null clears a field)"
+  other_public_methods:
+    - "EdgeRum.init(config): void"
+    - "EdgeRum.trackScreen(name, attributes?): void -> navigation event"
+    - "EdgeRum.time(name): RumTimer {end(attributes?): void} -> metric item"
+    - "EdgeRum.captureError(error, context?): void -> app.crash (cause=ManualCapture)"
+    - "EdgeRum.disable(): void  (stops pipeline, frames, memory; clears offline queue)"
+    - "EdgeRum.enable(): void"
+    - "EdgeRum.getSessionId(): string"
+    - "Angular: EdgeRumService (thin DI wrapper), EdgeRumModule.forRoot(config)/provideEdgeRum(config), APP_INITIALIZER boot"
+    - "Capacitor: startCapacitorCapture(...), getDeviceContext(), startNetworkCapture(), startLifecycleCapture(), createCapacitorHttpFetch()"
+    - "Internal __-prefixed exports (__recordEvent, __setCurrentRoute, __beginScreen, __getCollector, __setTransportFetch, ...) consumed by angular/capacitor packages"
+
+# ─────────────────────────────────────────────────────────────────────────
+# 7. Feature checklist
+# ─────────────────────────────────────────────────────────────────────────
+features:
+  session-tracking: {status: done, evidence: packages/core/src/session/SessionManager.ts + capacitor/src/LifecycleCapture.ts, notes: "start/finalize/rotate, journey summary, first/total session counts"}
+  view-tracking: {status: done, evidence: packages/angular/src/RouterCapture.ts + IonicLifecycleCapture.ts, notes: "navigation + screen.duration; params kept literal (not collapsed to :id) — route normalization by config path only"}
+  error-capture: {status: done, evidence: packages/core/src/instrumentation/errors.ts + angular/src/ErrorCapture.ts, notes: "window errors, unhandled rejections, console.error/warn, Angular ErrorHandler, manual captureError; all as app.crash"}
+  crash-capture: {status: done, evidence: packages/capacitor/ios/Plugin/CrashReporter.swift + android JvmCrashHandler.kt/native-crash.cpp/NativeCrashBridge.kt, notes: "iOS PLCrashReporter (NSException/Mach signals), Android JVM + NDK; replayed next launch as app.crash runtime=native, symbolication=required"}
+  network-capture: {status: done, evidence: packages/core/src/instrumentation/requests.ts (http.request) + capacitor/src/NetworkCapture.ts (network_change), notes: "fetch patch + connectivity change; XHR not patched"}
+  custom-events: {status: done, evidence: packages/core/src/EdgeRum.ts track()/time(), notes: "custom_event + arbitrary time() metric"}
+  web-vitals: {status: done, evidence: packages/core/src/instrumentation/vitals.ts, notes: "LCP/INP/CLS/FCP/TTFB via web-vitals@4 as metric items"}
+  app-start: {status: partial, evidence: capacitor/src/LifecycleCapture.ts (lifecycle.cold_start_ms) + core/instrumentation/pageload.ts (page_load), notes: "cold-start ms on first foreground + web page_load timing; no dedicated app_start event"}
+  anr-detection: {status: done, evidence: packages/capacitor/android/.../AnrWatchdog.kt, notes: "watchdog thread, default 5000ms, cause=ANR, anr.duration_ms on wire"}
+  hang-detection: {status: done, evidence: packages/capacitor/ios/Plugin/HangDetector.swift, notes: "1s heartbeat watchdog, default 5000ms, cause=Hang exception_type=MainThreadHang"}
+  frame-stats: {status: done, evidence: core/instrumentation/frames.ts + ios FrameSampler.swift + android FrameSampler.kt, notes: "frame_render_time metric; slow-only default; dotless attr keys; raster split 0 on native"}
+  batching: {status: done, evidence: packages/core/src/internal/pipeline.ts, notes: "size 30 / 5000ms; immediate-flush for app.crash & session.finalized"}
+  offline-persistence: {status: done, evidence: packages/core/src/queue/OfflineQueue.ts, notes: "Preferences/localStorage/noop; key edge_rum_q; cap 200 FIFO"}
+  retry-backoff: {status: partial, evidence: packages/core/src/transport/RetryTransport.ts, notes: "FIXED delays [0,2000,8000,30000] not true exponential; matches CLAUDE.md's stated schedule; retry only on 0/429/503"}
+  no-sampling-guarantee: {status: na, evidence: packages/core/src/session/SessionManager.ts + internal/collector.ts, notes: "SDK HAS per-session sampling (sampleRate). Default 1.0 = ships everything, but not a guarantee; critical events bypass, metrics do NOT bypass"}
+
+# ─────────────────────────────────────────────────────────────────────────
+# 8. Backend — n/a (SDK repo)
+# ─────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────
+# 9. All repos
+# ─────────────────────────────────────────────────────────────────────────
+inconsistencies_and_surprises: >
+  - Envelope stamps sdk.contract_version="3.1.0" and session.is_first_session /
+    session.total_sessions on every event — none are in the CLAUDE.md wire contract.
+  - deferFlush config option is real (gates pipeline readiness) but undocumented in CLAUDE.md's public API list.
+  - Mixed attribute-key style: frame_render_time and memory_usage metrics use DOTLESS
+    keys (unit, frame_build_duration, memory_type, memory_source) while every other
+    metric uses dotted metric.* keys. Native frame/memory samples omit metric.screen; web frames include it.
+  - memory_type differs by platform for the SAME metric name: web "heap" / iOS "rss" / Android "pss";
+    memory_source web "javascript" vs native "native". Backend must not assume one value.
+  - Native crash JSON key is dotted "anr.duration_ms" (CrashRecordStorage.toJson) while the
+    Kotlin internal ANR field is "anr_duration_ms" — dotted only appears on the wire.
+  - http.success is true for 3xx (isSuccess = status 200-399), which may surprise dashboards expecting 2xx-only.
+  - retry "backoff" is a fixed delay array, not computed exponential — labelled as exponential in CLAUDE.md.
+  - device.id / device.* are produced by the capacitor DeviceContext bootstrap only; a pure-web
+    consumer using core alone emits events with NO device.id (backfill cannot invent one), which
+    the backend "drops events missing identity attrs" rule would reject.
+  - resource_timing metric.resource_name is NOT run through url-sanitizer, unlike http.url.
+  - EdgeRum.captureError sets is_fatal:false/handled:true; Angular RouterCapture NavigationError sets handled:false — two different "handled" semantics for navigation-adjacent errors.
+  - No XHR instrumentation — only fetch is patched; apps using XMLHttpRequest/axios-on-XHR won't get http.request.
+  - Root package.json version is 0.0.0 (private monorepo); real versions live per-package (all 3.5.0). Stray *.tgz packed tarballs (1.1.1) present in packages/*, unrelated to current version.
+  - repo/vendor name is "nathanclaire" (@nathanclaire/rum), while CLAUDE.md/product name is "edge-rum"/"EdgeRUM".
+
+ci_cd:
+  what_exists: >
+    .github/workflows/ci.yml (push/PR to main): pnpm install --frozen-lockfile, lint,
+    build, type-check, unit tests (vitest), terminology-check, attribute-flatness-check,
+    size (size-limit), pack-audit, then Playwright chromium install + integration tests
+    (test:integration) gated on playwright.config.ts existing.
+    .github/workflows/release.yml (on v*.*.* tag): install, build, verify tag is on main
+    (git merge-base ancestor check), then `pnpm release` to publish.
+  publishes_to: npm (registry.npmjs.org) via pnpm release, tag-driven (push v*.*.* tag), npm provenance (id-token). No changesets bot / Version Packages PR — versions bumped manually in the release commit.
+
+open_questions:
+  - Does the backend accept dotless frame/memory metric attribute keys, or expect metric.* everywhere?
+  - Is a core-only web install (no capacitor) supported given events would lack device.id identity attrs?
+  - Backend handling of sdk.contract_version / session.total_sessions — consumed, ignored, or unexpected?
+  - Are 3xx-as-success http.request rows intended for backend error-rate calculations?

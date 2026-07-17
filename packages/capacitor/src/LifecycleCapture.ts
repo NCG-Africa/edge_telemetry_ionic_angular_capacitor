@@ -34,6 +34,8 @@ export interface LifecycleSessionManagerLike {
   getSessionId: () => string;
   getStartTime: () => string;
   getStartTimeMs?: () => number;
+  /** Monotonic elapsed since session start (ms) — preferred for duration; immune to wall-clock jumps. */
+  getElapsedMs?: () => number;
   getSequence: () => number;
   getJourneySnapshot: () => Record<string, string | number | boolean>;
 }
@@ -180,6 +182,15 @@ export async function startLifecycleCapture(
       typeof callbacks.session.getStartTimeMs === 'function'
         ? callbacks.session.getStartTimeMs()
         : parseStartMs(oldStart);
+    // Prefer a monotonic elapsed reading — a backward wall-clock jump (NTP/DST/manual
+    // clock change) would otherwise corrupt or zero the duration. Fall back to the
+    // clamped wall delta only when no monotonic source is wired.
+    const durationMs =
+      typeof callbacks.session.getElapsedMs === 'function'
+        ? callbacks.session.getElapsedMs()
+        : startMsCandidate > 0
+          ? Math.max(0, ts - startMsCandidate)
+          : 0;
     const journey = callbacks.session.getJourneySnapshot();
     const errorCount =
       typeof callbacks.getInternalErrorCount === 'function'
@@ -189,7 +200,7 @@ export async function startLifecycleCapture(
       'session.id': oldId,
       'session.start_time': oldStart,
       'session.sequence': oldSeq,
-      'session.duration_ms': startMsCandidate > 0 ? Math.max(0, ts - startMsCandidate) : 0,
+      'session.duration_ms': durationMs,
       'session.ended_at': new Date(ts).toISOString(),
       'session.end_reason': endReason,
       'sdk.error_count': errorCount,

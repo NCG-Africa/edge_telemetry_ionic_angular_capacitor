@@ -1,3 +1,5 @@
+import { healthMonitor } from '../internal/health';
+
 export const OFFLINE_QUEUE_KEY = 'edge_rum_q';
 export const DEFAULT_MAX_QUEUE_SIZE = 200;
 
@@ -210,7 +212,11 @@ export class OfflineQueue {
       await this.ensureLoaded();
       this.items.push(payload);
       if (this.items.length > this.maxQueueSize) {
-        this.items.splice(0, this.items.length - this.maxQueueSize);
+        // ADR-028. Overflow drops oldest (FIFO); count each toward the one
+        // per-session sdk.dropped_count total (live-buffer + queue combined).
+        const overflow = this.items.length - this.maxQueueSize;
+        this.items.splice(0, overflow);
+        for (let i = 0; i < overflow; i++) healthMonitor.reportDrop('offline-queue');
       }
       await this.storage.save(this.items);
     });

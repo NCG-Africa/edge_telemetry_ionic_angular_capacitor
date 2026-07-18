@@ -4,6 +4,12 @@ import type { RetryTransport } from '../transport/RetryTransport';
 import type { OfflineQueue } from '../queue/OfflineQueue';
 import type { SessionManager } from '../session/SessionManager';
 import type { ContextManager } from './context';
+import { healthMonitor } from './health';
+
+// ADR-028. The live buffer is capped at batchSize × 10 (default 300 events).
+// Internal constant, not a public config field — maxQueueSize stays the one
+// user-facing volume knob. Overflow drops oldest (FIFO), matching OfflineQueue.
+const BUFFER_CAP_MULTIPLE = 10;
 
 export interface PipelineOptions {
   transport: RetryTransport;
@@ -23,10 +29,14 @@ export class Pipeline {
   private readonly session: SessionManager;
   private readonly context: ContextManager;
   private readonly batchSize: number;
+  private readonly maxBufferSize: number;
   private readonly flushIntervalMs: number;
   private location: string | undefined;
   private readonly debug: boolean;
   private buffer: BatchItem[] = [];
+  // Crash/error events enter via pushImmediate and are exempt from the cap.
+  // Tracked by identity so cap enforcement never drops one to make room.
+  private readonly immediateItems = new WeakSet<BatchItem>();
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private flushing = false;
   private frozen = false;
@@ -39,6 +49,7 @@ export class Pipeline {
     this.session = options.session;
     this.context = options.context;
     this.batchSize = options.batchSize;
+    this.maxBufferSize = options.batchSize * BUFFER_CAP_MULTIPLE;
     this.flushIntervalMs = options.flushIntervalMs;
     this.location = options.location;
     this.debug = options.debug ?? false;
@@ -81,6 +92,7 @@ export class Pipeline {
 
   push(event: BatchItem): void {
     this.buffer.push(event);
+    this.enforceCap();
     if (this.frozen) return;
     if (this.buffer.length >= this.batchSize) {
       void this.flush();
@@ -88,9 +100,22 @@ export class Pipeline {
   }
 
   pushImmediate(event: BatchItem): void {
+    this.immediateItems.add(event);
     this.buffer.push(event);
     if (this.frozen) return;
     void this.flush();
+  }
+
+  // Drop oldest non-immediate events until the buffer is within the cap. A
+  // crash/error (pushImmediate) is never dropped to satisfy the cap; if the
+  // buffer were somehow all-immediate we let it exceed rather than shed one.
+  private enforceCap(): void {
+    while (this.buffer.length > this.maxBufferSize) {
+      const idx = this.buffer.findIndex((item) => !this.immediateItems.has(item));
+      if (idx === -1) return;
+      this.buffer.splice(idx, 1);
+      healthMonitor.reportDrop('live-buffer');
+    }
   }
 
   freeze(): void {

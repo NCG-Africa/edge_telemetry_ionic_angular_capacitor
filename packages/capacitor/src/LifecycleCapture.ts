@@ -54,6 +54,7 @@ export interface LifecycleCaptureCallbacks {
   freezePipeline?: () => void;
   flushActiveScreen?: (method: string) => void;
   getInternalErrorCount?: () => number;
+  getDroppedCount?: () => number;
   session: LifecycleSessionManagerLike;
   getBeaconPayload?: () => BeaconPayload | null;
   getPlatform?: () => string;
@@ -196,6 +197,10 @@ export async function startLifecycleCapture(
       typeof callbacks.getInternalErrorCount === 'function'
         ? callbacks.getInternalErrorCount()
         : 0;
+    const droppedCount =
+      typeof callbacks.getDroppedCount === 'function'
+        ? callbacks.getDroppedCount()
+        : 0;
     callbacks.recordEvent('session.finalized', {
       'session.id': oldId,
       'session.start_time': oldStart,
@@ -204,6 +209,7 @@ export async function startLifecycleCapture(
       'session.ended_at': new Date(ts).toISOString(),
       'session.end_reason': endReason,
       'sdk.error_count': errorCount,
+      'sdk.dropped_count': droppedCount,
       ...journey,
     });
   };

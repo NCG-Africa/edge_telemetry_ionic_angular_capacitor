@@ -6,8 +6,16 @@ coverage/
 .cache/
 *.log
 .DS_Store
+
+# Editor / tooling
+.idea/
+.claude/
 .env
 .env.local
 pnpm-debug.log*
 playwright-report/
 test-results/
+
+# Swift Package Manager (Capacitor iOS)
+.build/
+Package.resolved

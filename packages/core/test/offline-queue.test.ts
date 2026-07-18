@@ -7,6 +7,7 @@ import {
   type PreferencesLike,
   type QueueStorage,
 } from '../src/queue/OfflineQueue';
+import { healthMonitor } from '../src/internal/health';
 
 class MemoryStorage implements QueueStorage {
   items: string[] = [];
@@ -168,6 +169,17 @@ describe('OfflineQueue', () => {
     await q.push('b');
     await q.push('c');
     expect(await q.size()).toBe(1);
+  });
+
+  it('counts each overflow drop toward sdk.dropped_count (ADR-028)', async () => {
+    healthMonitor.reset();
+    const q = new OfflineQueue({ storage: new MemoryStorage(), maxQueueSize: 2 });
+    await q.push('a');
+    await q.push('b');
+    await q.push('c'); // drops 'a'
+    await q.push('d'); // drops 'b'
+    expect(await q.size()).toBe(2);
+    expect(healthMonitor.getDroppedCount()).toBe(2);
   });
 
   it('stored payloads contain no OTel identifiers and only primitive attribute values', async () => {

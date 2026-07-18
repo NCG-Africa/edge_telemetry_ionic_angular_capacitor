@@ -3,6 +3,7 @@ import { Pipeline } from '../src/internal/pipeline';
 import { ContextManager } from '../src/internal/context';
 import { buildEventPayload } from '../src/transport/PayloadBuilder';
 import { SessionManager } from '../src/session/SessionManager';
+import { healthMonitor } from '../src/internal/health';
 import type { RetryTransport } from '../src/transport/RetryTransport';
 import type { OfflineQueue } from '../src/queue/OfflineQueue';
 
@@ -334,6 +335,53 @@ describe('Pipeline', () => {
       pipeline.push(buildEventPayload('custom_event', {}, {}));
       await pipeline.flush();
       expect(queue.flush).toHaveBeenCalled();
+    });
+  });
+
+  describe('bounded buffer (ADR-028)', () => {
+    // batchSize is 3 → cap = batchSize × 10 = 30.
+    beforeEach(() => {
+      healthMonitor.reset();
+      pipeline.freeze(); // stop auto-flush so the buffer can fill past the cap
+    });
+
+    it('never exceeds batchSize × 10 and drops the oldest on overflow', () => {
+      for (let i = 0; i < 35; i++) {
+        pipeline.push(buildEventPayload('custom_event', {}, { i }));
+      }
+      expect(pipeline.getBufferSize()).toBe(30);
+      // 5 dropped (35 pushed − 30 cap)
+      expect(healthMonitor.getDroppedCount()).toBe(5);
+    });
+
+    it('drops the oldest events (FIFO), keeping the freshest', async () => {
+      for (let i = 0; i < 35; i++) {
+        pipeline.push(buildEventPayload('custom_event', {}, { i }));
+      }
+      pipeline.unfreeze();
+      await pipeline.flush();
+      const bodies = transport.send.mock.calls.map((c) => JSON.parse(String(c[0])));
+      const seen = bodies.flatMap((b) => b.events.map((e: { attributes: { i: number } }) => e.attributes.i));
+      // Oldest 5 (i=0..4) were dropped; freshest survive.
+      expect(seen).not.toContain(0);
+      expect(seen).not.toContain(4);
+      expect(seen).toContain(5);
+      expect(seen).toContain(34);
+    });
+
+    it('never drops a pushImmediate (crash/error) event to satisfy the cap', async () => {
+      // A crash queued first, then the buffer floods past the cap.
+      pipeline.pushImmediate(buildEventPayload('app.crash', {}, { crash: true }));
+      for (let i = 0; i < 60; i++) {
+        pipeline.push(buildEventPayload('custom_event', {}, { i }));
+      }
+      expect(pipeline.getBufferSize()).toBe(30);
+      pipeline.unfreeze();
+      await pipeline.flush();
+      const seen = transport.send.mock.calls
+        .map((c) => JSON.parse(String(c[0])))
+        .flatMap((b) => b.events);
+      expect(seen.some((e: { eventName?: string }) => e.eventName === 'app.crash')).toBe(true);
     });
   });
 

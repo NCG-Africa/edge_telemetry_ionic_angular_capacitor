@@ -652,3 +652,19 @@ Batch max size: `batchSize` (default 30, matches Android default).
 8. Angular-specific? → Goes in `packages/angular/`, not `packages/core/`.
 9. New event field? → Update `docs/payload-schema.json` first.
 10. Non-obvious choice? → Write an entry in `docs/decisions.md`.
+
+---
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs live as GitHub issues on `NCG-Africa/edge_telemetry_ionic_angular_capacitor` (via `gh`); external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical five-role vocabulary, default strings (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context repo; ADRs live in `docs/decisions.md` (no `docs/adr/`). See `docs/agents/domain.md`.

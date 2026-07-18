@@ -143,6 +143,8 @@ export async function startCapacitorCapture(
     freezePipeline: () => pipeline.freeze(),
     flushActiveScreen: (method) => __flushActiveScreen(method),
     getBeaconPayload: () => pipeline.buildBeaconPayload(),
+    getInternalErrorCount: () => healthMonitor.getErrorCount(),
+    getDroppedCount: () => healthMonitor.getDroppedCount(),
     getPlatform: () => platform,
     onLifecycleSample: () => {
       if (perfSamplerHandle) void perfSamplerHandle.drainNow();

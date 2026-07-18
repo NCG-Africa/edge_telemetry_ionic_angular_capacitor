@@ -462,6 +462,48 @@ describe('startLifecycleCapture', () => {
       expect(finalized!.attrs['session.metric_count']).toBe(1);
     });
 
+    it('surfaces sdk.error_count and sdk.dropped_count from the callbacks (ADR-028)', async () => {
+      const app = fakeApp();
+      const cb = makeCallbacks();
+      let nowVal = Date.parse('2026-04-15T10:00:10.000Z');
+      await startLifecycleCapture(
+        { ...cb, getInternalErrorCount: () => 3, getDroppedCount: () => 17 },
+        {
+          capacitor: nativeCap(),
+          loadApp: async () => app,
+          now: () => nowVal,
+          moduleLoadTime: 0,
+          flushTimeoutMs: 10,
+        },
+      );
+
+      app.emit({ isActive: false });
+
+      const finalized = cb.events.find((e) => e.name === 'session.finalized');
+      expect(finalized).toBeDefined();
+      expect(finalized!.attrs['sdk.error_count']).toBe(3);
+      expect(finalized!.attrs['sdk.dropped_count']).toBe(17);
+      assertPrimitive(finalized!.attrs);
+    });
+
+    it('defaults sdk.dropped_count to 0 when no callback is wired', async () => {
+      const app = fakeApp();
+      const cb = makeCallbacks();
+      let nowVal = Date.parse('2026-04-15T10:00:10.000Z');
+      await startLifecycleCapture(cb, {
+        capacitor: nativeCap(),
+        loadApp: async () => app,
+        now: () => nowVal,
+        moduleLoadTime: 0,
+        flushTimeoutMs: 10,
+      });
+
+      app.emit({ isActive: false });
+
+      const finalized = cb.events.find((e) => e.name === 'session.finalized');
+      expect(finalized!.attrs['sdk.dropped_count']).toBe(0);
+    });
+
     it('invokes flushActiveScreen before recording session.finalized on background', async () => {
       // Regression: the Ionic auto-capture wires its in-flight screen via
       // __beginScreen → state.activeScreen, and __flushActiveScreen is plumbed

@@ -187,14 +187,14 @@ The backend dispatches each event by `eventName`. Currently shipped names:
 | Click / tap | `user.interaction` | `packages/core/src/instrumentation/interactions.ts` |
 | Long task (PerformanceObserver longtask) | (`metric` item, metricName = `"long_task"`) | `packages/core/src/instrumentation/perf-observer.ts` |
 | Resource timing (PerformanceObserver resource) | (`metric` item, metricName = `"resource_timing"`) | `packages/core/src/instrumentation/perf-observer.ts` |
-| WebView frame render (rAF + longtask overlap) | (`metric` item, metricName = `"frame_render_time"`, dotless attrs) | `packages/core/src/instrumentation/frames.ts` |
-| iOS frame render (CADisplayLink) | (`metric` item, metricName = `"frame_render_time"`) | `packages/capacitor/ios/Plugin/FrameSampler.swift` |
-| Android frame render (Choreographer) | (`metric` item, metricName = `"frame_render_time"`) | `packages/capacitor/android/.../FrameSampler.kt` |
+| WebView frame render (rAF, windowed summary) | (`metric` item, metricName = `"frame_render_time"`, dotless attrs; one summary per window, `value`=p95, emitted only when `slow_frames>0` — ADR-030) | `packages/core/src/instrumentation/frames.ts` |
+| iOS frame render (CADisplayLink) | (`metric` item, metricName = `"frame_render_time"`; still per-sample/old shape until aligned to the windowed summary — schema tolerates both) | `packages/capacitor/ios/Plugin/FrameSampler.swift` |
+| Android frame render (Choreographer) | (`metric` item, metricName = `"frame_render_time"`; still per-sample/old shape until aligned to the windowed summary — schema tolerates both) | `packages/capacitor/android/.../FrameSampler.kt` |
 | WebView memory (performance.memory) | (`metric` item, metricName = `"memory_usage"`, value in MB) | `packages/core/src/instrumentation/memory-web.ts` |
 | iOS memory (mach_task_basic_info + pressure source) | (`metric` item, metricName = `"memory_usage"`) | `packages/capacitor/ios/Plugin/MemorySampler.swift` |
 | Android memory (Debug.MemoryInfo + onTrimMemory) | (`metric` item, metricName = `"memory_usage"`) | `packages/capacitor/android/.../MemorySampler.kt` |
 | Session begins (init / resume / rotation) | `session.started` | `EdgeRum.init()` + `packages/capacitor/src/LifecycleCapture.ts` |
-| Session ends (background / app close) | `session.finalized` | `packages/capacitor/src/LifecycleCapture.ts` (immediate-flush; carries journey summary + `sdk.error_count`) |
+| Session ends (background / app close) | `session.finalized` | `packages/capacitor/src/LifecycleCapture.ts` (immediate-flush; carries journey summary + `sdk.error_count` + `sdk.dropped_count` (ADR-028) + `sdk.disposed_captures` (ADR-031)) |
 | `EdgeRum.identify()` user attach | `user.profile.update` | `EdgeRum.identify()` |
 | Custom `EdgeRum.track()` | `custom_event` | `EdgeRum.track()` |
 | Custom `EdgeRum.time()` | (`metric` item) | `EdgeRum.time()` — uses the `metric` item shape, not `eventName` |

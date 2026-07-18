@@ -749,3 +749,183 @@ bounded-buffer/backpressure fix in ADR-028. Resolves ticket #45.
 - (−) A crash that is *not* preceded by any genuine error handler firing (pure console-only
   failure) produces no telemetry at all. Accepted: console output is not a crash, and the cardinal
   rule is that the monitor must not degrade the app it watches.
+
+## ADR-030 — Frame monitor aggregation, one summary per window (Candidate 03)
+
+**Date:** 2026-07
+
+**Context:** `registerFrameCapture` runs `raf(tick)` forever and, at the default
+`sampleRate = 1.0`, emits a `frame_render_time` metric for **every** frame slower than
+16.67ms — dozens per second during a scroll or an Ionic page transition. Each emit does a
+~30-key `getContextAttributes()` spread plus a buffer push, so measuring frame health is the
+thing that worsens it (the observer effect). This is the frame-side amplifier paired with the
+console amplifier (ADR-029) and the backpressure fix (ADR-028). The rAF loop must stay — it is
+the only way to see WebView frames — but it must accumulate rolling stats instead of emitting
+per frame. Resolves ticket #46.
+
+**Decision:**
+
+1. **Aggregate into a rolling window; emit one summary per window.** The rAF `tick` observes
+   **every** frame (needed for the denominator) and appends the frame duration to an in-window
+   buffer. No per-frame emit. One `metric` item is produced when the window closes.
+2. **Window boundary — screen exit OR `MAX_WINDOW_MS`, whichever first.** A window belongs to
+   one screen: it closes and emits when the route changes, and also force-closes after a fixed
+   time cap so a long-lived screen (a feed scrolled for minutes) produces several summaries
+   instead of one coarse blob. The screen-exit trigger is implemented **inside `tick`** — each
+   tick reads `getCurrentRoute()`; a change from the window's route closes the current window,
+   emits, and opens a fresh one. No new cross-package wiring (the web core has no screen-exit
+   callback today; polling the route in the loop avoids adding an interface into
+   `packages/angular`). `MAX_WINDOW_MS` is an **internal constant = 30000ms**.
+3. **Emit only when `slow_frames > 0`.** A window that closes with no slow frame (a smooth
+   screen) is **suppressed entirely** — this is where the volume cut lives; a smooth app sends
+   near-zero frame metrics. Absence of a summary therefore means "smooth **or** never measured";
+   there is deliberately no positive smooth-screen signal and no fleet-wide smoothness
+   denominator. Truly empty windows (`frames_total == 0`, e.g. backgrounded) are likewise
+   skipped.
+4. **Summary shape — `metric` item, `metricName = "frame_render_time"`, dotless attributes.**
+   The item shape and metric name are unchanged from ADR-027; the **attribute set changes**. The
+   top-level numeric `value` is the window **p95** frame duration (ms). Attributes (dotless per
+   `CLAUDE.md`):
+   - `frames_total` — all frames observed in the window (the denominator)
+   - `slow_frames` — count ≥ `slowThresholdMs`
+   - `dropped_frames` — count ≥ `slowThresholdMs × 2`
+   - `p50_ms`, `p95_ms`, `worst_ms` — percentiles/max over **all** frames in the window
+   - `window_ms` — wall-clock span of the window
+   - `metric.screen` — the route the window belongs to (unchanged key)
+
+   Percentiles are computed over all frames (not only slow ones): a p95 near the threshold reads
+   as healthy, a high p95 reads as jank. Implementation: buffer durations, sort once on flush —
+   bounded by the window (≤ 30s ≈ ≤ ~1800 frames), so no streaming estimator is needed.
+5. **Build/raster split dropped.** `frame_build_duration` / `frame_raster_duration` (the
+   longtask-overlap signal) were per-frame concepts with no meaningful aggregate; they are
+   removed from the wire, not aggregated. The longtask observer may be removed or retained purely
+   internally — it no longer feeds any emitted attribute.
+6. **Zero new `EdgeRumConfig` fields.** `slowThresholdMs` already exists; the max-window cap is an
+   internal constant (decision 2). The `captureAllFrames` dep/test-seam becomes redundant under
+   the aggregate-and-suppress model (all frames are always observed for `frames_total`; healthy
+   windows are always suppressed) and is removed from the emit path — noted, like ADR-029's
+   `captureWarn` removal, for the config-consolidation fog item.
+
+**Consequences:**
+
+- (+) The single largest frame-side amplifier is gone: a scroll or transition that produced
+  dozens of immediate emits per second now contributes at most one summary per screen (and none
+  at all if it stayed smooth). The context-spread + buffer-push cost drops from per-frame to
+  per-window.
+- (+) One summary tells the whole jank story for a screen — `dropped_frames / frames_total`, the
+  distribution (p50/p95/worst), and how long the window ran — which is richer *per emit* than the
+  old single-frame records while being vastly fewer events.
+- (−) **Wire-shape change, needs backend confirmation.** The `frame_render_time` attribute set
+  changes (new: `frames_total`, `slow_frames`, `dropped_frames`, `p50_ms`, `p95_ms`, `worst_ms`,
+  `window_ms`; removed: `frame_build_duration`, `frame_raster_duration`, `frame_type`,
+  `frame_dropped`). Per `CLAUDE.md` this requires backend-team sign-off and a
+  `docs/payload-schema.json` update before implementation — tracked by the map's frame-metric
+  wire-shape fog item.
+- (−) **Native-sampler divergence until aligned.** The iOS (`FrameSampler.swift`) and Android
+  (`FrameSampler.kt`) samplers already buffer samples (cap 240) and drain via `fetchPending()`,
+  but still ship **per-sample** `frame_render_time` with the old `build_ms`/`raster_ms`/`dropped`
+  attributes. After this decision, web and native emit different shapes for the same metric name.
+  Wire parity is a hard requirement (same Kafka processor, both platforms), so aligning the native
+  samplers to the windowed-summary shape is follow-on work folded into the same wire-shape fog
+  item — it is downstream of this decision, not a separate effort.
+- (−) No positive smooth-screen signal (decision 3): dashboards cannot compute a fleet smoothness
+  percentage from these metrics, because healthy windows emit nothing. Accepted: the cardinal rule
+  is that the monitor must not degrade the app, and per-frame emission on every smooth frame is
+  exactly the degradation being removed.
+
+## ADR-031 — HealthMonitor circuit breaker: dispose a throwing capture (Candidate 04)
+
+**Date:** 2026-07
+
+**Context:** `HealthMonitor` is a passive tally. ~20 capture hooks funnel caught errors to
+`reportError(scope, err)`, which bumps `errorCount` + `byScope[scope]` and (in debug) warns —
+but nothing *acts*. If one instrumentation throws on every event, the SDK increments forever and
+keeps paying the cost, silently degrading the host it is meant to observe. The seam to fix this
+already exists on the *action* side too: every capture's `register*` returns a handle with an
+idempotent `dispose()`, and `EdgeRum` already stores each handle centrally
+(`state.framesHandle`, `state.interactionsHandle`, …). What's missing is the trip logic and a
+mapping from a throwing scope to the handle that owns it. This is the operational-safety pair to
+ADR-028/029/030 — it counts wounds; this ADR applies the tourniquet. Resolves ticket #47.
+
+**Decision:**
+
+1. **Trip and dispose per-capture.** The breaker's unit is the whole capture, not the fine-grained
+   scope string. Scope → capture name = the substring **before the first `.`** (`frames.emit`,
+   `frames.longtask.setup`, `frames.disconnect` all map to `frames`). Any scope under a capture
+   contributes to that capture's counter; tripping disposes the capture's one handle. Per-scope
+   disposal was rejected — most call sites own no independently-teardownable resource, and the only
+   teardown seam that exists is per-capture.
+2. **Trip policy — 5 consecutive failures, reset-on-success, no time window.**
+   `const DISPOSE_AFTER_CONSECUTIVE_FAILURES = 5`. Each capture tracks a *consecutive* throw count;
+   any successful event for that capture resets it to 0. Only an unbroken run of 5 failures with no
+   successful event between them trips. This precisely catches the ticket's target failure ("throws
+   on every event") while auto-forgiving a capture that recovers. A rolling time-window model was
+   rejected: it would put per-error timestamp bookkeeping on the very hot path ADR-028 just worked
+   to keep clean, and consecutive-count already catches always-throwing captures. Cumulative-count
+   was rejected: it eventually trips healthy-but-occasionally-flaky captures over a long session.
+3. **Zero new `EdgeRumConfig` fields.** N is an internal constant. A consumer has no basis to tune
+   "5 vs 8 consecutive throws," and the fail-open guarantee (decision 5) means a wrongly-disposed
+   capture only goes quiet — strictly safer than exposing a knob someone could set to `Infinity` and
+   re-break the thing being fixed. Consistent with ADR-028/029/030, all of which added no config. If
+   a real need for a master off-switch emerges, a single `boolean` is the cheapest later add — YAGNI
+   until then.
+4. **Registration seam — captures register a dispose callback with `HealthMonitor`.** New method
+   `healthMonitor.registerCapture(name, dispose)`. `EdgeRum` registers each handle's dispose at
+   startup next to where it already stores the handle (e.g.
+   `registerCapture('frames', () => state.framesHandle?.dispose())`). When `reportError` pushes a
+   capture's consecutive count to N, `HealthMonitor` calls that registered dispose **itself**, flips
+   the capture to disposed, and stops counting it. Count and action live together in the one seam
+   that already owns the error signal — "hit N → dispose → stop counting" is atomic and unit-testable
+   (register a spy dispose, assert it fires at exactly the 5th consecutive throw). Alternatives —
+   a `getTrippedCaptures()` set polled by EdgeRum (no natural tick to poll on) and a `shouldDispose`
+   return from `reportError` (scatters breaker logic across ~20 call sites that don't hold their own
+   handle) — were rejected.
+5. **Dispose contract — idempotent, try/caught, disposed-means-disposed.** `dispose()` must unhook
+   listeners, stop timers/loops, and be a no-op on second call (`disable()` / session rotation may
+   also invoke it — already true of current handles; now a stated contract). The breaker's dispose
+   call is wrapped in try/catch: if a capture's own teardown throws, the breaker swallows it
+   (debug-warn only), **still** marks the capture disposed, and **never** rethrows. Fail-open is the
+   ticket's hard requirement — a capture already throwing on every event is exactly the one whose
+   teardown might also throw, so a tourniquet that could itself propagate would crash the host at the
+   moment it's protecting it. Disposed-means-disposed regardless of teardown outcome, because either
+   way the breaker stops calling into the capture.
+6. **Recording — reuse `sdk.error_count`, add `sdk.disposed_captures` on `session.finalized`.** The
+   raw tally stays `sdk.error_count` (unchanged). A new flat primitive attribute
+   `sdk.disposed_captures` — comma-joined capture names (`"frames,interactions"`, `""` if none) —
+   is added to `session.finalized`, the event that already carries `sdk.error_count` and (ADR-028)
+   `sdk.dropped_count`. No new `eventName`, no new event, no immediate flush. A disposed capture is a
+   material degradation of the data the backend receives for the rest of the session and deserves a
+   distinct named signal ("this install lost frame monitoring") — but not its own event, and
+   emphatically not an immediate POST, which would re-introduce the amplification this whole map
+   fights. A dedicated real-time trip event was rejected for exactly that reason.
+7. **Permanence — per-session terminal.** Once disposed, a capture stays down for the session (its
+   handle is gone). A fresh session (rotation / next launch) re-inits all captures clean. This falls
+   straight out of "dispose the handle," so `sdk.disposed_captures` describes the whole session at
+   finalize time.
+
+**Consequences:**
+
+- (+) The last operational-safety amplifier is closed: an instrumentation that breaks under a
+   specific device/OS/page condition is amputated after 5 consecutive throws instead of throwing
+   (and being caught, and counted, and debug-warned) on every subsequent event for the session's
+   life. The host stops paying that cost.
+- (+) Reuses the two seams that already exist — `reportError(scope, …)` on the sensing side and the
+   per-capture `dispose()` handles on the acting side — so the change is a small counter + a
+   `registerCapture` map in `health.ts` plus a handful of registration lines in `EdgeRum`, not a
+   refactor of the ~20 call sites.
+- (−) **Wire-shape change, needs backend confirmation.** `sdk.disposed_captures` is a new
+   `session.finalized` attribute. Per `CLAUDE.md` it needs backend-team sign-off and a
+   `docs/payload-schema.json` update — folds into the *same* pending `session.finalized` update as
+   ADR-028's `sdk.dropped_count` and ADR-030's frame-shape change (config-consolidation fog item).
+- (−) A capture disposed early in a long session produces no data for the rest of it, and (decision
+   3) the consumer cannot turn the breaker off. Accepted: the cardinal rule is the monitor must not
+   degrade the host, and a capture throwing on every event *is* that degradation — going quiet is the
+   safe failure. `sdk.disposed_captures` makes the silence legible rather than mysterious.
+
+**Follow-on notes (not new decisions — consequences of the above):**
+
+- Registration-time errors (`console.register`, `interactions.register`, `perf-observer.register`
+   in `EdgeRum`) that report under a capture name never registered with the breaker just tally
+   `error_count` and no-op the breaker — a `reportError` for an unregistered name is harmless.
+- `HealthMonitor.reset()` must now also clear registered captures, the per-capture consecutive
+   counters, and the disposed set (alongside the existing `errorCount` / `byScope` reset).

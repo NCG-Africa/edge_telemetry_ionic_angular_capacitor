@@ -307,6 +307,15 @@
           "type": "integer",
           "minimum": 0,
           "description": "Count of internal SDK errors (broken instrumentation, capture exceptions, etc.) reported by the HealthMonitor during this session."
+        },
+        "sdk.dropped_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "ADR-028. Monotonic per-session count of telemetry items dropped under backpressure — bounded live-buffer overflow + OfflineQueue overflow + fatal non-retryable batches, combined into one total. 0 when nothing was dropped. Distinct from sdk.error_count (SDK-internal exceptions); this counts data the SDK deliberately shed because the app was too chatty for the network."
+        },
+        "sdk.disposed_captures": {
+          "type": "string",
+          "description": "ADR-031. Comma-joined names of captures the HealthMonitor circuit breaker disposed this session after 5 consecutive throws (e.g. 'frames,interactions'). Empty string when none were disposed. Per-session terminal — a disposed capture stays down until the next session re-inits it. Makes the resulting data gap legible."
         }
       }
     },
@@ -355,14 +364,21 @@
       }
     },
     "frameRenderTimeMetricAttributes": {
-      "description": "Extra attributes for metric items with metricName: 'frame_render_time'. Value is total frame interval in ms (one event per measured frame; default mode emits slow frames only — interval >= frameSlowThresholdMs). Attribute keys are dotless to match the EdgeTelemetryProcessor's frame-bucketing API.",
+      "description": "Extra attributes for metric items with metricName: 'frame_render_time'. TWO shapes are accepted during the cross-platform migration window (ADR-030), so web/iOS/Android can migrate on independent timelines without breaking Kafka parity: (1) NEW windowed-summary shape — web migrates first: one metric item per rolling window (window closes on screen exit or a 30000ms internal cap, whichever first) and is emitted only when slow_frames > 0; top-level `value` = window p95 frame duration in ms. (2) OLD per-sample shape — still emitted by the iOS (FrameSampler.swift) and Android (FrameSampler.kt) native samplers until they align to the windowed shape: one metric item per measured frame, top-level `value` = that frame's interval in ms. The processor must accept either; presence of `frames_total` identifies the windowed shape. Attribute keys are dotless to match the EdgeTelemetryProcessor's frame-bucketing API.",
       "properties": {
-        "unit": { "type": "string", "const": "ms" },
-        "frame_build_duration": { "type": "number", "minimum": 0, "description": "Main-thread build slice in ms. WebView: derived from overlapping PerformanceObserver longtask entries (falls back to total when no overlap). iOS CADisplayLink: total. Android Choreographer: total. Never null." },
-        "frame_raster_duration": { "type": "number", "minimum": 0, "description": "Raster slice in ms. 0 on iOS / Android when no separate raster signal is available. Never null." },
-        "frame_type": { "type": "string", "enum": ["ui", "raster"], "description": "Frame category. WebView and CADisplayLink/Choreographer always emit 'ui'." },
-        "frame_dropped": { "type": "boolean", "description": "True when the interval is >= 2x frameSlowThresholdMs (a missed vsync at 60Hz). Always boolean, never omitted." },
-        "metric.screen": { "type": "string", "description": "Route at frame time. Retains the dotted prefix for parity with other metric.screen usage." }
+        "frames_total": { "type": "integer", "minimum": 0, "description": "NEW/windowed. All frames observed in the window (the denominator for jank ratios). Presence of this key marks a windowed-summary item." },
+        "slow_frames": { "type": "integer", "minimum": 0, "description": "NEW/windowed. Count of frames with duration >= slowThresholdMs. A window that closes with slow_frames == 0 is suppressed entirely (a smooth screen sends no metric)." },
+        "dropped_frames": { "type": "integer", "minimum": 0, "description": "NEW/windowed. Count of frames with duration >= slowThresholdMs x 2 (a missed vsync at 60Hz)." },
+        "p50_ms": { "type": "number", "minimum": 0, "description": "NEW/windowed. Median frame duration over ALL frames in the window." },
+        "p95_ms": { "type": "number", "minimum": 0, "description": "NEW/windowed. p95 frame duration over ALL frames in the window. Equals the top-level metric value." },
+        "worst_ms": { "type": "number", "minimum": 0, "description": "NEW/windowed. Maximum single-frame duration in the window." },
+        "window_ms": { "type": "number", "minimum": 0, "description": "NEW/windowed. Wall-clock duration of the window." },
+        "unit": { "type": "string", "const": "ms", "description": "OLD/per-sample only. Legacy per-sample records carried this; windowed summaries omit it (all durations are ms by definition)." },
+        "frame_build_duration": { "type": "number", "minimum": 0, "description": "OLD/per-sample. Main-thread build slice in ms. Removed from the windowed shape — it had no meaningful aggregate. Retained here only so the processor tolerates in-flight native samplers." },
+        "frame_raster_duration": { "type": "number", "minimum": 0, "description": "OLD/per-sample. Raster slice in ms. Removed from the windowed shape." },
+        "frame_type": { "type": "string", "enum": ["ui", "raster"], "description": "OLD/per-sample. Frame category. Removed from the windowed shape." },
+        "frame_dropped": { "type": "boolean", "description": "OLD/per-sample. True when the interval is >= 2x slowThresholdMs. Removed from the windowed shape — superseded by the dropped_frames count." },
+        "metric.screen": { "type": "string", "description": "Route the window (NEW) or the frame (OLD) belongs to. Present in BOTH shapes. Retains the dotted prefix for parity with other metric.screen usage." }
       }
     },
     "memoryUsageMetricAttributes": {

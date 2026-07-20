@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RetryTransport } from '../src/transport/RetryTransport';
 
 function mockResponse(status: number, headers: Record<string, string> = {}): Response {
@@ -13,12 +13,11 @@ function mockResponse(status: number, headers: Record<string, string> = {}): Res
   } as unknown as Response;
 }
 
-describe('RetryTransport', () => {
+describe('RetryTransport.sendOnce', () => {
   let fetchFn: ReturnType<typeof vi.fn>;
   let transport: RetryTransport;
 
   beforeEach(() => {
-    vi.useFakeTimers();
     fetchFn = vi.fn();
     transport = new RetryTransport(
       { endpoint: 'https://example.com/collector/telemetry', apiKey: 'edge_test', debug: false },
@@ -26,13 +25,9 @@ describe('RetryTransport', () => {
     );
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('sends with correct headers', async () => {
     fetchFn.mockResolvedValueOnce(mockResponse(200));
-    await transport.send('{"test":true}');
+    await transport.sendOnce('{"test":true}');
     expect(fetchFn).toHaveBeenCalledWith(
       'https://example.com/collector/telemetry',
       expect.objectContaining({
@@ -46,53 +41,47 @@ describe('RetryTransport', () => {
     );
   });
 
-  it('succeeds on 200', async () => {
+  it('classifies 200 as ok', async () => {
     fetchFn.mockResolvedValueOnce(mockResponse(200));
-    await expect(transport.send('test')).resolves.toBeUndefined();
+    await expect(transport.sendOnce('test')).resolves.toEqual({ status: 'ok' });
   });
 
-  it('discards on non-retryable 4xx', async () => {
+  it('classifies non-retryable 4xx as fatal (single POST, no retry)', async () => {
     fetchFn.mockResolvedValueOnce(mockResponse(400));
-    await expect(transport.send('test')).resolves.toBeUndefined();
+    await expect(transport.sendOnce('test')).resolves.toEqual({ status: 'fatal' });
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
-  it('retries on 503 up to 4 attempts then throws', async () => {
-    fetchFn.mockResolvedValue(mockResponse(503));
-    // Attach the rejection handler BEFORE advancing timers so the promise
-    // is never transiently unhandled while fake timers fast-forward.
-    const caught = transport.send('test').catch((err: unknown) => err);
-    // Advance through all retry delays: 0, 2000, 8000, 30000
-    await vi.advanceTimersByTimeAsync(40000);
-    const err = await caught;
-    expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).toMatch(/HTTP 503/);
-    expect(fetchFn).toHaveBeenCalledTimes(4);
+  it('classifies 503 as retryable and does NOT sleep or retry inline', async () => {
+    fetchFn.mockResolvedValueOnce(mockResponse(503));
+    await expect(transport.sendOnce('test')).resolves.toEqual({ status: 'retryable', retryAfterMs: undefined });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
-  it('retries on network error', async () => {
-    fetchFn.mockRejectedValue(new Error('network error'));
-    const caught = transport.send('test').catch((err: unknown) => err);
-    await vi.advanceTimersByTimeAsync(40000);
-    const err = await caught;
-    expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).toBe('network error');
-    expect(fetchFn).toHaveBeenCalledTimes(4);
+  it('classifies a status-0 response as retryable', async () => {
+    fetchFn.mockResolvedValueOnce(mockResponse(0));
+    await expect(transport.sendOnce('test')).resolves.toEqual({ status: 'retryable', retryAfterMs: undefined });
   });
 
-  it('succeeds if a retry returns 200', async () => {
-    fetchFn
-      .mockResolvedValueOnce(mockResponse(503))
-      .mockResolvedValueOnce(mockResponse(200));
-    const promise = transport.send('test');
-    await vi.advanceTimersByTimeAsync(3000);
-    await expect(promise).resolves.toBeUndefined();
-    expect(fetchFn).toHaveBeenCalledTimes(2);
+  it('classifies a thrown network error as retryable', async () => {
+    fetchFn.mockRejectedValueOnce(new Error('network error'));
+    await expect(transport.sendOnce('test')).resolves.toEqual({ status: 'retryable' });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('carries Retry-After (seconds → ms) on a 429', async () => {
+    fetchFn.mockResolvedValueOnce(mockResponse(429, { 'retry-after': '3' }));
+    await expect(transport.sendOnce('test')).resolves.toEqual({ status: 'retryable', retryAfterMs: 3000 });
+  });
+
+  it('omits retryAfterMs on a 429 with no Retry-After header', async () => {
+    fetchFn.mockResolvedValueOnce(mockResponse(429));
+    await expect(transport.sendOnce('test')).resolves.toEqual({ status: 'retryable', retryAfterMs: undefined });
   });
 
   it('uses X-API-Key header, not Authorization Bearer', async () => {
     fetchFn.mockResolvedValueOnce(mockResponse(200));
-    await transport.send('test');
+    await transport.sendOnce('test');
     const call = fetchFn.mock.calls[0] as [string, RequestInit];
     const headers = call[1].headers as Record<string, string>;
     expect(headers['X-API-Key']).toBe('edge_test');
@@ -103,7 +92,7 @@ describe('RetryTransport', () => {
   it('setFetchFn swaps the active fetch implementation', async () => {
     const replacement = vi.fn().mockResolvedValueOnce(mockResponse(200));
     transport.setFetchFn(replacement as unknown as (input: string, init?: RequestInit) => Promise<Response>);
-    await transport.send('{"swapped":true}');
+    await transport.sendOnce('{"swapped":true}');
     expect(replacement).toHaveBeenCalledTimes(1);
     expect(fetchFn).not.toHaveBeenCalled();
   });

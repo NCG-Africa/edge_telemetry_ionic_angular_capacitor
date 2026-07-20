@@ -8,13 +8,14 @@ import type { RetryTransport } from '../src/transport/RetryTransport';
 import type { OfflineQueue } from '../src/queue/OfflineQueue';
 
 function createMockTransport(): RetryTransport {
-  return { send: vi.fn().mockResolvedValue(undefined) } as unknown as RetryTransport;
+  return { sendOnce: vi.fn().mockResolvedValue({ status: 'ok' }) } as unknown as RetryTransport;
 }
 
 function createMockQueue(): OfflineQueue {
   return {
     push: vi.fn().mockResolvedValue(undefined),
-    flush: vi.fn().mockResolvedValue(undefined),
+    poke: vi.fn(),
+    setDrainSender: vi.fn(),
     clear: vi.fn().mockResolvedValue(undefined),
     size: vi.fn().mockResolvedValue(0),
   } as unknown as OfflineQueue;

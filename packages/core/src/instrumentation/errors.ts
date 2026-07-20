@@ -127,27 +127,21 @@ export function registerErrorCapture(deps: ErrorsDeps): ErrorsHandle {
 }
 
 export interface ConsoleErrorDeps {
-  recordEvent: (eventName: 'app.crash', attributes: ErrorEventAttributes) => void;
-  getCurrentRoute: () => string;
   consoleTarget?: Console;
-  captureWarn?: boolean;
+  // ADR-029: console.error lines become crash breadcrumbs, not events. Defaults to
+  // the shared ring; injectable for tests.
+  pushBreadcrumb?: (message: string) => void;
 }
 
 export interface ConsoleErrorHandle {
   dispose: () => void;
 }
 
-function stringifyArgs(args: unknown[]): { message: string; stacktrace: string; exceptionType: string } {
+function messageFromArgs(args: unknown[]): string {
   for (const a of args) {
-    if (a instanceof Error) {
-      return {
-        message: safeString(a.message, ''),
-        stacktrace: safeString(a.stack, ''),
-        exceptionType: safeString(a.name, 'Error'),
-      };
-    }
+    if (a instanceof Error) return safeString(a.message, safeString(a.name, 'Error'));
   }
-  const joined = args
+  return args
     .map((a) => {
       if (typeof a === 'string') return a;
       try {
@@ -157,7 +151,6 @@ function stringifyArgs(args: unknown[]): { message: string; stacktrace: string; 
       }
     })
     .join(' ');
-  return { message: joined, stacktrace: '', exceptionType: 'Error' };
 }
 
 export function registerConsoleErrorCapture(deps: ConsoleErrorDeps): ConsoleErrorHandle {
@@ -166,30 +159,15 @@ export function registerConsoleErrorCapture(deps: ConsoleErrorDeps): ConsoleErro
     return { dispose: () => undefined };
   }
 
-  const captureWarn = deps.captureWarn !== false;
+  const pushBreadcrumb = deps.pushBreadcrumb ?? ((message: string) => breadcrumbs.pushConsole(message));
   const originalError = consoleObj.error.bind(consoleObj);
-  const originalWarn = captureWarn ? consoleObj.warn.bind(consoleObj) : undefined;
 
-  const emitConsole = (level: 'error' | 'warn', args: unknown[]): void => {
+  consoleObj.error = ((...args: unknown[]) => {
     try {
-      const { message, stacktrace, exceptionType } = stringifyArgs(args);
-      deps.recordEvent('app.crash', {
-        exception_type: exceptionType,
-        message,
-        stacktrace,
-        is_fatal: false,
-        handled: true,
-        error_context: resolveContext(deps.getCurrentRoute),
-        cause: level === 'error' ? 'ConsoleError' : 'ConsoleWarn',
-        runtime: 'webview',
-      });
+      pushBreadcrumb(messageFromArgs(args));
     } catch (err) {
       healthMonitor.reportError('console.emit', err);
     }
-  };
-
-  consoleObj.error = ((...args: unknown[]) => {
-    emitConsole('error', args);
     try {
       originalError(...args);
     } catch (err) {
@@ -197,22 +175,10 @@ export function registerConsoleErrorCapture(deps: ConsoleErrorDeps): ConsoleErro
     }
   }) as Console['error'];
 
-  if (captureWarn && originalWarn) {
-    consoleObj.warn = ((...args: unknown[]) => {
-      emitConsole('warn', args);
-      try {
-        originalWarn(...args);
-      } catch (err) {
-        healthMonitor.reportError('console.original-warn', err);
-      }
-    }) as Console['warn'];
-  }
-
   return {
     dispose: () => {
       try {
         consoleObj.error = originalError;
-        if (originalWarn) consoleObj.warn = originalWarn;
       } catch (err) {
         healthMonitor.reportError('console.dispose', err);
       }

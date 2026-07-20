@@ -52,7 +52,7 @@ That's all you need. From this point on, edge-rum automatically captures:
 - Resource timings — images, fonts, css, fetch — (`resource_timing` metric)
 - Click / tap interactions (`user.interaction`, with tag/id/class/role — no text)
 - Unhandled errors + promise rejections (`app.crash`)
-- `console.error` / `console.warn` (configurable)
+- `console.error` → crash breadcrumb trail (configurable; not a standalone event)
 - Native crashes (iOS PLCrashReporter, Android JVM/ANR/NDK signals) replayed on next launch
 - iOS main-thread hangs > 5 s (`Hang`)
 - Android ANRs > 5 s (`ANR`)

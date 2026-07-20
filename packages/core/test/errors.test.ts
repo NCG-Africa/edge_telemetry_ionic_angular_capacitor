@@ -250,15 +250,16 @@ describe('registerErrorCapture', () => {
 });
 
 import { registerConsoleErrorCapture } from '../src/instrumentation/errors';
+import { breadcrumbs } from '../src/internal/breadcrumbs';
 
-describe('registerConsoleErrorCapture', () => {
-  let recorded: Array<{ name: string; attrs: Record<string, unknown> }>;
+describe('registerConsoleErrorCapture (ADR-029: breadcrumbs only)', () => {
+  let crumbs: string[];
   let consoleStub: Console;
   let originalError: ReturnType<typeof vi.fn>;
   let originalWarn: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    recorded = [];
+    crumbs = [];
     originalError = vi.fn();
     originalWarn = vi.fn();
     consoleStub = {
@@ -267,43 +268,26 @@ describe('registerConsoleErrorCapture', () => {
     } as unknown as Console;
   });
 
-  function setup(overrides: { captureWarn?: boolean; route?: string } = {}) {
+  function setup() {
     return registerConsoleErrorCapture({
-      recordEvent: (name, attrs) => recorded.push({ name, attrs }),
-      getCurrentRoute: () => overrides.route ?? '/home',
       consoleTarget: consoleStub,
-      captureWarn: overrides.captureWarn,
+      pushBreadcrumb: (message) => crumbs.push(message),
     });
   }
 
-  it('wraps console.error so each call emits an app.crash with cause=ConsoleError', () => {
+  it('routes console.error to a breadcrumb — never mints an event', () => {
     setup();
     consoleStub.error('something broke');
-
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]!.name).toBe('app.crash');
-    expect(recorded[0]!.attrs['cause']).toBe('ConsoleError');
-    expect(recorded[0]!.attrs['handled']).toBe(true);
-    expect(recorded[0]!.attrs['is_fatal']).toBe(false);
-    expect(recorded[0]!.attrs['runtime']).toBe('webview');
-    expect(recorded[0]!.attrs['message']).toBe('something broke');
+    expect(crumbs).toEqual(['something broke']);
   });
 
-  it('wraps console.warn so each call emits an app.crash with cause=ConsoleWarn (default)', () => {
+  it('does not wrap console.warn', () => {
     setup();
     consoleStub.warn('deprecated thing');
-
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]!.attrs['cause']).toBe('ConsoleWarn');
-  });
-
-  it('does NOT wrap console.warn when captureWarn=false', () => {
-    setup({ captureWarn: false });
-    consoleStub.warn('not captured');
-
-    expect(recorded).toHaveLength(0);
-    // original warn still called
-    expect(originalWarn).toHaveBeenCalledWith('not captured');
+    expect(crumbs).toHaveLength(0);
+    expect(originalWarn).toHaveBeenCalledWith('deprecated thing');
+    // warn was not reassigned
+    expect(consoleStub.warn).toBe(originalWarn);
   });
 
   it('still calls the original console.error after wrapping', () => {
@@ -312,72 +296,62 @@ describe('registerConsoleErrorCapture', () => {
     expect(originalError).toHaveBeenCalledWith('forwarded');
   });
 
-  it('uses Error.message + stack when first arg is an Error', () => {
+  it('uses Error.message when first arg is an Error', () => {
     setup();
-    const err = new TypeError('cannot read x of undefined');
-    err.stack = 'TypeError: cannot read x of undefined\n  at fn (a.ts:1)';
-    consoleStub.error(err);
-
-    expect(recorded[0]!.attrs['exception_type']).toBe('TypeError');
-    expect(recorded[0]!.attrs['message']).toBe('cannot read x of undefined');
-    expect(recorded[0]!.attrs['stacktrace']).toContain('at fn (a.ts:1)');
+    consoleStub.error(new TypeError('cannot read x of undefined'));
+    expect(crumbs[0]).toBe('cannot read x of undefined');
   });
 
   it('joins multi-arg string + object messages when no Error is present', () => {
     setup();
     consoleStub.error('user', 42, { foo: 'bar' });
-    expect(recorded[0]!.attrs['message']).toBe('user 42 {"foo":"bar"}');
-    expect(recorded[0]!.attrs['exception_type']).toBe('Error');
-  });
-
-  it('error_context carries the current route', () => {
-    setup({ route: '/checkout/confirm' });
-    consoleStub.error('x');
-    expect(recorded[0]!.attrs['error_context']).toBe('screen:/checkout/confirm');
+    expect(crumbs[0]).toBe('user 42 {"foo":"bar"}');
   });
 
   it('dispose() stops capturing — subsequent console.error does not record', () => {
     const handle = setup();
     consoleStub.error('before-dispose');
-    expect(recorded).toHaveLength(1);
+    expect(crumbs).toHaveLength(1);
     handle.dispose();
     consoleStub.error('after-dispose');
-    // Still 1 — post-dispose calls are no longer captured.
-    expect(recorded).toHaveLength(1);
-    // The original is still callable for both invocations.
+    expect(crumbs).toHaveLength(1);
     expect(originalError).toHaveBeenCalledTimes(2);
-  });
-
-  it('dispose() also stops capturing console.warn (when it was wrapped)', () => {
-    const handle = setup();
-    consoleStub.warn('w1');
-    expect(recorded).toHaveLength(1);
-    handle.dispose();
-    consoleStub.warn('w2');
-    expect(recorded).toHaveLength(1);
-    expect(originalWarn).toHaveBeenCalledTimes(2);
   });
 
   it('returns a no-op handle when consoleTarget lacks console.error', () => {
     const handle = registerConsoleErrorCapture({
-      recordEvent: (name, attrs) => recorded.push({ name, attrs }),
-      getCurrentRoute: () => '/',
       consoleTarget: {} as unknown as Console,
+      pushBreadcrumb: (message) => crumbs.push(message),
     });
     expect(typeof handle.dispose).toBe('function');
-    expect(recorded).toHaveLength(0);
+    expect(crumbs).toHaveLength(0);
   });
 
-  it('survives a recordEvent throw — the original console.error still fires', () => {
-    const throwingRecord = vi.fn(() => {
-      throw new Error('record-failure');
-    });
+  it('survives a pushBreadcrumb throw — the original console.error still fires', () => {
     registerConsoleErrorCapture({
-      recordEvent: throwingRecord,
-      getCurrentRoute: () => '/',
       consoleTarget: consoleStub,
+      pushBreadcrumb: () => {
+        throw new Error('crumb-failure');
+      },
     });
     expect(() => consoleStub.error('x')).not.toThrow();
     expect(originalError).toHaveBeenCalledWith('x');
+  });
+
+  it('collapses consecutive duplicate console lines into one crumb with count (real ring)', () => {
+    breadcrumbs.reset();
+    registerConsoleErrorCapture({ consoleTarget: consoleStub });
+    consoleStub.error('boom');
+    consoleStub.error('boom');
+    consoleStub.error('boom');
+    consoleStub.error('different');
+    consoleStub.error('boom');
+
+    const snap = breadcrumbs.snapshot();
+    expect(snap).toHaveLength(3);
+    expect(snap[0]).toMatchObject({ type: 'console.error', name: 'boom', count: 3 });
+    expect(snap[1]).toMatchObject({ type: 'console.error', name: 'different', count: 1 });
+    expect(snap[2]).toMatchObject({ type: 'console.error', name: 'boom', count: 1 });
+    breadcrumbs.reset();
   });
 });

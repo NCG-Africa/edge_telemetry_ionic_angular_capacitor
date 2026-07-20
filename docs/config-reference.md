@@ -145,9 +145,9 @@ This prevents fractional journeys where some navigations are captured and others
 - Type: `boolean`
 - Default: `true`
 
-Wraps `console.error` and `console.warn` so each call emits an `app.crash` event with `cause: 'ConsoleError'` or `'ConsoleWarn'`, `is_fatal: false`, `handled: true`. The original `console.error`/`warn` still fires so devtools continue to work.
+Wraps `console.error` so each call adds a breadcrumb to the crash trail — it rides inside the next genuine `app.crash`'s `crash.breadcrumbs`, never a standalone event or POST (ADR-029). Consecutive duplicate lines collapse into one breadcrumb carrying a `count`. `console.warn` is not captured. The original `console.error` still fires so devtools continue to work.
 
-Set to `false` if you log a lot of warnings as a normal part of your app's behaviour (otherwise they become noisy crash events).
+Set to `false` to leave `console.error` out of the crash breadcrumb trail entirely.
 
 ### `captureNativeCrashes`
 

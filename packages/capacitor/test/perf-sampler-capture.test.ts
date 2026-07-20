@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { startPerfSamplerCapture } from '../src/PerfSamplerCapture';
 import type {
   EdgeRumCrashPluginLike,
-  NativeFrameSample,
+  NativeFrameSummary,
   NativeMemorySample,
 } from '../src/NativeCrashCapture';
 
@@ -23,14 +23,17 @@ function makePlugin(
   };
 }
 
-function frame(o: Partial<NativeFrameSample> = {}): NativeFrameSample {
+function frame(o: Partial<NativeFrameSummary> = {}): NativeFrameSummary {
   return {
-    ts: '2026-05-28T10:00:00.000Z',
-    total_ms: 24,
-    build_ms: 18,
-    raster_ms: 6,
-    dropped: false,
-    type: 'ui',
+    value: 24,
+    frames_total: 100,
+    slow_frames: 5,
+    dropped_frames: 1,
+    p50_ms: 16,
+    p95_ms: 24,
+    worst_ms: 40,
+    window_ms: 1800,
+    screen: '/tabs/profile',
     ...o,
   };
 }
@@ -97,12 +100,32 @@ describe('startPerfSamplerCapture', () => {
     });
   });
 
-  it('translates frame samples into recordMetric calls with dotless keys', async () => {
+  it('translates windowed frame summaries into recordMetric calls with dotless keys', async () => {
     const plugin = makePlugin({
       fetchFrameSamples: vi.fn().mockResolvedValue({
         frames: [
-          frame({ total_ms: 22, build_ms: 12, raster_ms: 10, dropped: false }),
-          frame({ total_ms: 40, build_ms: 30, raster_ms: 10, dropped: true }),
+          frame({
+            value: 22,
+            frames_total: 90,
+            slow_frames: 4,
+            dropped_frames: 0,
+            p50_ms: 15,
+            p95_ms: 22,
+            worst_ms: 28,
+            window_ms: 1500,
+            screen: '/tabs/products',
+          }),
+          frame({
+            value: 40,
+            frames_total: 120,
+            slow_frames: 9,
+            dropped_frames: 3,
+            p50_ms: 17,
+            p95_ms: 40,
+            worst_ms: 66,
+            window_ms: 2000,
+            screen: '/tabs/profile',
+          }),
         ],
       }),
     });
@@ -118,19 +141,27 @@ describe('startPerfSamplerCapture', () => {
 
     expect(recorded).toHaveLength(2);
     expect(recorded[0]!.metricName).toBe('frame_render_time');
+    // Top-level value is the window p95.
     expect(recorded[0]!.value).toBe(22);
     expect(recorded[0]!.attrs).toMatchObject({
-      unit: 'ms',
-      frame_build_duration: 12,
-      frame_raster_duration: 10,
-      frame_type: 'ui',
-      frame_dropped: false,
+      frames_total: 90,
+      slow_frames: 4,
+      dropped_frames: 0,
+      p50_ms: 15,
+      p95_ms: 22,
+      worst_ms: 28,
+      window_ms: 1500,
+      'metric.screen': '/tabs/products',
     });
     expect(recorded[1]!.value).toBe(40);
-    expect(recorded[1]!.attrs.frame_dropped).toBe(true);
+    expect(recorded[1]!.attrs['metric.screen']).toBe('/tabs/profile');
     for (const r of recorded) {
-      expect(r.attrs).not.toHaveProperty('frame.build_duration_ms');
-      expect(r.attrs).not.toHaveProperty('frame.dropped');
+      // Old per-sample attrs must be gone.
+      expect(r.attrs).not.toHaveProperty('frame_build_duration');
+      expect(r.attrs).not.toHaveProperty('frame_raster_duration');
+      expect(r.attrs).not.toHaveProperty('frame_type');
+      expect(r.attrs).not.toHaveProperty('frame_dropped');
+      expect(r.attrs).not.toHaveProperty('unit');
     }
   });
 
@@ -276,7 +307,7 @@ describe('startPerfSamplerCapture', () => {
       fetchFrameSamples: vi.fn().mockImplementation(async () => {
         frameCalls++;
         if (frameCalls === 1) throw new Error('boom');
-        return { frames: [frame({ total_ms: 19 })] };
+        return { frames: [frame({ value: 19 })] };
       }),
     });
     const handle = await startPerfSamplerCapture({

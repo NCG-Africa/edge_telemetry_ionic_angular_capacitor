@@ -187,7 +187,7 @@ The backend dispatches each event by `eventName`. Currently shipped names:
 | Long task (PerformanceObserver longtask) | (`metric` item, metricName = `"long_task"`) | `packages/core/src/instrumentation/perf-observer.ts` |
 | Resource timing (PerformanceObserver resource) | (`metric` item, metricName = `"resource_timing"`) | `packages/core/src/instrumentation/perf-observer.ts` |
 | WebView frame render (rAF, windowed summary) | (`metric` item, metricName = `"frame_render_time"`, dotless attrs; one summary per window, `value`=p95, emitted only when `slow_frames>0` — ADR-030) | `packages/core/src/instrumentation/frames.ts` |
-| iOS frame render (CADisplayLink) | (`metric` item, metricName = `"frame_render_time"`; still per-sample/old shape until aligned to the windowed summary — schema tolerates both) | `packages/capacitor/ios/Plugin/FrameSampler.swift` |
+| iOS frame render (CADisplayLink) | (`metric` item, metricName = `"frame_render_time"`, windowed summary shape matching web — ADR-030; window closes on JS route change (relayed via `setLastScreen`), 30s cap, background, or stop) | `packages/capacitor/ios/Plugin/FrameSampler.swift` |
 | Android frame render (Choreographer) | (`metric` item, metricName = `"frame_render_time"`; still per-sample/old shape until aligned to the windowed summary — schema tolerates both) | `packages/capacitor/android/.../FrameSampler.kt` |
 | WebView memory (performance.memory) | (`metric` item, metricName = `"memory_usage"`, value in MB) | `packages/core/src/instrumentation/memory-web.ts` |
 | iOS memory (mach_task_basic_info + pressure source) | (`metric` item, metricName = `"memory_usage"`) | `packages/capacitor/ios/Plugin/MemorySampler.swift` |

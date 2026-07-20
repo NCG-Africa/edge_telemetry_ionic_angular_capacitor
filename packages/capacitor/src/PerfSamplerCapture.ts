@@ -3,7 +3,7 @@ import { healthMonitor } from '@nathanclaire/rum';
 import {
   loadEdgeRumCrashPlugin,
   type EdgeRumCrashPluginLike,
-  type NativeFrameSample,
+  type NativeFrameSummary,
   type NativeMemorySample,
 } from './NativeCrashCapture';
 
@@ -41,13 +41,18 @@ function defaultClearInterval(handle: unknown): void {
   clearInterval(handle as ReturnType<typeof setInterval>);
 }
 
-function frameSampleToAttrs(s: NativeFrameSample): EventAttributes {
+// Dotless summary attrs matching the web frame shape (ADR-030). `value` (p95)
+// is passed as the top-level metric value, not repeated here.
+function frameSummaryToAttrs(s: NativeFrameSummary): EventAttributes {
   return {
-    unit: 'ms',
-    frame_build_duration: s.build_ms,
-    frame_raster_duration: s.raster_ms,
-    frame_type: s.type,
-    frame_dropped: s.dropped,
+    frames_total: s.frames_total,
+    slow_frames: s.slow_frames,
+    dropped_frames: s.dropped_frames,
+    p50_ms: s.p50_ms,
+    p95_ms: s.p95_ms,
+    worst_ms: s.worst_ms,
+    window_ms: s.window_ms,
+    'metric.screen': s.screen,
   };
 }
 
@@ -113,7 +118,7 @@ export async function startPerfSamplerCapture(
       const frames = Array.isArray(result?.frames) ? result.frames : [];
       for (const frame of frames) {
         try {
-          deps.recordMetric('frame_render_time', frame.total_ms, frameSampleToAttrs(frame));
+          deps.recordMetric('frame_render_time', frame.value, frameSummaryToAttrs(frame));
         } catch (err) {
           healthMonitor.reportError('perf-sampler.frame.emit', err);
         }

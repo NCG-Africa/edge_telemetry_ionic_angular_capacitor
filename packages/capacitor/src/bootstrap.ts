@@ -145,6 +145,7 @@ export async function startCapacitorCapture(
     getBeaconPayload: () => pipeline.buildBeaconPayload(),
     getInternalErrorCount: () => healthMonitor.getErrorCount(),
     getDroppedCount: () => healthMonitor.getDroppedCount(),
+    getDisposedCaptures: () => healthMonitor.getDisposedCaptures(),
     getPlatform: () => platform,
     onLifecycleSample: () => {
       if (perfSamplerHandle) void perfSamplerHandle.drainNow();

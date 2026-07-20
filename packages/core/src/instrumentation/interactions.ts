@@ -78,6 +78,7 @@ export function registerInteractionCapture(deps: InteractionsDeps): Interactions
       };
 
       deps.recordEvent('user.interaction', attrs);
+      healthMonitor.reportSuccess('interactions.click');
     } catch (err) {
       healthMonitor.reportError('interactions.click', err);
     }

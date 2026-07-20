@@ -462,12 +462,17 @@ describe('startLifecycleCapture', () => {
       expect(finalized!.attrs['session.metric_count']).toBe(1);
     });
 
-    it('surfaces sdk.error_count and sdk.dropped_count from the callbacks (ADR-028)', async () => {
+    it('surfaces sdk.error_count, sdk.dropped_count and sdk.disposed_captures from the callbacks (ADR-028/031)', async () => {
       const app = fakeApp();
       const cb = makeCallbacks();
       let nowVal = Date.parse('2026-04-15T10:00:10.000Z');
       await startLifecycleCapture(
-        { ...cb, getInternalErrorCount: () => 3, getDroppedCount: () => 17 },
+        {
+          ...cb,
+          getInternalErrorCount: () => 3,
+          getDroppedCount: () => 17,
+          getDisposedCaptures: () => 'frames,interactions',
+        },
         {
           capacitor: nativeCap(),
           loadApp: async () => app,
@@ -483,10 +488,11 @@ describe('startLifecycleCapture', () => {
       expect(finalized).toBeDefined();
       expect(finalized!.attrs['sdk.error_count']).toBe(3);
       expect(finalized!.attrs['sdk.dropped_count']).toBe(17);
+      expect(finalized!.attrs['sdk.disposed_captures']).toBe('frames,interactions');
       assertPrimitive(finalized!.attrs);
     });
 
-    it('defaults sdk.dropped_count to 0 when no callback is wired', async () => {
+    it('defaults sdk.dropped_count to 0 and sdk.disposed_captures to "" when no callback is wired', async () => {
       const app = fakeApp();
       const cb = makeCallbacks();
       let nowVal = Date.parse('2026-04-15T10:00:10.000Z');
@@ -502,6 +508,7 @@ describe('startLifecycleCapture', () => {
 
       const finalized = cb.events.find((e) => e.name === 'session.finalized');
       expect(finalized!.attrs['sdk.dropped_count']).toBe(0);
+      expect(finalized!.attrs['sdk.disposed_captures']).toBe('');
     });
 
     it('invokes flushActiveScreen before recording session.finalized on background', async () => {

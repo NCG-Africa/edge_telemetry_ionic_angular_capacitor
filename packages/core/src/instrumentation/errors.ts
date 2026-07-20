@@ -59,6 +59,7 @@ export function registerErrorCapture(deps: ErrorsDeps): ErrorsHandle {
       } as ErrorEventAttributes;
       deps.recordEvent('app.crash', withCrumbs);
       deps.flushPipeline();
+      healthMonitor.reportSuccess('errors.capture');
     } catch (err) {
       healthMonitor.reportError('errors.capture', err);
     }
@@ -165,6 +166,7 @@ export function registerConsoleErrorCapture(deps: ConsoleErrorDeps): ConsoleErro
   consoleObj.error = ((...args: unknown[]) => {
     try {
       pushBreadcrumb(messageFromArgs(args));
+      healthMonitor.reportSuccess('console.emit');
     } catch (err) {
       healthMonitor.reportError('console.emit', err);
     }

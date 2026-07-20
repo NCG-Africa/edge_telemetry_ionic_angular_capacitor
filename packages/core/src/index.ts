@@ -30,6 +30,8 @@ export interface EdgeRumConfig {
   sanitizeUrl?: (url: string) => string;
   deferFlush?: boolean;
   debug?: boolean;
+  // default true; adds console.error lines to the crash breadcrumb trail (ADR-029).
+  // Not captured as standalone events; console.warn is not captured.
   captureConsoleErrors?: boolean;
   captureNativeCrashes?: boolean;
   enableAnrDetection?: boolean;

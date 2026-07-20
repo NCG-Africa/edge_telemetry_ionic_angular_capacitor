@@ -92,7 +92,7 @@ class EdgeRumCrashPlugin : Plugin() {
             MemorySampler.start(context, memoryIntervalMs.toLong())
         }
         if (captureFrames) {
-            FrameSampler.start(slowThresholdMs, captureAllFrames)
+            FrameSampler.start(slowThresholdMs, captureAllFrames) { lastScreen() }
         }
         call.resolve(JSObject().put("started", true))
     }
@@ -102,6 +102,14 @@ class EdgeRumCrashPlugin : Plugin() {
         runCatching { MemorySampler.stop() }
         runCatching { FrameSampler.stop() }
         call.resolve()
+    }
+
+    // Backgrounding is a scene change: close the current frame window so the
+    // background gap isn't measured as one giant dropped frame on resume
+    // (mirrors iOS didEnterBackground). No-op unless frame sampling is running.
+    override fun handleOnPause() {
+        super.handleOnPause()
+        runCatching { FrameSampler.onBackground() }
     }
 
     @PluginMethod

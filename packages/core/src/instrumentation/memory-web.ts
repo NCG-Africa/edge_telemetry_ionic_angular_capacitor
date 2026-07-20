@@ -62,6 +62,7 @@ export function registerMemoryWebCapture(deps: MemoryWebDeps): MemoryWebHandle {
         memory_type: 'heap',
         memory_source: 'javascript',
       });
+      healthMonitor.reportSuccess('memory-web.emit');
     } catch (err) {
       healthMonitor.reportError('memory-web.emit', err);
     }

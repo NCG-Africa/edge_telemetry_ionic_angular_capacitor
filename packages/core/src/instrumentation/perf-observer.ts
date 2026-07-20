@@ -51,6 +51,7 @@ export function registerPerfObserver(deps: PerfObserverDeps): PerfObserverHandle
               'metric.name': entry.name || 'self',
               'metric.screen': deps.getCurrentRoute(),
             });
+            healthMonitor.reportSuccess('perf-observer.longtask.emit');
           } catch (err) {
             healthMonitor.reportError('perf-observer.longtask.emit', err);
           }
@@ -81,6 +82,7 @@ export function registerPerfObserver(deps: PerfObserverDeps): PerfObserverHandle
               attrs['metric.transfer_size'] = entry.transferSize;
             }
             deps.recordMetric('resource_timing', entry.duration, attrs);
+            healthMonitor.reportSuccess('perf-observer.resource.emit');
           } catch (err) {
             healthMonitor.reportError('perf-observer.resource.emit', err);
           }

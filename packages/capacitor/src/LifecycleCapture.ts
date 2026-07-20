@@ -55,6 +55,7 @@ export interface LifecycleCaptureCallbacks {
   flushActiveScreen?: (method: string) => void;
   getInternalErrorCount?: () => number;
   getDroppedCount?: () => number;
+  getDisposedCaptures?: () => string;
   session: LifecycleSessionManagerLike;
   getBeaconPayload?: () => BeaconPayload | null;
   getPlatform?: () => string;
@@ -201,6 +202,10 @@ export async function startLifecycleCapture(
       typeof callbacks.getDroppedCount === 'function'
         ? callbacks.getDroppedCount()
         : 0;
+    const disposedCaptures =
+      typeof callbacks.getDisposedCaptures === 'function'
+        ? callbacks.getDisposedCaptures()
+        : '';
     callbacks.recordEvent('session.finalized', {
       'session.id': oldId,
       'session.start_time': oldStart,
@@ -210,6 +215,7 @@ export async function startLifecycleCapture(
       'session.end_reason': endReason,
       'sdk.error_count': errorCount,
       'sdk.dropped_count': droppedCount,
+      'sdk.disposed_captures': disposedCaptures,
       ...journey,
     });
   };

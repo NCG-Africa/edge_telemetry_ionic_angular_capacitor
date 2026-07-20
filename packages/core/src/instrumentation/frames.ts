@@ -109,6 +109,7 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
         'metric.screen': windowRoute,
       };
       deps.recordMetric('frame_render_time', p95, attrs);
+      healthMonitor.reportSuccess('frames.emit');
     } catch (err) {
       healthMonitor.reportError('frames.emit', err);
     }

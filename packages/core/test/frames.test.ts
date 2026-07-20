@@ -1,38 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { registerFrameCapture } from '../src/instrumentation/frames';
-
-interface FakeObserver {
-  observe: () => void;
-  disconnect: () => void;
-  emit: (entries: Array<{ startTime: number; duration: number }>) => void;
-  disconnected: boolean;
-}
-
-interface ObserverCtor {
-  (callback: (list: { getEntries: () => Array<{ startTime: number; duration: number }> }) => void): FakeObserver;
-  supportedEntryTypes?: string[];
-}
-
-function makeObserverFactory(): { ctor: ObserverCtor; instances: FakeObserver[] } {
-  const instances: FakeObserver[] = [];
-  const ctor = function (
-    cb: (list: { getEntries: () => Array<{ startTime: number; duration: number }> }) => void,
-  ): FakeObserver {
-    const obs: FakeObserver = {
-      observe: () => undefined,
-      disconnect: () => {
-        obs.disconnected = true;
-      },
-      emit: (entries) => cb({ getEntries: () => entries }),
-      disconnected: false,
-    };
-    instances.push(obs);
-    return obs;
-  } as unknown as ObserverCtor;
-  ctor.supportedEntryTypes = ['longtask'];
-  return { ctor, instances };
-}
 
 type Recorded = { metricName: string; value: number; attrs: Record<string, string | number | boolean> };
 
@@ -66,159 +34,128 @@ function makeRaf(): FakeRaf {
   };
 }
 
-describe('registerFrameCapture', () => {
-  const g = globalThis as unknown as { PerformanceObserver?: unknown };
-  let originalPO: unknown;
-
-  beforeEach(() => {
-    originalPO = g.PerformanceObserver;
-  });
-
-  afterEach(() => {
-    if (originalPO === undefined) delete g.PerformanceObserver;
-    else g.PerformanceObserver = originalPO;
-  });
-
-  it('emits no events on the first frame (no previous timestamp)', () => {
+describe('registerFrameCapture (windowed aggregation, ADR-030)', () => {
+  it('emits nothing while a window is open — one summary only on flush', () => {
     const recorded: Recorded[] = [];
     const raf = makeRaf();
-    registerFrameCapture({
+    const handle = registerFrameCapture({
       recordMetric: (metricName, value, attrs) => recorded.push({ metricName, value, attrs }),
       getCurrentRoute: () => '/home',
       rafScheduler: raf.schedule,
       rafCanceller: raf.cancel,
     });
 
-    raf.tick(100);
+    raf.tick(0);
+    raf.tick(20); // 20ms slow
+    raf.tick(30); // 10ms fast
+    raf.tick(70); // 40ms dropped
+    expect(recorded).toHaveLength(0); // window still open — no per-frame emit
+
+    handle.dispose(); // flushes the in-progress window
+    expect(recorded).toHaveLength(1);
+    const r = recorded[0]!;
+    expect(r.metricName).toBe('frame_render_time');
+    expect(r.attrs.frames_total).toBe(3);
+    expect(r.attrs.slow_frames).toBe(2); // 20, 40
+    expect(r.attrs.dropped_frames).toBe(1); // 40 >= 33.34
+    expect(r.attrs.p50_ms).toBeCloseTo(20, 5);
+    expect(r.attrs.p95_ms).toBeCloseTo(40, 5);
+    expect(r.attrs.worst_ms).toBeCloseTo(40, 5);
+    expect(r.attrs.window_ms).toBeCloseTo(70, 5);
+    expect(r.value).toBeCloseTo(40, 5); // top-level value == p95
+    expect(r.attrs['metric.screen']).toBe('/home');
+  });
+
+  it('suppresses a smooth window entirely (slow_frames == 0)', () => {
+    const recorded: Recorded[] = [];
+    const raf = makeRaf();
+    const handle = registerFrameCapture({
+      recordMetric: (metricName, value, attrs) => recorded.push({ metricName, value, attrs }),
+      getCurrentRoute: () => '/home',
+      rafScheduler: raf.schedule,
+      rafCanceller: raf.cancel,
+    });
+
+    raf.tick(0);
+    raf.tick(10);
+    raf.tick(20);
+    raf.tick(30); // all 10ms — smooth
+
+    handle.dispose();
     expect(recorded).toHaveLength(0);
   });
 
-  it('only emits slow frames by default (>= 16.67 ms delta)', () => {
+  it('suppresses an empty window (no frames observed)', () => {
     const recorded: Recorded[] = [];
     const raf = makeRaf();
-    registerFrameCapture({
+    const handle = registerFrameCapture({
       recordMetric: (metricName, value, attrs) => recorded.push({ metricName, value, attrs }),
       getCurrentRoute: () => '/home',
       rafScheduler: raf.schedule,
       rafCanceller: raf.cancel,
     });
 
-    raf.tick(0);
-    raf.tick(10); // fast — 10ms, skipped
-    raf.tick(30); // slow — 20ms
-    raf.tick(50); // slow — 20ms
+    raf.tick(0); // only sets prevTimestamp — no frame yet
+    handle.dispose();
+    expect(recorded).toHaveLength(0);
+  });
 
+  it('closes and emits the window on route change, then opens a fresh one', () => {
+    const recorded: Recorded[] = [];
+    const raf = makeRaf();
+    let route = '/a';
+    const handle = registerFrameCapture({
+      recordMetric: (metricName, value, attrs) => recorded.push({ metricName, value, attrs }),
+      getCurrentRoute: () => route,
+      rafScheduler: raf.schedule,
+      rafCanceller: raf.cancel,
+    });
+
+    raf.tick(0);
+    raf.tick(20); // /a — 20ms slow
+    raf.tick(50); // /a — 30ms slow
+    route = '/b';
+    raf.tick(70); // route changed → flush /a, this 20ms frame opens /b
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]!.attrs['metric.screen']).toBe('/a');
+    expect(recorded[0]!.attrs.frames_total).toBe(2);
+    expect(recorded[0]!.attrs.slow_frames).toBe(2);
+    expect(recorded[0]!.attrs.window_ms).toBeCloseTo(50, 5);
+
+    raf.tick(110); // /b — 40ms slow
+    handle.dispose();
     expect(recorded).toHaveLength(2);
-    expect(recorded[0]!.value).toBeCloseTo(20, 5);
-    expect(recorded[1]!.value).toBeCloseTo(20, 5);
+    expect(recorded[1]!.attrs['metric.screen']).toBe('/b');
+    expect(recorded[1]!.attrs.frames_total).toBe(2); // the 20ms straddle + the 40ms
   });
 
-  it('uses metricName "frame_render_time" and dotless attribute keys', () => {
+  it('force-closes the window at MAX_WINDOW_MS (30000ms)', () => {
     const recorded: Recorded[] = [];
     const raf = makeRaf();
-    registerFrameCapture({
+    const handle = registerFrameCapture({
       recordMetric: (metricName, value, attrs) => recorded.push({ metricName, value, attrs }),
-      getCurrentRoute: () => '/products/42',
+      getCurrentRoute: () => '/feed',
       rafScheduler: raf.schedule,
       rafCanceller: raf.cancel,
     });
 
     raf.tick(0);
-    raf.tick(20);
+    raf.tick(20); // 20ms slow — window opens at 0
+    raf.tick(30020); // 30020 - 0 >= 30000 → flush prior window, open new
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]!.attrs.frames_total).toBe(1);
+    expect(recorded[0]!.attrs.window_ms).toBeCloseTo(20, 5);
 
-    expect(recorded[0]!.metricName).toBe('frame_render_time');
-    const a = recorded[0]!.attrs;
-    expect(a).toHaveProperty('unit', 'ms');
-    expect(typeof a.frame_build_duration).toBe('number');
-    expect(typeof a.frame_raster_duration).toBe('number');
-    expect(a.frame_type).toBe('ui');
-    expect(typeof a.frame_dropped).toBe('boolean');
-    expect(a['metric.screen']).toBe('/products/42');
-    expect(a).not.toHaveProperty('frame.build_duration_ms');
-    expect(a).not.toHaveProperty('frame.raster_duration_ms');
-  });
-
-  it('marks frame_dropped true when interval >= 2x slow threshold (default 33.34 ms)', () => {
-    const recorded: Recorded[] = [];
-    const raf = makeRaf();
-    registerFrameCapture({
-      recordMetric: (metricName, value, attrs) => recorded.push({ metricName, value, attrs }),
-      getCurrentRoute: () => '/',
-      rafScheduler: raf.schedule,
-      rafCanceller: raf.cancel,
-    });
-
-    raf.tick(0);
-    raf.tick(20);  // slow but not dropped
-    raf.tick(60);  // dropped — 40ms gap
-
+    handle.dispose(); // the big straddling frame (30000ms) is itself slow → emits
     expect(recorded).toHaveLength(2);
-    expect(recorded[0]!.attrs.frame_dropped).toBe(false);
-    expect(recorded[1]!.attrs.frame_dropped).toBe(true);
+    expect(recorded[1]!.attrs.frames_total).toBe(1);
+    expect(recorded[1]!.attrs.worst_ms).toBeCloseTo(30000, 5);
   });
 
-  it('frame_dropped is always boolean — never omitted', () => {
+  it('respects a custom slowThresholdMs for slow/dropped counts', () => {
     const recorded: Recorded[] = [];
     const raf = makeRaf();
-    registerFrameCapture({
-      recordMetric: (metricName, value, attrs) => recorded.push({ metricName, value, attrs }),
-      getCurrentRoute: () => '/',
-      rafScheduler: raf.schedule,
-      rafCanceller: raf.cancel,
-    });
-
-    raf.tick(0);
-    raf.tick(20);
-
-    expect(Object.keys(recorded[0]!.attrs)).toContain('frame_dropped');
-    expect(typeof recorded[0]!.attrs.frame_dropped).toBe('boolean');
-  });
-
-  it('frame_build_duration + frame_raster_duration are always numbers (never null)', () => {
-    const recorded: Recorded[] = [];
-    const raf = makeRaf();
-    registerFrameCapture({
-      recordMetric: (metricName, value, attrs) => recorded.push({ metricName, value, attrs }),
-      getCurrentRoute: () => '/',
-      rafScheduler: raf.schedule,
-      rafCanceller: raf.cancel,
-    });
-
-    raf.tick(0);
-    raf.tick(20);
-    raf.tick(45);
-
-    for (const r of recorded) {
-      expect(typeof r.attrs.frame_build_duration).toBe('number');
-      expect(typeof r.attrs.frame_raster_duration).toBe('number');
-      expect(Number.isFinite(r.attrs.frame_build_duration as number)).toBe(true);
-      expect(Number.isFinite(r.attrs.frame_raster_duration as number)).toBe(true);
-    }
-  });
-
-  it('emits all frames when captureAllFrames is true', () => {
-    const recorded: Recorded[] = [];
-    const raf = makeRaf();
-    registerFrameCapture({
-      recordMetric: (metricName, value, attrs) => recorded.push({ metricName, value, attrs }),
-      getCurrentRoute: () => '/',
-      captureAllFrames: true,
-      rafScheduler: raf.schedule,
-      rafCanceller: raf.cancel,
-    });
-
-    raf.tick(0);
-    raf.tick(8);
-    raf.tick(16);
-    raf.tick(24);
-
-    expect(recorded).toHaveLength(3);
-  });
-
-  it('respects a custom slowThresholdMs', () => {
-    const recorded: Recorded[] = [];
-    const raf = makeRaf();
-    registerFrameCapture({
+    const handle = registerFrameCapture({
       recordMetric: (metricName, value, attrs) => recorded.push({ metricName, value, attrs }),
       getCurrentRoute: () => '/',
       slowThresholdMs: 50,
@@ -227,53 +164,15 @@ describe('registerFrameCapture', () => {
     });
 
     raf.tick(0);
-    raf.tick(40); // below 50 → skip
-    raf.tick(100); // 60ms → emit
+    raf.tick(40); // 40ms — below 50, not slow
+    raf.tick(100); // 60ms — slow, below 100 (2x) so not dropped
+    handle.dispose();
+
     expect(recorded).toHaveLength(1);
+    expect(recorded[0]!.attrs.frames_total).toBe(2);
+    expect(recorded[0]!.attrs.slow_frames).toBe(1);
+    expect(recorded[0]!.attrs.dropped_frames).toBe(0);
     expect(recorded[0]!.value).toBeCloseTo(60, 5);
-    expect(recorded[0]!.attrs.frame_dropped).toBe(false); // 60 < 100 (2 * 50)
-  });
-
-  it('derives frame_build_duration from overlapping longtask entries', () => {
-    const { ctor, instances } = makeObserverFactory();
-    g.PerformanceObserver = ctor;
-
-    const recorded: Recorded[] = [];
-    const raf = makeRaf();
-    registerFrameCapture({
-      recordMetric: (metricName, value, attrs) => recorded.push({ metricName, value, attrs }),
-      getCurrentRoute: () => '/',
-      rafScheduler: raf.schedule,
-      rafCanceller: raf.cancel,
-    });
-
-    // Emit a longtask that overlaps the upcoming frame interval [100, 130].
-    expect(instances).toHaveLength(1);
-    instances[0]!.emit([{ startTime: 105, duration: 15 }]);
-
-    raf.tick(100);
-    raf.tick(130);
-
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]!.attrs.frame_build_duration).toBeCloseTo(15, 5);
-    expect(recorded[0]!.attrs.frame_raster_duration).toBeCloseTo(15, 5);
-  });
-
-  it('falls back to total/0 split when no longtask overlaps the frame', () => {
-    const recorded: Recorded[] = [];
-    const raf = makeRaf();
-    registerFrameCapture({
-      recordMetric: (metricName, value, attrs) => recorded.push({ metricName, value, attrs }),
-      getCurrentRoute: () => '/',
-      rafScheduler: raf.schedule,
-      rafCanceller: raf.cancel,
-    });
-
-    raf.tick(0);
-    raf.tick(20);
-
-    expect(recorded[0]!.attrs.frame_build_duration).toBeCloseTo(20, 5);
-    expect(recorded[0]!.attrs.frame_raster_duration).toBe(0);
   });
 
   it('dispose stops the rAF loop', () => {
@@ -288,44 +187,60 @@ describe('registerFrameCapture', () => {
 
     raf.tick(0);
     raf.tick(20);
-    expect(recorded).toHaveLength(1);
-
     handle.dispose();
+    expect(raf.pending).toHaveLength(0);
+
+    const before = recorded.length;
     raf.tick(60);
     raf.tick(100);
-    expect(recorded).toHaveLength(1);
+    expect(recorded).toHaveLength(before); // no further emits after dispose
   });
 
   it('no-op when requestAnimationFrame is not available', () => {
     const recorded: Recorded[] = [];
-    // Don't pass rafScheduler; let it consult globalThis where rAF is missing.
-    const g2 = globalThis as unknown as { requestAnimationFrame?: unknown };
-    const orig = g2.requestAnimationFrame;
-    delete g2.requestAnimationFrame;
+    const g = globalThis as unknown as { requestAnimationFrame?: unknown };
+    const orig = g.requestAnimationFrame;
+    delete g.requestAnimationFrame;
     try {
       const handle = registerFrameCapture({
         recordMetric: (n, v, a) => recorded.push({ metricName: n, value: v, attrs: a }),
         getCurrentRoute: () => '/',
       });
       expect(typeof handle.dispose).toBe('function');
+      handle.dispose();
       expect(recorded).toHaveLength(0);
     } finally {
-      if (orig !== undefined) g2.requestAnimationFrame = orig;
+      if (orig !== undefined) g.requestAnimationFrame = orig;
     }
   });
 
-  it('no OTel field names appear in emitted attributes', () => {
+  it('emits only dotless attributes with no OTel field names or build/raster split', () => {
     const recorded: Recorded[] = [];
     const raf = makeRaf();
-    registerFrameCapture({
+    const handle = registerFrameCapture({
       recordMetric: (metricName, value, attrs) => recorded.push({ metricName, value, attrs }),
-      getCurrentRoute: () => '/',
+      getCurrentRoute: () => '/products/42',
       rafScheduler: raf.schedule,
       rafCanceller: raf.cancel,
     });
+
     raf.tick(0);
     raf.tick(20);
-    const json = JSON.stringify(recorded[0]);
+    handle.dispose();
+
+    const r = recorded[0]!;
+    const a = r.attrs;
+    // Build/raster split and old per-sample keys are gone from the wire.
+    expect(a).not.toHaveProperty('frame_build_duration');
+    expect(a).not.toHaveProperty('frame_raster_duration');
+    expect(a).not.toHaveProperty('frame_type');
+    expect(a).not.toHaveProperty('frame_dropped');
+    expect(a).not.toHaveProperty('unit');
+    // Attributes are flat primitives.
+    for (const v of Object.values(a)) {
+      expect(['string', 'number', 'boolean']).toContain(typeof v);
+    }
+    const json = JSON.stringify(r);
     expect(json).not.toMatch(/traceId/i);
     expect(json).not.toMatch(/spanId/i);
     expect(json).not.toMatch(/opentelemetry/i);

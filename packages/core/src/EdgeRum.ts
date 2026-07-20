@@ -245,7 +245,6 @@ export const EdgeRum: EdgeRumRuntime = {
           recordMetric: (name, value, attrs) => collector.recordMetric(name, value, attrs),
           getCurrentRoute: () => state.currentRoute,
           slowThresholdMs: config.frameSlowThresholdMs,
-          captureAllFrames: config.captureAllFrames === true,
         });
       } catch (err) {
         healthMonitor.reportError('frames.register', err);
@@ -400,7 +399,6 @@ export const EdgeRum: EdgeRumRuntime = {
             recordMetric: (name, value, attrs) => collector.recordMetric(name, value, attrs),
             getCurrentRoute: () => state.currentRoute,
             slowThresholdMs: config.frameSlowThresholdMs,
-            captureAllFrames: config.captureAllFrames === true,
           });
         } catch (err) {
           healthMonitor.reportError('frames.register', err);

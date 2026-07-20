@@ -178,7 +178,6 @@ The backend dispatches each event by `eventName`. Currently shipped names:
 | HTTP request | `http.request` | `packages/core/src/instrumentation/requests.ts` |
 | Web Vital (LCP, INP, etc.) | (`metric` item, `metricName` = `"LCP"`/`"FCP"`/...) | `packages/core/src/instrumentation/vitals.ts` |
 | JS / unhandled error | `app.crash` | `packages/core/src/instrumentation/errors.ts` (includes `crash.breadcrumbs` JSON-string of last 20 actions) |
-| Console.error / .warn | `app.crash` (cause=ConsoleError/Warn) | `packages/core/src/instrumentation/errors.ts` (opt-out via `captureConsoleErrors: false`) |
 | **iOS native crash** (NSException / Mach signal SIGSEGV-class) | `app.crash` (cause=NativeCrash, runtime=native) | `packages/capacitor/ios/` (PLCrashReporter wrapper) — replayed on next launch |
 | **iOS main-thread hang** | `app.crash` (cause=Hang, runtime=native) | `packages/capacitor/ios/Plugin/HangDetector.swift` |
 | **Android JVM throwable** | `app.crash` (cause=NativeCrash, runtime=native) | `packages/capacitor/android/.../JvmCrashHandler.kt` (Thread.setDefaultUncaughtExceptionHandler) |
@@ -443,7 +442,7 @@ interface EdgeRumConfig {
   flushIntervalMs?: number;          // default 5000
   batchSize?: number;                // max events per payload, default 30
   sanitizeUrl?: (url: string) => string;
-  captureConsoleErrors?: boolean;    // default true; wraps console.error/warn → app.crash
+  captureConsoleErrors?: boolean;    // default true; adds console.error lines to the crash breadcrumb trail (ADR-029). console.warn is not captured.
   captureNativeCrashes?: boolean;    // default true; registers the Capacitor native bridge
   enableAnrDetection?: boolean;      // default true on Android
   enableHangDetection?: boolean;     // default true on iOS

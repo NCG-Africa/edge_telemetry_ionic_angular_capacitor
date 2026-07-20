@@ -174,10 +174,7 @@ export const EdgeRum: EdgeRumRuntime = {
 
     if (config.captureConsoleErrors !== false) {
       try {
-        state.consoleHandle = registerConsoleErrorCapture({
-          recordEvent: (eventName, attributes) => collector.recordEvent(eventName, attributes),
-          getCurrentRoute: () => state.currentRoute,
-        });
+        state.consoleHandle = registerConsoleErrorCapture({});
       } catch (err) {
         healthMonitor.reportError('console.register', err);
       }

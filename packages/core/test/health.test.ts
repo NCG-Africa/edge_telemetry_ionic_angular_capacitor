@@ -51,6 +51,29 @@ describe('HealthMonitor', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('resetSessionTallies zeroes per-session counts but keeps breaker state (#58)', () => {
+    const dispose = vi.fn();
+    const m = new HealthMonitor();
+    m.registerCapture('frames', dispose);
+    for (let i = 0; i < 5; i++) m.reportError('frames.emit', new Error('boom'));
+    m.reportDrop('live-buffer');
+    expect(m.getErrorCount()).toBe(5);
+    expect(m.getDroppedCount()).toBe(1);
+    expect(m.getDisposedCaptures()).toBe('frames');
+
+    m.resetSessionTallies();
+
+    // per-session tallies zeroed...
+    expect(m.getErrorCount()).toBe(0);
+    expect(m.getDroppedCount()).toBe(0);
+    expect(m.getErrorsByScope()).toEqual({});
+    // ...but the disposed capture stays torn down (still dead across rotation)
+    expect(m.getDisposedCaptures()).toBe('frames');
+    // and it is NOT re-disposed by fresh throws
+    for (let i = 0; i < 5; i++) m.reportError('frames.emit', new Error('boom'));
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
   it('getErrorsByScope returns a defensive copy', () => {
     healthMonitor.reportError('a', new Error('a'));
     const snap = healthMonitor.getErrorsByScope();

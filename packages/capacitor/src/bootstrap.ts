@@ -146,6 +146,7 @@ export async function startCapacitorCapture(
     getInternalErrorCount: () => healthMonitor.getErrorCount(),
     getDroppedCount: () => healthMonitor.getDroppedCount(),
     getDisposedCaptures: () => healthMonitor.getDisposedCaptures(),
+    resetSessionHealth: () => healthMonitor.resetSessionTallies(),
     getPlatform: () => platform,
     onLifecycleSample: () => {
       if (perfSamplerHandle) void perfSamplerHandle.drainNow();

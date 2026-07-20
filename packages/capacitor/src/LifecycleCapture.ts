@@ -56,6 +56,10 @@ export interface LifecycleCaptureCallbacks {
   getInternalErrorCount?: () => number;
   getDroppedCount?: () => number;
   getDisposedCaptures?: () => string;
+  // #58: zero the per-session health tallies when a session rotates in-process
+  // (rotation_timeout). Not called on resume — a resumed session keeps its
+  // tallies. Best-effort; must never block the session.started event.
+  resetSessionHealth?: () => void;
   session: LifecycleSessionManagerLike;
   getBeaconPayload?: () => BeaconPayload | null;
   getPlatform?: () => string;
@@ -236,6 +240,7 @@ export async function startLifecycleCapture(
     const expired = lastActiveAt > 0 && ts - lastActiveAt > sessionTimeoutMs;
     if (expired) {
       callbacks.session.startNewSession();
+      callbacks.resetSessionHealth?.();
       callbacks.recordEvent('session.started', { 'session.start_reason': 'rotation_timeout' });
     } else if (hasBackgroundedOnce) {
       callbacks.recordEvent('session.started', { 'session.start_reason': 'resumed' });

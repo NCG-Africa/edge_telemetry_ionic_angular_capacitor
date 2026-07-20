@@ -102,10 +102,21 @@ export class HealthMonitor {
     return [...this.disposed].join(',');
   }
 
-  reset(): void {
+  // ADR-028 dec.4 / #58. Zero the per-session tallies (error_count,
+  // dropped_count) when a genuinely new session begins — init + rotation_timeout,
+  // NOT resume. On mobile the JS context survives background→foreground, so
+  // without this a rotated session's finalize would report the cumulative
+  // process-lifetime total. Deliberately leaves the ADR-031 breaker state
+  // (disposers, disposed set, consecutive run) intact: a disposed capture is
+  // physically torn down and stays dead across the rotation.
+  resetSessionTallies(): void {
     this.errorCount = 0;
     this.droppedCount = 0;
     this.byScope = {};
+  }
+
+  reset(): void {
+    this.resetSessionTallies();
     this.debugMode = false;
     this.disposers = {};
     this.consecutive = {};

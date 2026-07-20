@@ -361,6 +361,46 @@ describe('startLifecycleCapture', () => {
       expect(cb.events.filter((e) => e.name === 'session.finalized')).toHaveLength(0);
     });
 
+    it('resets per-session health tallies on rotation, not on resume (#58)', async () => {
+      const app = fakeApp();
+      const SESSION_TIMEOUT = 30 * 60 * 1000;
+      const resetSessionHealth = vi.fn();
+
+      // Rotation: idle > timeout → reset fires
+      const rotCb = makeCallbacks({ initialLastActiveAt: 1_000 });
+      rotCb.resetSessionHealth = resetSessionHealth;
+      let nowVal = 1_000 + SESSION_TIMEOUT + 1;
+      await startLifecycleCapture(rotCb, {
+        capacitor: nativeCap(),
+        loadApp: async () => app,
+        now: () => nowVal,
+        moduleLoadTime: 0,
+        flushTimeoutMs: 10,
+      });
+      app.emit({ isActive: true });
+      expect(resetSessionHealth).toHaveBeenCalledTimes(1);
+
+      // Resume: background then foreground within timeout → reset must NOT fire
+      const app2 = fakeApp();
+      const resumeReset = vi.fn();
+      const resumeCb = makeCallbacks();
+      resumeCb.resetSessionHealth = resumeReset;
+      let now2 = 1_000;
+      await startLifecycleCapture(resumeCb, {
+        capacitor: nativeCap(),
+        loadApp: async () => app2,
+        now: () => now2,
+        moduleLoadTime: 0,
+        flushTimeoutMs: 10,
+      });
+      app2.emit({ isActive: true });
+      now2 = 1_000 + 60_000;
+      app2.emit({ isActive: false });
+      now2 = 1_000 + 2 * 60_000;
+      app2.emit({ isActive: true });
+      expect(resumeReset).not.toHaveBeenCalled();
+    });
+
     it('first foreground does NOT emit session.started (no prior background)', async () => {
       const app = fakeApp();
       const cb = makeCallbacks();

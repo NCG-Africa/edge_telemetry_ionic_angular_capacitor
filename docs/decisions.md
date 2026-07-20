@@ -775,7 +775,10 @@ per frame. Resolves ticket #46.
    tick reads `getCurrentRoute()`; a change from the window's route closes the current window,
    emits, and opens a fresh one. No new cross-package wiring (the web core has no screen-exit
    callback today; polling the route in the loop avoids adding an interface into
-   `packages/angular`). `MAX_WINDOW_MS` is an **internal constant = 30000ms**.
+   `packages/angular`). `MAX_WINDOW_MS` is an **internal constant = 30000ms**. `dispose()`
+   (SDK `disable()` / session end) flushes any in-progress window too — a third, teardown-only
+   close trigger so a screen's jank isn't silently lost; it obeys the same emit-only-when-slow
+   suppression, so a smooth window still sends nothing.
 3. **Emit only when `slow_frames > 0`.** A window that closes with no slow frame (a smooth
    screen) is **suppressed entirely** — this is where the volume cut lives; a smooth app sends
    near-zero frame metrics. Absence of a summary therefore means "smooth **or** never measured";

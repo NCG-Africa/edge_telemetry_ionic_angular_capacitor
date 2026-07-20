@@ -45,10 +45,14 @@ export interface EdgeRumConfig {
   // the native handlers armed before any other code runs (rare).
   awaitNativeInstall?: boolean;
   // Frame-render metrics — emitted as `metric` items with metricName
-  // `frame_render_time`. Default on; slow-only by default to keep volume sane
-  // (a fully idle screen emits zero events). Set `captureAllFrames` only when
-  // debugging — emits one event per WebView frame regardless of duration.
+  // `frame_render_time`. Default on. The web core aggregates frames into a
+  // rolling window and emits one summary per screen, and only when the window
+  // had a slow frame (ADR-030) — a smooth screen sends nothing.
   captureFrames?: boolean;
+  // No-op on the web core since ADR-030 (windowed aggregation always observes
+  // every frame for the denominator and always suppresses smooth windows).
+  // Still honoured by the native samplers (per-sample shape); removal is folded
+  // into the config-consolidation cleanup.
   captureAllFrames?: boolean;
   frameSlowThresholdMs?: number;
   // Memory samples — emitted as `metric` items with metricName `memory_usage`,

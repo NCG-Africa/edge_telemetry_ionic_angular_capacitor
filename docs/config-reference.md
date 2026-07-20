@@ -219,11 +219,11 @@ Emits `frame_render_time` metric items measuring WebView (and native) frame inte
 
 | Platform | Source |
 |---|---|
-| Web / WebView | `requestAnimationFrame` deltas with the build slice derived from overlapping `PerformanceObserver` `longtask` entries |
+| Web / WebView | `requestAnimationFrame` deltas aggregated into a rolling per-screen window |
 | iOS native | `CADisplayLink` on the main thread |
 | Android native | `Choreographer.FrameCallback` on the main looper |
 
-By default only **slow** frames (interval ≥ `frameSlowThresholdMs`) are emitted, so idle screens cost nothing. `frame_dropped` is `true` when the interval is ≥ 2× the slow threshold (≥ one missed vsync at 60Hz). Both `frame_build_duration` and `frame_raster_duration` are always numbers — never null.
+On the web core the rAF loop observes **every** frame (for the denominator) but does not emit per frame. Instead it accumulates a rolling window and emits **one** `frame_render_time` summary when the window closes — on screen change or after an internal 30000ms cap, whichever first — and **only when the window had at least one slow frame** (interval ≥ `frameSlowThresholdMs`). A smooth screen sends nothing (ADR-030). The summary's top-level `value` is the window p95; attributes carry `frames_total`, `slow_frames`, `dropped_frames` (≥ 2× the slow threshold, one missed vsync at 60Hz), `p50_ms`, `p95_ms`, `worst_ms`, `window_ms`, and `metric.screen`. The old per-frame `frame_build_duration` / `frame_raster_duration` / `frame_type` / `frame_dropped` attributes are gone from the web wire.
 
 Set to `false` to disable frame capture entirely (web *and* native).
 
@@ -232,14 +232,14 @@ Set to `false` to disable frame capture entirely (web *and* native).
 - Type: `boolean`
 - Default: `false`
 
-Debug-only escape hatch. When `true`, emits a `frame_render_time` event for **every** measured frame regardless of duration — useful when investigating jank but **very** noisy at 60fps. Leave `false` in production.
+**No-op on the web core** since ADR-030 — windowed aggregation always observes every frame and always suppresses smooth windows, so there is no per-frame debug shape to opt into. Still honoured by the iOS / Android native samplers (per-sample shape) until they align to the windowed summary; its removal is folded into the config-consolidation cleanup.
 
 ### `frameSlowThresholdMs`
 
 - Type: `number`
 - Default: `16.67` (one frame at 60Hz)
 
-Frames whose total interval is shorter than this value are skipped (when `captureAllFrames` is the default `false`). Raise it to `20` or `25` for tighter signal; lower it (e.g. `12`) on 90Hz / 120Hz devices to flag frames that miss the higher refresh budget.
+Threshold that classifies a frame as slow. On the web core it drives the window's `slow_frames` / `dropped_frames` counts and the emit-only-when-slow suppression; a window with zero slow frames is dropped. Raise it to `20` or `25` for tighter signal; lower it (e.g. `12`) on 90Hz / 120Hz devices to flag frames that miss the higher refresh budget.
 
 ### `captureMemory`
 

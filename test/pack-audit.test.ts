@@ -23,11 +23,20 @@ function distEntryExists(pkg: string): boolean {
   return existsSync(join(ROOT, 'packages', pkg, 'dist', 'index.mjs'));
 }
 
+// `npm pack --dry-run --json` output shape shifted between npm majors: older npm
+// emits an array `[{ files }]`, npm >= 10 emits an object keyed by package name
+// `{ "@scope/pkg": { files } }`. Normalise both to the single entry object.
+function packEntry(parsed: unknown): { files?: Array<{ path: string }> } {
+  if (Array.isArray(parsed)) return parsed[0];
+  const obj = parsed as Record<string, unknown>;
+  if ('files' in obj) return obj as { files?: Array<{ path: string }> };
+  return Object.values(obj)[0] as { files?: Array<{ path: string }> };
+}
+
 function packFiles(pkg: string): string[] {
   const cwd = join(ROOT, 'packages', pkg);
   const raw = execSync('npm pack --dry-run --json', { cwd, encoding: 'utf8' });
-  const parsed = JSON.parse(raw);
-  const entry = Array.isArray(parsed) ? parsed[0] : parsed;
+  const entry = packEntry(JSON.parse(raw));
   return (entry.files ?? []).map((f: { path: string }) => f.path);
 }
 

@@ -35,13 +35,19 @@ export interface PerfSamplingOptions {
   captureAllFrames?: boolean;
 }
 
-export interface NativeFrameSample {
-  ts: string;
-  total_ms: number;
-  build_ms: number;
-  raster_ms: number;
-  dropped: boolean;
-  type: 'ui' | 'raster';
+// Windowed frame summary (ADR-030) — one per closed window, byte-compatible
+// with the web `registerFrameCapture` shape. `value` is the window p95 (the
+// top-level metric value); the rest become dotless summary attributes.
+export interface NativeFrameSummary {
+  value: number;
+  frames_total: number;
+  slow_frames: number;
+  dropped_frames: number;
+  p50_ms: number;
+  p95_ms: number;
+  worst_ms: number;
+  window_ms: number;
+  screen: string;
 }
 
 export interface NativeMemorySample {
@@ -59,7 +65,7 @@ export interface EdgeRumCrashPluginLike {
   setLastScreen: (opts: { screen: string }) => Promise<void>;
   startPerfSampling: (opts: PerfSamplingOptions) => Promise<{ started: boolean }>;
   stopPerfSampling: () => Promise<void>;
-  fetchFrameSamples: () => Promise<{ frames: NativeFrameSample[] }>;
+  fetchFrameSamples: () => Promise<{ frames: NativeFrameSummary[] }>;
   fetchMemorySamples: () => Promise<{ samples: NativeMemorySample[] }>;
 }
 

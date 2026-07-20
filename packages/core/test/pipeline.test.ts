@@ -9,30 +9,31 @@ import type { OfflineQueue } from '../src/queue/OfflineQueue';
 
 function createMockTransport(opts: { endpoint?: string; apiKey?: string } = {}): RetryTransport {
   return {
-    send: vi.fn().mockResolvedValue(undefined),
+    sendOnce: vi.fn().mockResolvedValue({ status: 'ok' }),
     getEndpoint: () => opts.endpoint ?? 'https://example.com/collector/telemetry',
     getApiKey: () => opts.apiKey ?? 'edge_test_key',
   } as unknown as RetryTransport;
 }
 
-function createMockQueue(): OfflineQueue & { push: ReturnType<typeof vi.fn>; flush: ReturnType<typeof vi.fn> } {
+function createMockQueue(): OfflineQueue & { push: ReturnType<typeof vi.fn>; poke: ReturnType<typeof vi.fn> } {
   return {
     push: vi.fn().mockResolvedValue(undefined),
-    flush: vi.fn().mockResolvedValue(undefined),
+    poke: vi.fn(),
+    setDrainSender: vi.fn(),
     clear: vi.fn().mockResolvedValue(undefined),
     size: vi.fn().mockResolvedValue(0),
-  } as unknown as OfflineQueue & { push: ReturnType<typeof vi.fn>; flush: ReturnType<typeof vi.fn> };
+  } as unknown as OfflineQueue & { push: ReturnType<typeof vi.fn>; poke: ReturnType<typeof vi.fn> };
 }
 
 describe('Pipeline', () => {
-  let transport: RetryTransport & { send: ReturnType<typeof vi.fn> };
+  let transport: RetryTransport & { sendOnce: ReturnType<typeof vi.fn> };
   let queue: ReturnType<typeof createMockQueue>;
   let session: SessionManager;
   let context: ContextManager;
   let pipeline: Pipeline;
 
   beforeEach(() => {
-    transport = createMockTransport() as RetryTransport & { send: ReturnType<typeof vi.fn> };
+    transport = createMockTransport() as RetryTransport & { sendOnce: ReturnType<typeof vi.fn> };
     queue = createMockQueue();
     session = new SessionManager();
     context = new ContextManager(session);
@@ -59,8 +60,8 @@ describe('Pipeline', () => {
     }
     // wait for async flush
     await new Promise((r) => setTimeout(r, 10));
-    expect(transport.send).toHaveBeenCalledTimes(1);
-    const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
+    expect(transport.sendOnce).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(String(transport.sendOnce.mock.calls[0]?.[0]));
     expect(body.type).toBe('telemetry_batch');
     expect(body.events).toHaveLength(3);
   });
@@ -71,23 +72,31 @@ describe('Pipeline', () => {
     expect(session.getSequence()).toBe(1);
   });
 
-  it('pushes to offline queue on transport failure', async () => {
-    transport.send.mockRejectedValueOnce(new Error('network'));
+  it('pushes to offline queue on a non-ok (retryable) send', async () => {
+    transport.sendOnce.mockResolvedValueOnce({ status: 'retryable' });
     pipeline.push(buildEventPayload('test', {}, {}));
     await pipeline.flush();
     expect(queue.push).toHaveBeenCalledTimes(1);
+    expect(queue.poke).toHaveBeenCalled();
+  });
+
+  it('does not increment the session sequence on a non-ok send', async () => {
+    transport.sendOnce.mockResolvedValueOnce({ status: 'retryable' });
+    pipeline.push(buildEventPayload('test', {}, {}));
+    await pipeline.flush();
+    expect(session.getSequence()).toBe(0);
   });
 
   it('pushImmediate triggers immediate flush', async () => {
     pipeline.pushImmediate(buildEventPayload('app.crash', {}, {}));
     await new Promise((r) => setTimeout(r, 10));
-    expect(transport.send).toHaveBeenCalledTimes(1);
+    expect(transport.sendOnce).toHaveBeenCalledTimes(1);
   });
 
   it('sends JSON with the correct envelope', async () => {
     pipeline.push(buildEventPayload('navigation', { 'sdk.platform': 'ionic-angular-capacitor', 'device.id': 'device_1_abcd1234_web' }, {}));
     await pipeline.flush();
-    const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
+    const body = JSON.parse(String(transport.sendOnce.mock.calls[0]?.[0]));
     expect(body.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(body.type).toBe('telemetry_batch');
     expect(body).not.toHaveProperty('device_id');
@@ -115,13 +124,13 @@ describe('Pipeline', () => {
     });
     locatedPipeline.push(buildEventPayload('navigation', { 'device.id': 'device_1_abcd1234_web' }, {}));
     await locatedPipeline.flush();
-    const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
+    const body = JSON.parse(String(transport.sendOnce.mock.calls[0]?.[0]));
     expect(body.location).toBe('Nairobi/Kenya');
   });
 
-  it('flushOfflineQueue delegates to queue.flush', async () => {
+  it('flushOfflineQueue pokes the queue drain', async () => {
     await pipeline.flushOfflineQueue();
-    expect(queue.flush).toHaveBeenCalledTimes(1);
+    expect(queue.poke).toHaveBeenCalledTimes(1);
   });
 
   describe('stable-context back-fill', () => {
@@ -144,7 +153,7 @@ describe('Pipeline', () => {
 
       await pipeline.flush();
 
-      const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
+      const body = JSON.parse(String(transport.sendOnce.mock.calls[0]?.[0]));
       const navEvent = body.events[0];
       expect(navEvent.attributes['device.id']).toBe('device_1_abcd1234_web');
       expect(navEvent.attributes['device.platform']).toBe('web');
@@ -180,7 +189,7 @@ describe('Pipeline', () => {
 
       await pipeline.flush();
 
-      const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
+      const body = JSON.parse(String(transport.sendOnce.mock.calls[0]?.[0]));
       const ev = body.events[0];
       expect(ev.attributes['device.id']).toBe('device_OLD_web');
       expect(ev.attributes['app.name']).toBe('OldApp');
@@ -207,7 +216,7 @@ describe('Pipeline', () => {
 
       await pipeline.flush();
 
-      const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
+      const body = JSON.parse(String(transport.sendOnce.mock.calls[0]?.[0]));
       const ev = body.events[0];
       expect(ev.attributes['app.build_number']).toBe('42');
       expect(ev.attributes['navigation.to_screen']).toBe('/home');
@@ -229,7 +238,7 @@ describe('Pipeline', () => {
 
       await pipeline.flush();
 
-      const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
+      const body = JSON.parse(String(transport.sendOnce.mock.calls[0]?.[0]));
       const ev = body.events[0];
       // Field is absent rather than "".
       expect(ev.attributes['app.build_number']).toBeUndefined();
@@ -264,7 +273,7 @@ describe('Pipeline', () => {
 
       await pipeline.flush();
 
-      const body = JSON.parse(String(transport.send.mock.calls[0]?.[0]));
+      const body = JSON.parse(String(transport.sendOnce.mock.calls[0]?.[0]));
       const builds = body.events.map((e: { attributes: Record<string, string> }) => e.attributes['app.build_number']);
       expect(new Set(builds)).toEqual(new Set(['42']));
       builds.forEach((b: string) => expect(b).not.toBe(''));
@@ -298,7 +307,7 @@ describe('Pipeline', () => {
       pipeline.freeze();
       pipeline.pushImmediate(buildEventPayload('app.crash', {}, {}));
       await new Promise((r) => setTimeout(r, 20));
-      expect(transport.send).not.toHaveBeenCalled();
+      expect(transport.sendOnce).not.toHaveBeenCalled();
       expect(pipeline.getBufferSize()).toBe(1);
     });
 
@@ -308,7 +317,7 @@ describe('Pipeline', () => {
         pipeline.push(buildEventPayload('custom_event', {}, { i }));
       }
       await new Promise((r) => setTimeout(r, 20));
-      expect(transport.send).not.toHaveBeenCalled();
+      expect(transport.sendOnce).not.toHaveBeenCalled();
       expect(pipeline.getBufferSize()).toBe(5);
     });
 
@@ -319,22 +328,22 @@ describe('Pipeline', () => {
       // need a fresh push to trigger flush
       pipeline.pushImmediate(buildEventPayload('app.crash', {}, {}));
       await new Promise((r) => setTimeout(r, 20));
-      expect(transport.send).toHaveBeenCalledTimes(1);
+      expect(transport.sendOnce).toHaveBeenCalledTimes(1);
     });
 
     it('explicit flush() still works while frozen', async () => {
       pipeline.freeze();
       pipeline.push(buildEventPayload('custom_event', {}, {}));
       await pipeline.flush();
-      expect(transport.send).toHaveBeenCalledTimes(1);
+      expect(transport.sendOnce).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('post-flush offline queue drain', () => {
-    it('attempts to drain the offline queue after every successful send', async () => {
+    it('pokes the offline queue drain after every successful send', async () => {
       pipeline.push(buildEventPayload('custom_event', {}, {}));
       await pipeline.flush();
-      expect(queue.flush).toHaveBeenCalled();
+      expect(queue.poke).toHaveBeenCalled();
     });
   });
 
@@ -360,7 +369,7 @@ describe('Pipeline', () => {
       }
       pipeline.unfreeze();
       await pipeline.flush();
-      const bodies = transport.send.mock.calls.map((c) => JSON.parse(String(c[0])));
+      const bodies = transport.sendOnce.mock.calls.map((c) => JSON.parse(String(c[0])));
       const seen = bodies.flatMap((b) => b.events.map((e: { attributes: { i: number } }) => e.attributes.i));
       // Oldest 5 (i=0..4) were dropped; freshest survive.
       expect(seen).not.toContain(0);
@@ -378,7 +387,7 @@ describe('Pipeline', () => {
       expect(pipeline.getBufferSize()).toBe(30);
       pipeline.unfreeze();
       await pipeline.flush();
-      const seen = transport.send.mock.calls
+      const seen = transport.sendOnce.mock.calls
         .map((c) => JSON.parse(String(c[0])))
         .flatMap((b) => b.events);
       expect(seen.some((e: { eventName?: string }) => e.eventName === 'app.crash')).toBe(true);
@@ -406,25 +415,25 @@ describe('Pipeline', () => {
       // Start flush but don't await — it blocks on readyPromise
       void deferredPipeline.flush();
       await new Promise((r) => setTimeout(r, 50));
-      expect(transport.send).not.toHaveBeenCalled();
+      expect(transport.sendOnce).not.toHaveBeenCalled();
       // Now unblock
       deferredPipeline.markReady();
       await new Promise((r) => setTimeout(r, 50));
-      expect(transport.send).toHaveBeenCalledTimes(1);
+      expect(transport.sendOnce).toHaveBeenCalledTimes(1);
     });
 
     it('flushes buffered events after markReady', async () => {
       deferredPipeline.push(buildEventPayload('test', { 'device.id': 'device_1_abcd1234_web' }, {}));
       deferredPipeline.markReady();
       await deferredPipeline.flush();
-      expect(transport.send).toHaveBeenCalledTimes(1);
+      expect(transport.sendOnce).toHaveBeenCalledTimes(1);
     });
 
     it('default pipeline (no deferReady) flushes immediately', async () => {
       // uses the non-deferred pipeline from the outer beforeEach
       pipeline.push(buildEventPayload('test', {}, {}));
       await pipeline.flush();
-      expect(transport.send).toHaveBeenCalledTimes(1);
+      expect(transport.sendOnce).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -1,13 +1,32 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   OfflineQueue,
   OFFLINE_QUEUE_KEY,
   createDefaultStorage,
+  type DrainSender,
   type PreferencesLike,
   type QueueStorage,
 } from '../src/queue/OfflineQueue';
+import type { SendResult } from '../src/transport/RetryTransport';
 import { healthMonitor } from '../src/internal/health';
+
+// Sender that records every payload it sees and always succeeds.
+function recordingOkSender(sent: string[]): DrainSender {
+  return async (p) => {
+    sent.push(p);
+    return { status: 'ok' };
+  };
+}
+
+// Drain the queue with a given sender and wait for the pass to settle. The
+// drain runs items back-to-back on real timers; poll until it stops sending.
+async function drainAndSettle(queue: OfflineQueue, sender: DrainSender, onSuccess?: () => void): Promise<void> {
+  queue.setDrainSender(sender, onSuccess);
+  queue.poke();
+  // Let the (immediate-resolving) send/save microtasks flush.
+  for (let i = 0; i < 50; i++) await Promise.resolve();
+}
 
 class MemoryStorage implements QueueStorage {
   items: string[] = [];
@@ -94,31 +113,29 @@ describe('OfflineQueue', () => {
     expect(storage.items[199]).toBe('item-249');
   });
 
-  it('failed sendFn keeps items and does not attempt subsequent items', async () => {
+  it('a retryable result keeps the item and stops the pass (does not skip to later items)', async () => {
     await queue.push('a');
     await queue.push('b');
     await queue.push('c');
 
     const sent: string[] = [];
-    const sendFn = vi.fn(async (payload: string) => {
+    const sender = vi.fn(async (payload: string): Promise<SendResult> => {
       sent.push(payload);
-      if (payload === 'b') throw new Error('network down');
+      return payload === 'b' ? { status: 'retryable' } : { status: 'ok' };
     });
 
-    await queue.flush(sendFn);
+    await drainAndSettle(queue, sender);
 
+    // 'a' delivered, 'b' retryable → drain holds at 'b'; 'c' is not attempted.
     expect(sent).toEqual(['a', 'b']);
-    expect(sendFn).toHaveBeenCalledTimes(2);
     expect(await queue.size()).toBe(2);
     expect(storage.items).toEqual(['b', 'c']);
   });
 
-  it('successful sendFn empties the queue completely', async () => {
+  it('an all-ok drain empties the queue completely, contiguously', async () => {
     for (let i = 0; i < 5; i++) await queue.push(`p-${i}`);
     const sent: string[] = [];
-    await queue.flush(async (p) => {
-      sent.push(p);
-    });
+    await drainAndSettle(queue, recordingOkSender(sent));
     expect(sent).toEqual(['p-0', 'p-1', 'p-2', 'p-3', 'p-4']);
     expect(await queue.size()).toBe(0);
     expect(storage.items).toEqual([]);
@@ -145,9 +162,7 @@ describe('OfflineQueue', () => {
     const q = new OfflineQueue({ storage, maxQueueSize: 200 });
     expect(await q.size()).toBe(2);
     const sent: string[] = [];
-    await q.flush(async (p) => {
-      sent.push(p);
-    });
+    await drainAndSettle(q, recordingOkSender(sent));
     expect(sent).toEqual(['persisted-1', 'persisted-2']);
   });
 
@@ -157,10 +172,14 @@ describe('OfflineQueue', () => {
     expect(await q.size()).toBe(200);
   });
 
-  it('empty flush is a no-op', async () => {
-    const sendFn = vi.fn();
-    await queue.flush(sendFn);
-    expect(sendFn).not.toHaveBeenCalled();
+  it('poking an empty queue is a no-op', async () => {
+    const sender = vi.fn(async (): Promise<SendResult> => ({ status: 'ok' }));
+    await drainAndSettle(queue, sender);
+    expect(sender).not.toHaveBeenCalled();
+  });
+
+  it('poke without a drain sender configured is a no-op', () => {
+    expect(() => queue.poke()).not.toThrow();
   });
 
   it('maxQueueSize of 1 keeps only the newest item', async () => {
@@ -202,6 +221,154 @@ describe('OfflineQueue', () => {
     }
   });
 
+  describe('drain retry lifecycle (ADR-028)', () => {
+    const microflush = async (): Promise<void> => {
+      for (let i = 0; i < 50; i++) await Promise.resolve();
+    };
+
+    beforeEach(() => {
+      healthMonitor.reset();
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('walks [2s, 8s, 30s] then holds at 30s on repeated retryable', async () => {
+      const q = new OfflineQueue({ storage: new MemoryStorage() });
+      await q.push('x');
+      const sender = vi.fn(async (): Promise<SendResult> => ({ status: 'retryable' }));
+      q.setDrainSender(sender);
+
+      q.poke();
+      await microflush();
+      expect(sender).toHaveBeenCalledTimes(1); // immediate first attempt
+
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(sender).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sender).toHaveBeenCalledTimes(2); // +2s
+
+      await vi.advanceTimersByTimeAsync(8000);
+      expect(sender).toHaveBeenCalledTimes(3); // +8s
+
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(sender).toHaveBeenCalledTimes(4); // +30s
+
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(sender).toHaveBeenCalledTimes(5); // holds at 30s
+
+      // Retryable never drops the item or counts toward sdk.dropped_count.
+      expect(await q.size()).toBe(1);
+      expect(healthMonitor.getDroppedCount()).toBe(0);
+    });
+
+    it('honors Retry-After over the step without burning a ladder rung', async () => {
+      const q = new OfflineQueue({ storage: new MemoryStorage() });
+      await q.push('x');
+      const seq: SendResult[] = [
+        { status: 'retryable', retryAfterMs: 5000 }, // overrides the wait; rung not consumed
+        { status: 'retryable' }, // still step-0 → 2s
+        { status: 'ok' },
+      ];
+      let i = 0;
+      const sender = vi.fn(async (): Promise<SendResult> => seq[i++] ?? { status: 'ok' });
+      q.setDrainSender(sender);
+
+      q.poke();
+      await microflush();
+      expect(sender).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(4999);
+      expect(sender).toHaveBeenCalledTimes(1); // waiting the full 5s, not 2s
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sender).toHaveBeenCalledTimes(2);
+
+      // Retry-After didn't advance the ladder, so this retryable still waits 2s.
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(sender).toHaveBeenCalledTimes(3);
+
+      expect(await q.size()).toBe(0);
+    });
+
+    it('resets to the fast step after a success', async () => {
+      const q = new OfflineQueue({ storage: new MemoryStorage() });
+      await q.push('x');
+      await q.push('y');
+      const seq: SendResult[] = [
+        { status: 'retryable' }, // x attempt 1 → wait 2s
+        { status: 'ok' }, // x attempt 2 → delivered, reset; y attempted immediately
+        { status: 'retryable' }, // y attempt 3 → should wait 2s again (reset), not 8s
+        { status: 'ok' }, // y attempt 4
+      ];
+      let i = 0;
+      const sender = vi.fn(async (): Promise<SendResult> => seq[i++] ?? { status: 'ok' });
+      q.setDrainSender(sender);
+
+      q.poke();
+      await microflush();
+      expect(sender).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(sender).toHaveBeenCalledTimes(3); // x delivered, y attempted contiguously
+
+      await vi.advanceTimersByTimeAsync(2000); // reset proven: y retries at 2s, not 8s
+      expect(sender).toHaveBeenCalledTimes(4);
+
+      expect(await q.size()).toBe(0);
+    });
+
+    it('drops a fatal batch immediately and counts it toward sdk.dropped_count', async () => {
+      const q = new OfflineQueue({ storage: new MemoryStorage() });
+      await q.push('bad');
+      await q.push('good');
+      const sent: string[] = [];
+      const sender = vi.fn(async (p: string): Promise<SendResult> => {
+        sent.push(p);
+        return p === 'bad' ? { status: 'fatal' } : { status: 'ok' };
+      });
+      q.setDrainSender(sender);
+
+      q.poke();
+      await microflush();
+
+      // 'bad' dropped without waiting, 'good' delivered right after.
+      expect(sent).toEqual(['bad', 'good']);
+      expect(await q.size()).toBe(0);
+      expect(healthMonitor.getDroppedCount()).toBe(1);
+    });
+
+    it('advances the session sequence via onSuccess for each delivered batch', async () => {
+      const q = new OfflineQueue({ storage: new MemoryStorage() });
+      await q.push('a');
+      await q.push('b');
+      let delivered = 0;
+      q.setDrainSender(async () => ({ status: 'ok' }), () => {
+        delivered++;
+      });
+
+      q.poke();
+      await microflush();
+
+      expect(delivered).toBe(2);
+    });
+
+    it('clear() cancels a pending retry so a disabled SDK stops draining', async () => {
+      const q = new OfflineQueue({ storage: new MemoryStorage() });
+      await q.push('x');
+      const sender = vi.fn(async (): Promise<SendResult> => ({ status: 'retryable' }));
+      q.setDrainSender(sender);
+
+      q.poke();
+      await microflush();
+      expect(sender).toHaveBeenCalledTimes(1);
+
+      await q.clear();
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(sender).toHaveBeenCalledTimes(1); // no further attempts after clear
+    });
+  });
+
   describe('createDefaultStorage', () => {
     it('web path uses localStorage under key edge_rum_q', async () => {
       const ls = fakeLocalStorage();
@@ -234,9 +401,7 @@ describe('OfflineQueue', () => {
       });
       const q = new OfflineQueue({ storage: s });
       await q.push('x');
-      await q.flush(async () => {
-        /* ok */
-      });
+      await drainAndSettle(q, async () => ({ status: 'ok' }));
       expect(ls.getItem(OFFLINE_QUEUE_KEY)).toBeNull();
     });
 
@@ -269,9 +434,7 @@ describe('OfflineQueue', () => {
         loadPreferences: async () => prefs,
       });
       const q = new OfflineQueue({ storage: s });
-      await q.flush(async () => {
-        /* ok */
-      });
+      await drainAndSettle(q, async () => ({ status: 'ok' }));
       expect(prefs.store.value).toBeNull();
     });
 

@@ -54,6 +54,13 @@ export class Pipeline {
     this.location = options.location;
     this.debug = options.debug ?? false;
 
+    // The queue owns the retry lifecycle (ADR-028): give it the stateless
+    // transport and advance the session sequence on each delivered batch.
+    this.queue.setDrainSender(
+      (body) => this.transport.sendOnce(body),
+      () => this.session.incrementSequence(),
+    );
+
     if (options.deferReady) {
       this.readyPromise = new Promise<void>((resolve) => {
         this.readyResolve = resolve;
@@ -138,31 +145,30 @@ export class Pipeline {
         const payload = buildBatchPayload(batch, this.location);
         const body = JSON.stringify(payload);
 
-        try {
-          await this.transport.send(body);
+        // Fail-fast (ADR-028): one POST, no inline backoff. Any non-success
+        // routes to the queue; the queue's paced drain owns all retrying.
+        const result = await this.transport.sendOnce(body);
+        if (result.status === 'ok') {
           this.session.incrementSequence();
-          // Opportunistically drain the offline queue after every successful
-          // live send — turns transient outages into self-healing without
-          // requiring an explicit foreground/network-reconnect trigger.
-          void this.flushOfflineQueue();
-        } catch (err) {
+        } else {
           if (this.debug) {
             // eslint-disable-next-line no-console
-            console.warn('[edge-rum] send failed, queuing offline', err);
+            console.warn('[edge-rum] send not ok, queuing offline', result.status);
           }
           await this.queue.push(body);
         }
+        // Poke the drain either way — self-heal any backlog after a success,
+        // or start the paced retry for the batch we just queued.
+        void this.flushOfflineQueue();
       }
     } finally {
       this.flushing = false;
     }
   }
 
-  async flushOfflineQueue(): Promise<void> {
-    await this.queue.flush(async (body: string) => {
-      await this.transport.send(body);
-      this.session.incrementSequence();
-    });
+  flushOfflineQueue(): Promise<void> {
+    this.queue.poke();
+    return Promise.resolve();
   }
 
   getBufferSize(): number {

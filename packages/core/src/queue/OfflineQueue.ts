@@ -1,7 +1,14 @@
 import { healthMonitor } from '../internal/health';
+import type { SendResult } from '../transport/RetryTransport';
 
 export const OFFLINE_QUEUE_KEY = 'edge_rum_q';
 export const DEFAULT_MAX_QUEUE_SIZE = 200;
+
+// ADR-028. The retry backoff lives here (the queue owns the persisted batches
+// and their retry lifecycle), not inline on the flush path. On a retryable
+// result the drain walks these steps then holds at the last, honoring
+// Retry-After when present, and resets to the first step on any success.
+const RETRY_LADDER_MS = [2000, 8000, 30000] as const;
 
 export interface QueueStorage {
   load(): Promise<string[]>;
@@ -27,7 +34,14 @@ export interface OfflineQueueOptions {
   debug?: boolean;
 }
 
-export type SendFn = (payload: string) => Promise<void>;
+// The drain sends one persisted batch and reports how it went. onSuccess fires
+// after each delivered batch (so the session sequence advances per send).
+export type DrainSender = (payload: string) => Promise<SendResult>;
+
+type DrainStep =
+  | { kind: 'continue' } // ok or fatal — move to the next item with no gap
+  | { kind: 'done' } // queue empty
+  | { kind: 'retryable'; retryAfterMs?: number }; // keep item, back off
 
 function parseItems(raw: string | null | undefined): string[] {
   if (!raw) return [];
@@ -163,6 +177,11 @@ export class OfflineQueue {
   private loaded = false;
   private loading: Promise<void> | null = null;
   private opChain: Promise<void> = Promise.resolve();
+  private drainSender: DrainSender | null = null;
+  private drainOnSuccess: (() => void) | null = null;
+  private drainTimer: ReturnType<typeof setTimeout> | null = null;
+  private draining = false;
+  private backoffIndex = 0;
 
   constructor(options: OfflineQueueOptions = {}) {
     this.storage =
@@ -222,25 +241,92 @@ export class OfflineQueue {
     });
   }
 
-  flush(sendFn: SendFn): Promise<void> {
-    return this.enqueue(async () => {
-      await this.ensureLoaded();
-      while (this.items.length > 0) {
-        const next = this.items[0];
-        if (next === undefined) break;
-        try {
-          await sendFn(next);
-        } catch (err) {
-          if (this.debug) {
-            // eslint-disable-next-line no-console
-            console.warn('[edge-rum] offline queue flush failed', err);
-          }
+  // Wire the transport in once at startup. The queue owns the retry lifecycle;
+  // callers just push() failed batches and poke() the drain.
+  setDrainSender(sender: DrainSender, onSuccess?: () => void): void {
+    this.drainSender = sender;
+    this.drainOnSuccess = onSuccess ?? null;
+  }
+
+  // Kick the drain. No-op if one is already running or a backoff wait is
+  // pending — so a burst of pokes never stampedes into concurrent drains.
+  poke(): void {
+    if (this.draining || this.drainTimer !== null || !this.drainSender) return;
+    void this.runDrain();
+  }
+
+  // Send items front-to-back with no artificial gap between successes. Stops
+  // when the queue empties (resets backoff) or a retryable result schedules a
+  // paced retry.
+  private async runDrain(): Promise<void> {
+    if (this.draining) return;
+    this.draining = true;
+    try {
+      for (;;) {
+        const step = await this.enqueue(() => this.drainOne());
+        if (step.kind === 'continue') continue;
+        if (step.kind === 'done') {
+          this.backoffIndex = 0;
           return;
         }
-        this.items.shift();
-        await this.storage.save(this.items);
+        // retryable — a server Retry-After overrides this wait and does NOT burn
+        // a ladder rung (the server dictates the timing); otherwise walk
+        // [2s, 8s, 30s], advancing and holding at the last step. backoffIndex is
+        // always clamped in-bounds, so the `?? RETRY_LADDER_MS[0]` fallback is
+        // unreachable — it just satisfies noUncheckedIndexedAccess without a
+        // magic number.
+        let delay: number;
+        if (step.retryAfterMs !== undefined) {
+          delay = step.retryAfterMs;
+        } else {
+          delay = RETRY_LADDER_MS[this.backoffIndex] ?? RETRY_LADDER_MS[0];
+          this.backoffIndex = Math.min(this.backoffIndex + 1, RETRY_LADDER_MS.length - 1);
+        }
+        this.drainTimer = setTimeout(() => {
+          this.drainTimer = null;
+          void this.runDrain();
+        }, delay);
+        return;
       }
-    });
+    } finally {
+      this.draining = false;
+    }
+  }
+
+  private async drainOne(): Promise<DrainStep> {
+    await this.ensureLoaded();
+    const next = this.items[0];
+    const sender = this.drainSender;
+    if (next === undefined || !sender) return { kind: 'done' };
+
+    let result: SendResult;
+    try {
+      result = await sender(next);
+    } catch (err) {
+      // sender contract is never-throw, but treat an unexpected throw as a
+      // transient network blip rather than losing the batch.
+      if (this.debug) {
+        // eslint-disable-next-line no-console
+        console.warn('[edge-rum] drain sender threw', err);
+      }
+      result = { status: 'retryable' };
+    }
+
+    if (result.status === 'retryable') {
+      return { kind: 'retryable', retryAfterMs: result.retryAfterMs };
+    }
+
+    // ok or fatal both consume the item; only fatal counts as a drop.
+    this.items.shift();
+    await this.storage.save(this.items);
+    if (result.status === 'ok') {
+      this.backoffIndex = 0;
+      this.drainOnSuccess?.();
+    } else {
+      // ADR-028. Non-retryable response — drop and count toward sdk.dropped_count.
+      healthMonitor.reportDrop('transport-fatal');
+    }
+    return this.items.length > 0 ? { kind: 'continue' } : { kind: 'done' };
   }
 
   size(): Promise<number> {
@@ -251,6 +337,11 @@ export class OfflineQueue {
   }
 
   clear(): Promise<void> {
+    if (this.drainTimer !== null) {
+      clearTimeout(this.drainTimer);
+      this.drainTimer = null;
+    }
+    this.backoffIndex = 0;
     return this.enqueue(async () => {
       await this.ensureLoaded();
       this.items = [];

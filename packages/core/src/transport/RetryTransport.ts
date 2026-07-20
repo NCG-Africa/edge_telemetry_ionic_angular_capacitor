@@ -4,9 +4,15 @@ export interface RetryTransportOptions {
   debug?: boolean;
 }
 
-const RETRY_DELAYS_MS = [0, 2000, 8000, 30000] as const;
-
 const RETRYABLE_STATUS = new Set([0, 429, 503]);
+
+// One POST, classified. Timing/backoff is NOT here (ADR-028) — it lives in the
+// OfflineQueue drain. `retryable` carries any Retry-After (ms) for the drain to
+// honor; `fatal` is a non-retryable response the drain drops immediately.
+export type SendResult =
+  | { status: 'ok' }
+  | { status: 'retryable'; retryAfterMs?: number }
+  | { status: 'fatal' };
 
 export interface FetchLike {
   (input: string, init?: RequestInit): Promise<Response>;
@@ -16,10 +22,6 @@ function getFetch(): FetchLike {
   return (typeof globalThis !== 'undefined' && typeof globalThis.fetch === 'function')
     ? globalThis.fetch.bind(globalThis)
     : (() => { throw new Error('fetch is not available'); }) as unknown as FetchLike;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function getRetryAfterMs(response: Response): number | undefined {
@@ -57,51 +59,37 @@ export class RetryTransport {
     return this.apiKey;
   }
 
-  async send(body: string): Promise<void> {
-    let lastError: unknown;
+  // Stateless single POST. Never sleeps, never throws — classifies the outcome
+  // so the caller (fail-fast flush) or the paced drain decides what happens next.
+  async sendOnce(body: string): Promise<SendResult> {
+    try {
+      const response = await this.fetchFn(this.endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': this.apiKey,
+        },
+        body,
+      });
 
-    for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
-      const delay = RETRY_DELAYS_MS[attempt] ?? 0;
-      if (delay > 0) {
-        await sleep(delay);
+      if (response.ok) return { status: 'ok' };
+
+      if (RETRYABLE_STATUS.has(response.status)) {
+        return { status: 'retryable', retryAfterMs: getRetryAfterMs(response) };
       }
 
-      try {
-        const response = await this.fetchFn(this.endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': this.apiKey,
-          },
-          body,
-        });
-
-        if (response.ok) {
-          return;
-        }
-
-        if (response.status === 429) {
-          const retryAfter = getRetryAfterMs(response);
-          if (retryAfter !== undefined && attempt < RETRY_DELAYS_MS.length - 1) {
-            await sleep(retryAfter);
-            continue;
-          }
-        }
-
-        if (!RETRYABLE_STATUS.has(response.status)) {
-          if (this.debug) {
-            // eslint-disable-next-line no-console
-            console.warn(`[edge-rum] non-retryable response ${response.status}, discarding`);
-          }
-          return;
-        }
-
-        lastError = new Error(`HTTP ${response.status}`);
-      } catch (err) {
-        lastError = err;
+      if (this.debug) {
+        // eslint-disable-next-line no-console
+        console.warn(`[edge-rum] non-retryable response ${response.status}, dropping`);
       }
+      return { status: 'fatal' };
+    } catch (err) {
+      // Network-level failure (fetch threw) — same class as a status-0 response.
+      if (this.debug) {
+        // eslint-disable-next-line no-console
+        console.warn('[edge-rum] send failed', err);
+      }
+      return { status: 'retryable' };
     }
-
-    throw lastError;
   }
 }

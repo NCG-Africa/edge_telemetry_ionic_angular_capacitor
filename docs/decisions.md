@@ -824,13 +824,13 @@ per frame. Resolves ticket #46.
   `frame_dropped`). Per `CLAUDE.md` this requires backend-team sign-off and a
   `docs/payload-schema.json` update before implementation — tracked by the map's frame-metric
   wire-shape fog item.
-- (−) **Native-sampler divergence until aligned.** The iOS (`FrameSampler.swift`) and Android
-  (`FrameSampler.kt`) samplers already buffer samples (cap 240) and drain via `fetchPending()`,
-  but still ship **per-sample** `frame_render_time` with the old `build_ms`/`raster_ms`/`dropped`
-  attributes. After this decision, web and native emit different shapes for the same metric name.
-  Wire parity is a hard requirement (same Kafka processor, both platforms), so aligning the native
-  samplers to the windowed-summary shape is follow-on work folded into the same wire-shape fog
-  item — it is downstream of this decision, not a separate effort.
+- (−) **Native-sampler divergence until aligned — now resolved.** The iOS (`FrameSampler.swift`,
+  #54) and Android (`FrameSampler.kt`, #55) samplers originally shipped **per-sample**
+  `frame_render_time` with the old `build_ms`/`raster_ms`/`dropped` attributes. Both are now on the
+  windowed-summary shape, so web+iOS+Android emit byte-compatible summaries for the same metric name
+  (Kafka parity). Window boundary on native closes on JS route change (relayed via `setLastScreen`),
+  a 30s cap, backgrounding (iOS `didEnterBackground`, Android `handleOnPause`), or stop. `#49`'s
+  schema tolerated both shapes during the migration window.
 - (−) No positive smooth-screen signal (decision 3): dashboards cannot compute a fleet smoothness
   percentage from these metrics, because healthy windows emit nothing. Accepted: the cardinal rule
   is that the monitor must not degrade the app, and per-frame emission on every smooth frame is

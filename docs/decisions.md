@@ -932,3 +932,9 @@ ADR-028/029/030 — it counts wounds; this ADR applies the tourniquet. Resolves 
    `error_count` and no-op the breaker — a `reportError` for an unregistered name is harmless.
 - `HealthMonitor.reset()` must now also clear registered captures, the per-capture consecutive
    counters, and the disposed set (alongside the existing `errorCount` / `byScope` reset).
+- Reset-on-success (decision 2) needs a per-capture success signal, which the error seam alone can't
+   supply. Implemented as `healthMonitor.reportSuccess(scope)` called at each registered capture's
+   hot emit success point (`frames.emit`, `memory-web.emit`, `interactions.click`,
+   `perf-observer.longtask.emit` / `.resource.emit`, `errors.capture`, `console.emit`) — the ~6 emit
+   sites, not the ~20 error-report sites. Without it the counter would drift to cumulative, the model
+   decision 2 explicitly rejected.

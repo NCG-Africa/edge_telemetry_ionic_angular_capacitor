@@ -171,10 +171,12 @@ export const EdgeRum: EdgeRumRuntime = {
       flushPipeline: () => collector.flushPipeline(),
       getCurrentRoute: () => state.currentRoute,
     });
+    healthMonitor.registerCapture('errors', () => state.errorsHandle?.dispose());
 
     if (config.captureConsoleErrors !== false) {
       try {
         state.consoleHandle = registerConsoleErrorCapture({});
+        healthMonitor.registerCapture('console', () => state.consoleHandle?.dispose());
       } catch (err) {
         healthMonitor.reportError('console.register', err);
       }
@@ -214,6 +216,10 @@ export const EdgeRum: EdgeRumRuntime = {
       });
     }
 
+    // ADR-031: not registered with the breaker on purpose — request capture
+    // swallows its own errors (requests.ts bare-catches, never reportError), so
+    // it doesn't feed the reportError seam the breaker trips on. Registering it
+    // would be dead code. Wiring it in is a separate change to requests.ts.
     state.requestsHandle = registerRequestCapture({
       recordEvent: (eventName, attributes) => collector.recordEvent(eventName, attributes),
       ignoreUrls: effectiveIgnoreUrls,
@@ -225,6 +231,7 @@ export const EdgeRum: EdgeRumRuntime = {
         recordEvent: (eventName, attributes) => collector.recordEvent(eventName, attributes),
         getCurrentRoute: () => state.currentRoute,
       });
+      healthMonitor.registerCapture('interactions', () => state.interactionsHandle?.dispose());
     } catch (err) {
       healthMonitor.reportError('interactions.register', err);
     }
@@ -235,6 +242,7 @@ export const EdgeRum: EdgeRumRuntime = {
         getCurrentRoute: () => state.currentRoute,
         ignoreResourceUrl: (url) => url === config.endpoint,
       });
+      healthMonitor.registerCapture('perf-observer', () => state.perfObserverHandle?.dispose());
     } catch (err) {
       healthMonitor.reportError('perf-observer.register', err);
     }
@@ -246,6 +254,7 @@ export const EdgeRum: EdgeRumRuntime = {
           getCurrentRoute: () => state.currentRoute,
           slowThresholdMs: config.frameSlowThresholdMs,
         });
+        healthMonitor.registerCapture('frames', () => state.framesHandle?.dispose());
       } catch (err) {
         healthMonitor.reportError('frames.register', err);
       }
@@ -257,6 +266,7 @@ export const EdgeRum: EdgeRumRuntime = {
           recordMetric: (name, value, attrs) => collector.recordMetric(name, value, attrs),
           intervalMs: config.memorySamplingIntervalMs,
         });
+        healthMonitor.registerCapture('memory-web', () => state.memoryWebHandle?.dispose());
       } catch (err) {
         healthMonitor.reportError('memory-web.register', err);
       }

@@ -118,6 +118,9 @@ export const EdgeRum: EdgeRumRuntime = {
     validateConfig(config);
     state.config = config;
     healthMonitor.setDebug(config.debug === true);
+    // #58: fresh per-session tallies for this session. No-op on a first-process
+    // init (singleton starts at 0); matters on an in-process re-init.
+    healthMonitor.resetSessionTallies();
 
     const session = new SessionManager({
       platform: detectPlatformSync(),

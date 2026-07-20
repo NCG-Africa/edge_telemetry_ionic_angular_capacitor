@@ -1,6 +1,6 @@
 {
   "name": "@nathanclaire/rum-capacitor",
-  "version": "3.5.0",
+  "version": "4.0.0",
   "description": "Capacitor integration for edge-rum — JS bridge + native iOS/Android crash capture",
   "license": "MIT",
   "type": "module",
@@ -16,6 +16,7 @@
   },
   "files": [
     "dist",
+    "!dist/**/*.map",
     "ios/",
     "android/",
     "Package.swift",

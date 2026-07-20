@@ -1,4 +1,4 @@
-export const SDK_VERSION = '3.5.0';
+export const SDK_VERSION = '4.0.0';
 export const SDK_CONTRACT_VERSION = '3.1.0' as const;
 export const SDK_PLATFORM = 'ionic-angular-capacitor' as const;
 

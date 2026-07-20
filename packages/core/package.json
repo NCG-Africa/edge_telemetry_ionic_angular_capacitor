@@ -1,6 +1,6 @@
 {
   "name": "@nathanclaire/rum",
-  "version": "3.5.0",
+  "version": "4.0.0",
   "description": "Real User Monitoring SDK core for Ionic Angular Capacitor apps",
   "license": "MIT",
   "type": "module",
@@ -16,6 +16,7 @@
   },
   "files": [
     "dist",
+    "!dist/**/*.map",
     "README.md"
   ],
   "sideEffects": false,

@@ -938,3 +938,30 @@ ADR-028/029/030 — it counts wounds; this ADR applies the tourniquet. Resolves 
    `perf-observer.longtask.emit` / `.resource.emit`, `errors.capture`, `console.emit`) — the ~6 emit
    sites, not the ~20 error-report sites. Without it the counter would drift to cumulative, the model
    decision 2 explicitly rejected.
+
+---
+
+## ADR-032 — Per-session health tallies reset on session rotation (#58)
+
+**Date:** 2026-07
+
+**Context:** `HealthMonitor` is a process-scoped singleton; its `errorCount` / `droppedCount`
+were only zeroed by `reset()` (init-time / test-reset), never on session rotation. ADR-028
+dec.4 specifies a *per-session* counter, but on mobile the JS context survives
+background→foreground, so a session rotated in-process (`session.started` `rotation_timeout`
+after >30 min idle) would report the cumulative process-lifetime `sdk.error_count` /
+`sdk.dropped_count` on its `session.finalized`, not just its own. The dominant lifecycle
+(finalize-then-kill) was unaffected, which is why this was deferred out of #50. Resolves #58.
+
+**Decision:**
+
+1. **New `healthMonitor.resetSessionTallies()`** zeroes `errorCount`, `droppedCount`, `byScope`
+   only. `reset()` now delegates to it, then additionally clears the ADR-031 breaker state.
+2. **Called when a genuinely new session begins — init + `rotation_timeout`, NOT resume.**
+   `EdgeRum.init()` calls it (no-op on a first-process init; matters on in-process re-init).
+   `LifecycleCapture` calls it via a new optional `resetSessionHealth?()` callback on the same
+   `rotation_timeout` branch that calls `startNewSession()`. A resumed session keeps its tallies.
+3. **ADR-031 breaker state deliberately survives rotation.** The disposed set, disposers, and
+   consecutive-run counters are left intact — a disposed capture is physically torn down and stays
+   dead across the rotation, so `sdk.disposed_captures` continues to report it and a fresh throw
+   never re-disposes it. Only the two per-session tallies are scoped to the session.

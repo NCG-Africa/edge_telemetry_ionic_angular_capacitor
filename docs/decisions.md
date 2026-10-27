@@ -1058,3 +1058,77 @@ compression) — goes to the architecture/budget ticket (#78).
 - (−) 5.0 config break: app identity, `location*` and `environment` keys removed.
 - Supersedes the ID-format, envelope and offline-queue sections of `CLAUDE.md`, and the related
   ADRs on localStorage identity and the JS offline queue, at 5.0 implementation time.
+
+---
+
+## ADR-035 — Trace model: ambient root, fetch+XHR injection, native crash annotation (#77)
+
+**Date:** 2026-10
+
+**Context:** 5.0.0 adds distributed trace v3. The wire is frozen by Android and adopted verbatim
+by iOS (`docs/research/trace-v3-for-webview.md` §1.1). The mechanism is each SDK's own call. Ionic
+runs single-threaded WebView JS. Zoneless is the Angular default from v21, so Zone.js cannot be
+the base carrier. Every API call from `capacitor://localhost` / `https://localhost` is
+cross-origin, so `traceparent` triggers a CORS preflight. ADR-033 frees `trace`/`span` and names
+the config key `traceHostAllowlist`. ADR-034 makes web a no-op, so there is no web-mode injection.
+
+**Decision:**
+
+1. **Carrier = ambient root only** (option (a); RN/Android/Flutter/iOS model). One mutable root
+   is read synchronously inside the patches. Expiry is lazy: 2 s idle, 10 s cap; the idle clock
+   extends on child start and on request completion. No Zone.js read, no explicit public
+   override, no AsyncContext (a feature-detected upgrade later, if it ships).
+2. **Root types:** `launch`, `interaction`, `navigation`, `request`, `resume` (Android 4 + the
+   iOS `resume`). No `custom`.
+3. **Mint points:**
+   - `launch`: start = `performance.timeOrigin`. Exempt from idle expiry until the first resume.
+   - `interaction`: document capture-phase click, before the app handler. Always replaces the
+     live root. A click deduped by the 50 ms window does not mint.
+   - `navigation`: Router `NavigationStart`, **only when no root is live** (a tap that navigates
+     keeps the tap root; guard/resolver requests parent to it). `ionViewWillEnter` does not mint.
+   - `request`: a request when no root is live.
+   - `resume`: Capacitor `appStateChange` → active.
+4. **Injection = global `fetch` + `XMLHttpRequest` patches only.** These cover `HttpClient` on
+   either backend and CapacitorHttp-enabled apps (the bridge patches first; ours wraps it). No
+   Angular interceptor, no wrapper around direct `CapacitorHttp.request()`. Never mutate a
+   consumer `Request`/`Headers` (copy). Exclude the SDK's own transport.
+5. **Allowlist = Android rules verbatim:** empty by default (inject nowhere), with a one-time
+   debug warning when empty. Entries match exactly or as a dot-anchored suffix (`.example.com`).
+   At least 2 labels per entry, no substring, no RegExp, ports ignored. Consumer docs state the
+   `Access-Control-Allow-Headers: traceparent` requirement.
+6. **Outcomes = Android's 6, same precedence, plus `skipped_no_cors`** (a `mode:'no-cors'` request
+   cannot carry the header; it sits just after `skipped_off_allowlist`). A valid consumer-set
+   header counts as `adopted`; a malformed one is overwritten. No `skipped_consumer_set`.
+7. **Adopted:** `span.id` mirrors the foreign parent-id; `rum.action.id` stays the **local**
+   root's `span.id` (Flutter/iOS reading).
+8. **Sampling:** a session sampled out per ADR-019 captures nothing and sends no header. There is
+   no `-00` injection; flags are always `01`.
+9. **Ionic-only children** (if #79 keeps the capture): each Capacitor plugin call (the
+   `nativePromise` wrap) and the router guard/resolver/lazy-chunk phases are child spans of the
+   live root. Ionic page transitions are not children. `screen.duration` is annotation-only.
+10. **Key tiers:**
+    - Tier 1 (full span keys): the `interaction`/`navigation` root events, `http.request`, and the
+      bridge/router children.
+    - Tier 2 (`trace.id`, `rum.action.id`, `trace.root_type`): JS and native `app.crash`,
+      hang/ANR, `custom_event`, `screen.duration`.
+    - None: `metric` items, `page_load`, `app_lifecycle`, `session.*`, `user.profile.update`.
+    - `http.request` stamps `span.start_time` at send (anchored to `performance.now()`); the start
+      is not inferred as end minus duration.
+11. **Native stitch = annotation only.** On root mint or replace, JS relays
+    `{trace.id, rum.action.id, trace.root_type}` to the SDK plugin (the `setLastScreen` path: one
+    bridge call per root, none per request or frame). Native keeps it as a non-parenting `lastRoot`
+    and persists it with the crash record. A replayed native crash/hang/ANR carries the Tier-2 keys,
+    plus `trace.root_expired=true` when the root was stale (iOS). Native mints no spans.
+12. **Edges:** the root is cleared on background and on session rotation (later requests report
+    `injected_expired`). Ids come from `crypto.getRandomValues`; all-zero ids are rejected.
+    Redirect limitation documented: JS cannot re-check the allowlist per hop, so a 3xx to an
+    off-allowlist host carries the header. Wire otherwise byte-identical to Android trace v3.
+
+**Consequences:**
+- (+) Zone, zoneless and plain JS behave the same; core takes no Angular dependency.
+- (+) Allowlist and outcomes match the siblings; the only new outcome value is a free-string add.
+- (+) Native crashes correlate to the action that preceded them at the cost of one bridge call
+  per root.
+- (−) Attribution is temporal: a background poll inside a tap's 2 s window is mis-attributed.
+- (−) Direct `CapacitorHttp.request()` calls and third-party native HTTP get no header.
+- (−) `skipped_no_cors` needs an entry in the backend outcome docs (#81).

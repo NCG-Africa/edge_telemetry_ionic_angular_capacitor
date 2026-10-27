@@ -1132,3 +1132,56 @@ the config key `traceHostAllowlist`. ADR-034 makes web a no-op, so there is no w
 - (−) Attribution is temporal: a background poll inside a tap's 2 s window is mis-attributed.
 - (−) Direct `CapacitorHttp.request()` calls and third-party native HTTP get no header.
 - (−) `skipped_no_cors` needs an entry in the backend outcome docs (#81).
+
+---
+
+## ADR-036 — Lightweight budget and modular architecture (#78)
+
+**Date:** 2026-10
+
+**Context:** `docs/research/lightweight-baseline.md` (#71): full stack ~21 KB gzip against
+`.size-limit.json` budgets ~5× too loose; core does not tree-shake (`init()` wires every capture);
+the top steady-state cost is the rAF frame loop that never idles, doubled on device by the native
+frame sampler. #73: the frame loop and flush timer likely run inside NgZone. ADR-034 moves send to
+native and left two questions here: gzip, and where session + sampling live.
+
+**Decision:**
+
+1. **Gzip, always, natively.** The native sender gzips every body (`Content-Encoding: gzip`;
+   `java.util.zip` / zlib), matching Cordova T5. The collector already decompresses. Supersedes
+   `CLAUDE.md` Rule 2 → "JSON only; gzip on the wire, applied by the native sender".
+2. **Session + sampling are native** (Cordova A1/S1/S5): session id, 30-min timeout, rotation, the
+   per-session secure-RNG roll (persisted with the session), sampling gate and caps at outbox
+   append. JS reads `{sessionId, sampled}` via one async `getState` at init; native pushes on
+   rotation. Until `getState` resolves JS buffers captures and injects **no** `traceparent`
+   (keeps ADR-035 §8 true without blocking startup). Outcome value for those requests → #79.
+3. **JS size budgets (gzip, size-limit, CI-fail):** core 14 KB, capacitor own 7 KB, angular own
+   4 KB, full stack deduped 24 KB, **minimal** (`init` + errors + requests) 8 KB. Raising a
+   ceiling needs an ADR line.
+4. **Tree-shakeable imported captures.** `EdgeRum.init({ captures: [vitals(), frames(), …] })`.
+   Always in core: errors, fetch/XHR requests + traces, session/native relay (the minimal build).
+   Opt-in exports: `vitals`, `interactions`, `frames`, `memory`, `resourceTiming`, `longTasks`,
+   `pageLoad`, plus Ionic-only captures (#79). `defaultCaptures()` = today's behaviour; used by
+   `EdgeRumModule.forRoot()` when `captures` is omitted. `captureX` booleans removed. No lazy
+   `import()` of captures (local `www`, no network saving).
+5. **One frame source: rAF, idle-paused.** `FrameSampler.swift` / `FrameSampler.kt` deleted
+   (native UI-thread timing misses WebView/JS jank). rAF pauses after 2 s with no input, scroll,
+   route change or Ionic transition; resumes on the next. Runs outside NgZone. ADR-030 windowed
+   shape kept, `frame.source=raf`; event name per #79. `frames()` is in `defaultCaptures()`.
+6. **Memory + watchdogs.** JS `memory-web.ts` deleted. Native `MemorySampler` → opt-in `memory()`,
+   not in defaults, 30 s interval. Low-memory / trim callbacks stay always-on. ANR / hang watchdogs
+   default on; their switches move into the capture list. PLCrashReporter + NDK `.so` kept.
+7. **Runtime ceilings (Playwright + CDP, 4× throttle, median of 5, every PR, absolute):**
+   eval + `init()` ≤ 8 ms; `track()` ≤ 10 µs; SDK idle script ≤ 1 ms per 10 s static screen;
+   JS heap after init + 2,000 events ≤ +2 MB. Native plugin load, IPA/APK delta and battery are
+   measured per release on device and published in release notes — not gated.
+
+**Consequences:**
+- (+) Budgets actually guard "lightweight"; minimal build proves tree-shaking.
+- (+) Idle Ionic screens stop waking JS every vsync; device runs one frame loop, not two.
+- (+) ~5–10× less mobile data per batch.
+- (−) Config break: `captureX` booleans → `captures` array; native frame data gone (iOS/Android
+  `frame_render_time` from native no longer emitted).
+- (−) CI bench adds a Playwright job to every PR; noise risk handled by median + headroom.
+- Supersedes `CLAUDE.md` Rule 2, the Bundle rules section (`noExternal` OTel, 90/200 KB), and
+  ADR-030's native frame samplers, at 5.0 implementation time.

@@ -8,6 +8,7 @@ coverage/
 .DS_Store
 
 # Editor / tooling
+temp_auto_push.bat
 .idea/
 .claude/
 .env
@@ -19,3 +20,5 @@ test-results/
 # Swift Package Manager (Capacitor iOS)
 .build/
 Package.resolved
+.gitignore
+branch_structure.json

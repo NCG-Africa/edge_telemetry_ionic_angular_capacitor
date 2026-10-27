@@ -1351,3 +1351,63 @@ restated. Supersedes ADR-019 (per-session sampling + allowlist) and ADR-025 (no 
 - (−) Interaction text is now sent (role-limited); apps with sensitive buttons must mark
   `[data-edge-private]`.
 - (−) Sampled-out sessions no longer send `user.profile.update`.
+
+---
+
+## ADR-040 — Public API and configuration for 5.0.0 (#80)
+
+**Date:** 2026-10
+
+**Context:** ADR-034 moved identity, outbox and send native; ADR-036 replaced `captureX` booleans
+with imported captures; ADR-039 made the sample rate native-only and left consent/identity method
+names open. Cordova `docs/spec.md` C1–C5 is the sibling baseline — cited, not restated. Partially
+supersedes ADR-036 §6 (watchdog + memory switches cannot live in the JS capture list).
+
+**Decision:**
+
+1. **Config split** = Cordova C1/C2:
+   - `capacitor.config.ts` → `plugins.EdgeRum`, read natively at launch: `apiKey`, `endpoint`,
+     `enabled` (`false` = opt-in mode, ADR-039 §5), `sampleRate`, `anr` / `anrTimeoutMs`,
+     `hang` / `hangTimeoutMs`, `memorySampling` / `memorySamplingIntervalMs`, `debug`.
+   - `init(opts?)` / `provideEdgeRum(opts?)`, JS-only: `apiKey?` / `endpoint?` (runtime override,
+     not persisted), `captures` (default `defaultCaptures()`), `traceHostAllowlist: string[]`
+     (ADR-035 §5 rules), `ignoreUrls`, `sanitizeUrl`, `beforeSend`, `release?`, `debug`.
+     Per-capture knobs are factory args (e.g. `frames({ slowThresholdMs })`).
+   - **ADR-036 §6 amended:** ANR/hang switches and memory sampling are native config keys, not JS
+     captures — they must arm before JS boots. `memory()` is not a JS export.
+2. **4.x fields removed:** `appName` / `appVersion` / `appPackage` / `appBuild` / `environment` /
+   `location` / `resolveLocation` / `locationProviderUrl` (ADR-034); `maxQueueSize` /
+   `flushIntervalMs` / `batchSize` / `deferFlush` (native outbox); `awaitNativeInstall`,
+   `captureNativeCrashes` (always on); `captureFrames` / `captureAllFrames` /
+   `frameSlowThresholdMs` → `frames(...)`; `captureConsoleErrors` → `consoleErrors()` capture,
+   **in `defaultCaptures()`** (keeps 4.x behaviour; Cordova defaults off).
+3. **Validation fail-open:** `init()` never throws on missing/malformed `apiKey`; debug warning only
+   (the key may come from native). Replaces the `edge-rum: apiKey …` throws.
+4. **Methods** = Cordova C4 verbatim — all sync, fire-and-forget, safe before native is ready,
+   no-op on web: `init`, `identify({ id?, name?, email?, phone? })`, `clearUser`, `track`,
+   `measure(name, value, attrs?)`, `time(name) → { end(attrs?) }` (→ `measure`), `trackScreen`,
+   `captureError(err, attrs?: EventAttributes)`, `startTask` / `completeTask` / `failTask`
+   (`task.complete`, ADR-037), `markReady` (`app.start` host phase), `setAttribute` /
+   `removeAttribute`, `enable` / `disable` / `reset`, `getSessionId(): Promise<string>`.
+   - Global attributes stamp **JS events only** (no bridge round-trip, nothing persisted natively).
+   - No manual span/action API (ADR-035). `EdgeRumService` mirrors every method, no logic.
+5. **Angular setup:**
+   - `provideEdgeRum(opts)` (returns `EnvironmentProviders`) is primary; `EdgeRumModule.forRoot`
+     is a one-line wrapper. `APP_INITIALIZER` kept; peer floor Angular ≥ 16.
+   - No HttpClient interceptor — global XHR/fetch patch (ADR-035) covers `HttpClient`.
+   - `ErrorHandler` chains to a host-provided handler instead of replacing it.
+   - Public exports: `provideEdgeRum`, `EdgeRumModule`, `EdgeRumService`, types. `RouterCapture`,
+     `IonicLifecycleCapture`, `EdgeRumErrorCapture`, `EDGE_RUM_CONFIG`,
+     `edgeRumInitializerFactory`, `ERROR_ROUTE_PROVIDER`, `LIFECYCLE_EVENT_SOURCE` go internal.
+6. **Packaging:** three packages, names unchanged. `@nathanclaire/rum-capacitor` becomes required
+   (sole sink) and a peer of `-angular`; `provideEdgeRum()` wires it. Native plugin registration
+   renamed `EdgeRumCapacitor` → `EdgeRum`. Non-Angular Capacitor apps use core + `-capacitor` with
+   `EdgeRum.init()` and a README `trackScreen` recipe (Cordova C5).
+
+**Consequences:**
+- (+) Method surface identical to Cordova; host code ports between the two SDKs.
+- (+) Launch-time captures (`app.start`, crashes, watchdogs) have key, rate and switches before JS.
+- (+) `HttpClient` captured and traced with no extra provider.
+- (−) Breaking for every 4.x consumer: config shape, async `getSessionId()`, removed exports,
+  plugin rename, required `-capacitor`. Migration guide is map fog.
+- (−) Fail-open config means a bad key is silent outside debug.

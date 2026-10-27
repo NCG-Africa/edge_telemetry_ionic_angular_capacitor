@@ -1255,3 +1255,45 @@ and the resource-timing volume/URL leak.
   `app.bundle_id` need backend columns or docs (#81).
 - `docs/payload-schema.json` and the `CLAUDE.md` eventName table are rewritten at 5.0
   implementation time, not now.
+
+---
+
+## ADR-038 — Backend changes to surface Ionic 5.0 events and traces (#81)
+
+**Date:** 2026-10
+
+**Context:** `docs/research/backend-readiness.md` (#74) found a contract-4 Ionic batch accepted
+in merged code (prod deploy unverified), no `sdk.name` storage, crashes and navigations written
+to tables analytics doesn't read, an unwritten `trace_injection` column, unread frame summaries,
+uncolumned metric names, and first-write-wins session counters. ADR-035/037 added
+`skipped_no_cors`/`skipped_no_session`, `bridge.summary`, `navigation.*_ms`, `webview.version`
+and `app.bundle_id`, all needing a landing.
+
+**Decision:**
+
+| # | Repo | Change |
+|---|---|---|
+| 1 | processor | Fatal `app.crash`/`app.anr`/`app.hang` (incl. `WebViewTerminated`, `app.exit`) → `rum_crash_events`; `rum_errors` keeps non-fatal. All SDKs. |
+| 2 | processor | `traceparent.outcome` → `rum_http_requests.trace_injection`; migration extends the enum with `skipped_no_cors`, `skipped_no_session` (8 values). |
+| 3 | processor | `rum_sessions.sdk_name`, `sdk_version`, `webview_version`, `app_bundle_id` (first-write). No UI; crash/error views filter via session join. |
+| 4 | processor + analytics | Navigation written to the table analytics reads (same fix as #1); 3 nullable int cols `guards_ms`, `resolvers_ms`, `chunk_load_ms`; screen view gets a "route resolve" breakdown, hidden when null. |
+| 5 | processor + analytics | New typed table `rum_bridge_summaries` for `bridge.summary`; "Native plugin calls" panel — p95 + error rate by `plugin.method`, screen filter, hidden without rows. |
+| 6 | analytics | Frames view reads `processor_frame_summaries` (`frame.summary`); memory view reads `memory.*` + `memory_pressure`; legacy `frame_render_time` kept via `metric_name` filter. |
+| 7 | processor + analytics | Populate `rum_performance_metrics.metric_name`/`value` from top-level fields (all metric items); `metric.rating` → column; mobile "WebView vitals" panel (p75 per vital per screen + rating share). |
+| 8 | processor | `rum_sessions.event_count`/`screen_count`/`visited_screens` last-write from `session.finalized`; SDK-health counters stay in the bag. |
+
+No backend aliases for 4.x names — Ionic renames (ADR-037). Collector: no change. CORS /
+`sendBeacon` moot under native send (ADR-034).
+
+**Ordering:**
+1. Verify prod runs collector PR #8 + processor PR #9 — hard gate (else contract-4 batches DLQ
+   as `<app-not-registered>`).
+2. Processor changes + migrations (1–5, 7, 8 processor halves) live **before** Ionic 5.0 ships.
+3. Analytics readers/panels may trail the SDK release; data is already stored.
+
+**Consequences:**
+- (+) Every Ionic 5.0 signal lands in a typed, read column; Ionic-only captures get a surface.
+- (+) Crash routing, navigation split, frames/memory, metric names and session counters are fixed
+  for all SDKs, not just Ionic.
+- (−) Ionic 5.0 release is gated on a backend deploy outside this repo.
+- (−) Eight migrations/extractors across two repos; per-repo impl issues filed at spec assembly.

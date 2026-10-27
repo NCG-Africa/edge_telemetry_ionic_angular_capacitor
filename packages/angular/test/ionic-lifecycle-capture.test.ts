@@ -53,6 +53,18 @@ afterEach(() => {
 });
 
 describe('IonicLifecycleCapture', () => {
+  it('listens in the capture phase so non-bubbling Ionic events reach document (#84)', () => {
+    const add = vi.spyOn(bus, 'addEventListener');
+    const remove = vi.spyOn(bus, 'removeEventListener');
+    const capture = new IonicLifecycleCapture(bus);
+    capture.ngOnDestroy();
+
+    for (const type of ['ionViewDidEnter', 'ionViewDidLeave']) {
+      expect(add).toHaveBeenCalledWith(type, expect.any(Function), { capture: true });
+      expect(remove).toHaveBeenCalledWith(type, expect.any(Function), { capture: true });
+    }
+  });
+
   it('does not emit on ionViewDidEnter — only on exit', () => {
     const spy = spyCollector();
     const capture = new IonicLifecycleCapture(bus);

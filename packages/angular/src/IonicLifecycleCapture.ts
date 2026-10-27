@@ -10,6 +10,8 @@ export const LIFECYCLE_EVENT_SOURCE = new InjectionToken<EventTarget>('LIFECYCLE
 
 const DID_ENTER = 'ionViewDidEnter';
 const DID_LEAVE = 'ionViewDidLeave';
+// Object form, not `true`: Node ≤20's EventTarget ignores a boolean capture flag on removeEventListener.
+const CAPTURE = { capture: true };
 
 function resolveScreenName(target: EventTarget | null): string {
   // Prefer the canonical route from the SDK state — keeps screen.* keys in
@@ -35,8 +37,10 @@ export class IonicLifecycleCapture implements OnDestroy {
   ) {
     this.source = source ?? (typeof document !== 'undefined' ? document : null);
     if (this.source) {
-      this.source.addEventListener(DID_ENTER, this.didEnter);
-      this.source.addEventListener(DID_LEAVE, this.didLeave);
+      // Capture phase: Ionic dispatches lifecycle events with bubbles: false on
+      // the page element, so a bubble-phase document listener never sees them.
+      this.source.addEventListener(DID_ENTER, this.didEnter, CAPTURE);
+      this.source.addEventListener(DID_LEAVE, this.didLeave, CAPTURE);
     }
   }
 
@@ -44,8 +48,8 @@ export class IonicLifecycleCapture implements OnDestroy {
     if (!this.source) {
       return;
     }
-    this.source.removeEventListener(DID_ENTER, this.didEnter);
-    this.source.removeEventListener(DID_LEAVE, this.didLeave);
+    this.source.removeEventListener(DID_ENTER, this.didEnter, CAPTURE);
+    this.source.removeEventListener(DID_LEAVE, this.didLeave, CAPTURE);
   }
 
   private onDidEnter(event: Event): void {

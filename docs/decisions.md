@@ -1411,3 +1411,38 @@ supersedes ADR-036 §6 (watchdog + memory switches cannot live in the JS capture
 - (−) Breaking for every 4.x consumer: config shape, async `getSessionId()`, removed exports,
   plugin rename, required `-capacitor`. Migration guide is map fog.
 - (−) Fail-open config means a bad key is silent outside debug.
+
+---
+
+## ADR-041 — 4.x → 5.0 migration path (#100)
+
+**Date:** 2026-10
+
+**Context:** ADR-034/036/039/040 make 5.0 breaking for every 4.x consumer. The only 4.x consumers
+are our own apps, upgraded by us. App binaries already installed on users' devices keep sending
+the 4.x `telemetry_batch` wire after 5.0 ships.
+
+**Decision:**
+
+1. **No compat window in the SDK.** No 4.x deprecation minor, no 5.0 shim accepting 4.x config keys,
+   no runtime warnings for removed keys. 5.0 is a clean break.
+2. **4.x frozen at 5.0 GA.** No `release/4.x` branch; fixes land only in 5.x.
+3. **Legacy wire kept server-side.** Collector/processor keep accepting `telemetry_batch` 3.1 with no
+   sunset date; removal is a later ops call when observed 4.x traffic is ~0. No SDK work.
+4. **Package names unchanged** (ADR-040 §6); major bump on all three to 5.0.0.
+5. **Upgrade guide only** — `docs/migration-5.md`, no codemod/schematic. Covers:
+   - Prerequisite: backend release live before 5.0 builds ship (ADR-038 gate).
+   - Install: add `@nathanclaire/rum-capacitor`, `npx cap sync`; plugin `EdgeRumCapacitor` → `EdgeRum`.
+   - Config: before/after table per ADR-040 §1–2 — native keys move to `capacitor.config.ts`
+     `plugins.EdgeRum`; each removed 4.x field with its replacement or "gone".
+   - Angular: `forRoot` → `provideEdgeRum`, Angular ≥ 16, removed exports (ADR-040 §5).
+   - API: `getSessionId()` now `Promise<string>`; new/renamed methods (ADR-040 §4); init no longer throws.
+   - Data continuity: fresh `device_id`/user id on upgrade (ADR-034) — users/devices count twice
+     across the upgrade window; event-name/key renames (ADR-037) for anyone with saved queries.
+   - Web: SDK is a silent no-op on web (ADR-034).
+
+**Consequences:**
+- (+) No shim code in a 24 KB budget (ADR-036); nothing to maintain on 4.x.
+- (+) Old installs keep reporting until users update the app.
+- (−) Backend carries two ingest paths for an open-ended period.
+- (−) Dashboards show a device/user discontinuity at the upgrade boundary.

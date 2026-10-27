@@ -3,6 +3,7 @@ import {
   registerRequestCapture,
   type HttpRequestAttributes,
   type RequestsDeps,
+  type RequestsHandle,
 } from '../src/instrumentation/requests';
 
 function mockResponse(status: number, headers: Record<string, string> = {}): Response {
@@ -220,5 +221,80 @@ describe('registerRequestCapture', () => {
     handle.dispose();
 
     expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/url-object');
+  });
+});
+
+describe('registerRequestCapture — XMLHttpRequest (#85)', () => {
+  class FakeXhr extends EventTarget {
+    status = 0;
+    open(_method: string, _url: string | URL): void {}
+    send(_body?: unknown): void {}
+    finish(status: number): void {
+      this.status = status;
+      this.dispatchEvent(new Event('loadend'));
+    }
+  }
+
+  let recorded: HttpRequestAttributes[];
+  let target: typeof globalThis;
+  const originalOpen = FakeXhr.prototype.open;
+  const originalSend = FakeXhr.prototype.send;
+
+  beforeEach(() => {
+    recorded = [];
+    target = { XMLHttpRequest: FakeXhr } as unknown as typeof globalThis;
+  });
+
+  function capture(ignoreUrls: (string | RegExp)[] = []): RequestsHandle {
+    return registerRequestCapture({
+      recordEvent: (_name, attrs) => recorded.push(attrs),
+      ignoreUrls,
+      target,
+    });
+  }
+
+  it('records an http.request event when the request ends', () => {
+    const handle = capture();
+    const xhr = new FakeXhr();
+    xhr.open('post', 'https://api.example.com/items');
+    xhr.send('{}');
+    expect(recorded).toHaveLength(0);
+    xhr.finish(201);
+    handle.dispose();
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.['http.url']).toBe('https://api.example.com/items');
+    expect(recorded[0]?.['http.method']).toBe('POST');
+    expect(recorded[0]?.['http.status_code']).toBe(201);
+    expect(recorded[0]?.['http.success']).toBe(true);
+  });
+
+  it('records status 0 and success false on network error', () => {
+    const handle = capture();
+    const xhr = new FakeXhr();
+    xhr.open('GET', 'https://api.example.com/down');
+    xhr.send();
+    xhr.finish(0);
+    handle.dispose();
+
+    expect(recorded[0]?.['http.status_code']).toBe(0);
+    expect(recorded[0]?.['http.success']).toBe(false);
+  });
+
+  it('skips ignored URLs (e.g. the SDK endpoint)', () => {
+    const handle = capture(['example.com/collector']);
+    const xhr = new FakeXhr();
+    xhr.open('POST', 'https://example.com/collector/telemetry');
+    xhr.send();
+    xhr.finish(200);
+    handle.dispose();
+
+    expect(recorded).toHaveLength(0);
+  });
+
+  it('restores the original open/send on dispose', () => {
+    capture().dispose();
+    expect(FakeXhr.prototype.open).toBe(originalOpen);
+    expect(FakeXhr.prototype.send).toBe(originalSend);
   });
 });

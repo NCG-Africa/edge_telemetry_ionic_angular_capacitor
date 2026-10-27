@@ -37,73 +37,102 @@ function isSuccess(status: number): boolean {
 
 export function registerRequestCapture(deps: RequestsDeps): RequestsHandle {
   const target = deps.target ?? (typeof globalThis !== 'undefined' ? globalThis : undefined);
-  if (!target || typeof target.fetch !== 'function') {
+  if (!target) {
     return { dispose: () => undefined };
   }
 
-  const originalFetch = target.fetch.bind(target);
   const ignoreUrls = deps.ignoreUrls ?? [];
   const sanitizeUrl = composeSanitizeUrl(deps.sanitizeUrl);
 
-  const patchedFetch: typeof fetch = async (input, init) => {
-    const url = typeof input === 'string'
-      ? input
-      : input instanceof URL
-        ? input.href
-        : (input as Request).url;
-
-    if (shouldIgnore(url, ignoreUrls)) {
-      return originalFetch(input, init);
-    }
-
-    const method = init?.method ?? (typeof input === 'object' && 'method' in input ? (input as Request).method : 'GET');
-    const startTime = Date.now();
-
-    let response: Response;
-    try {
-      response = await originalFetch(input, init);
-    } catch (err) {
-      try {
-        deps.recordEvent('http.request', {
-          'http.url': sanitizeUrl(url),
-          'http.method': method.toUpperCase(),
-          'http.status_code': 0,
-          'http.duration_ms': Date.now() - startTime,
-          'http.success': false,
-          'http.timestamp': new Date().toISOString(),
-        });
-      } catch {
-        // Never let capture errors escape.
-      }
-      throw err;
-    }
-
+  const record = (url: string, method: string, status: number, startTime: number): void => {
     try {
       deps.recordEvent('http.request', {
         'http.url': sanitizeUrl(url),
         'http.method': method.toUpperCase(),
-        'http.status_code': response.status,
+        'http.status_code': status,
         'http.duration_ms': Date.now() - startTime,
-        'http.success': isSuccess(response.status),
+        'http.success': isSuccess(status),
         'http.timestamp': new Date().toISOString(),
       });
     } catch {
       // Never let capture errors escape.
     }
-
-    return response;
   };
 
-  target.fetch = patchedFetch;
+  const disposers: Array<() => void> = [];
+
+  if (typeof target.fetch === 'function') {
+    const originalFetch = target.fetch.bind(target);
+
+    const patchedFetch: typeof fetch = async (input, init) => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.href
+          : (input as Request).url;
+
+      if (shouldIgnore(url, ignoreUrls)) {
+        return originalFetch(input, init);
+      }
+
+      const method = init?.method ?? (typeof input === 'object' && 'method' in input ? (input as Request).method : 'GET');
+      const startTime = Date.now();
+
+      let response: Response;
+      try {
+        response = await originalFetch(input, init);
+      } catch (err) {
+        record(url, method, 0, startTime);
+        throw err;
+      }
+      record(url, method, response.status, startTime);
+      return response;
+    };
+
+    target.fetch = patchedFetch;
+    disposers.push(() => {
+      if (target.fetch === patchedFetch) target.fetch = originalFetch;
+    });
+  }
+
+  // Angular HttpClient uses XHR by default up to Angular 21 (#85).
+  const proto = target.XMLHttpRequest?.prototype;
+  if (proto) {
+    const originalOpen = proto.open;
+    const originalSend = proto.send;
+    const pending = new WeakMap<XMLHttpRequest, { method: string; url: string }>();
+
+    const patchedOpen = function (this: XMLHttpRequest, method: string, url: string | URL, ...rest: unknown[]): void {
+      pending.set(this, { method, url: String(url) });
+      (originalOpen as (...args: unknown[]) => void).apply(this, [method, url, ...rest]);
+    } as typeof proto.open;
+
+    const patchedSend = function (this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null): void {
+      const req = pending.get(this);
+      if (req && !shouldIgnore(req.url, ignoreUrls)) {
+        const startTime = Date.now();
+        // status is 0 on network error / abort / timeout, matching fetch rejection.
+        this.addEventListener('loadend', () => record(req.url, req.method, this.status, startTime), { once: true });
+      }
+      originalSend.call(this, body);
+    };
+
+    proto.open = patchedOpen;
+    proto.send = patchedSend;
+    disposers.push(() => {
+      if (proto.open === patchedOpen) proto.open = originalOpen;
+      if (proto.send === patchedSend) proto.send = originalSend;
+    });
+  }
 
   return {
     dispose: () => {
-      try {
-        if (target.fetch === patchedFetch) {
-          target.fetch = originalFetch;
+      for (const d of disposers) {
+        try {
+          d();
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
       }
     },
   };

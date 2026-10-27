@@ -1297,3 +1297,57 @@ No backend aliases for 4.x names — Ionic renames (ADR-037). Collector: no chan
   for all SDKs, not just Ionic.
 - (−) Ionic 5.0 release is gated on a backend deploy outside this repo.
 - (−) Eight migrations/extractors across two repos; per-repo impl issues filed at spec assembly.
+
+---
+
+## ADR-039 — Privacy hooks and sampling for 5.0.0 (#95)
+
+**Date:** 2026-10
+
+**Context:** ADR-036 moved the session roll native; ADR-035 sends no header from a sampled-out
+session; ADR-037 added captures (`bridge.summary`, router phases, `ionicUi()`, `app.bundle_id`)
+with no PII rules. Cordova `docs/spec.md` P1–P7 / S1–S8 is the sibling baseline — cited, not
+restated. Supersedes ADR-019 (per-session sampling + allowlist) and ADR-025 (no interaction text).
+
+**Decision:**
+
+1. **`beforeSend`** = Cordova P5 verbatim: sync, JS enqueue before native hand-off; `null`/throw →
+   drop, counted in `sdk.health`; identity/session/sequence keys re-stamped after. JS events only
+   (incl. `bridge.summary`, router phases); native-origin events bypass (documented).
+2. **URLs** = Cordova P1: built-in templating always on, then `sanitizeUrl(url)` (remove-only; throw
+   → templated URL kept). CapacitorHttp proxy URLs (`_capacitor_http_interceptor_?u=`) unwrapped
+   before templating. Resource-timing aggregate and `traceparent` host matching use the templated
+   URL. `ignoreUrls` kept. Screen names come from Angular route templates — **no `screenName()`**.
+3. **Sampling** = Cordova S1–S8:
+   - One native session roll, secure RNG, persisted; rate from native config only, no `init()`
+     override. **No separate trace rate** — traces follow the session.
+   - Exempt (never sampled, never capped): `session.started`, `session.finalized`, fatal
+     `app.crash`, `app.anr`, `app.exit`, `app.start`, WebView death, `sdk.health`. Handled
+     `app.crash`, `app.hang`, metrics follow the roll. `user.profile.update` **loses** its
+     ADR-019 exemption.
+   - Caps per S4 plus `bridge.summary` 50/session; drops → `sdk.health`; no public cap knobs.
+   - `session.sampled` on `session.*` only when rate < 1.
+4. **Per-capture PII:**
+   - `bridge.summary`: plugin + method, counts, durations; never options, results or error
+     messages (error = code/class).
+   - `ui.target` = Cordova P4 (name chain incl. role-limited visible text, 64-char cap, digits →
+     `#`, `[data-edge-private]` blanks). `ionicUi()` target = component tag only.
+   - `app.bundle_id` = last segment of `getServerBasePath()`, or `builtin`; never the full path.
+   - Router phases: guard/resolver class names + route template; never params or resolved data.
+   - Errors: message + stack unscrubbed (`beforeSend` is the hatch); stack paths → `app:///`
+     (Cordova Y2). Breadcrumbs reuse `ui.target` + URL rules.
+   - Headers and bodies never captured (P3).
+5. **Consent + identity** = Cordova P6 + P7: traits only on `user.profile.update`, persisted
+   natively until `clearUser()`; native `enabled: false` opt-in mode; `disable()` persists and
+   deletes outbox + traits; `reset()` rotates `device_id` + session, clears user + outbox. No
+   collection levels. Names of `clearUser()` / `reset()` / opt-in key → public API (#80).
+
+**Consequences:**
+- (+) Privacy and sampling behaviour identical to Cordova on shared wire; one roll keeps traces
+  and events coherent.
+- (+) No raw URL, plugin payload, device path or route param leaves through any capture.
+- (−) Native events can't be edited by the host; crash messages may carry PII unless the app
+  avoids it.
+- (−) Interaction text is now sent (role-limited); apps with sensitive buttons must mark
+  `[data-edge-private]`.
+- (−) Sampled-out sessions no longer send `user.profile.update`.

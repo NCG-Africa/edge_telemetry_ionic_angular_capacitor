@@ -60,8 +60,8 @@ describe('IonicLifecycleCapture', () => {
     capture.ngOnDestroy();
 
     for (const type of ['ionViewDidEnter', 'ionViewDidLeave']) {
-      expect(add).toHaveBeenCalledWith(type, expect.any(Function), true);
-      expect(remove).toHaveBeenCalledWith(type, expect.any(Function), true);
+      expect(add).toHaveBeenCalledWith(type, expect.any(Function), { capture: true });
+      expect(remove).toHaveBeenCalledWith(type, expect.any(Function), { capture: true });
     }
   });
 

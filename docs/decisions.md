@@ -1006,3 +1006,55 @@ and Rule 1's `span / trace` row.
 - (+) One config name across the SDK family.
 - (−) `CLAUDE.md` Rule 1, `docs/terminology.md` and the docs test must be edited in the 5.0
   implementation — until then they are stale on `span`/`trace` only.
+
+---
+
+## ADR-034 — Contract 4 fit: native core owns identity, outbox and send; web is a no-op (#76)
+
+**Date:** 2026-10
+
+**Context:** edge-rum 5.0.0 moves from the legacy `telemetry_batch` 3.1 wire to contract 4
+(`edge_rum/wayfinder/spec.md` R1–R16, S1). Gap inventory (`docs/research/ionic-gap-inventory.md`
+§2): 7 rules missing (R3, R7, R8, R12, R13, R14, R16), 4 renames. Today JS owns identity
+(localStorage), the queue (serialised bodies in localStorage) and the sender; native code only
+captures (crash, ANR/hang, frames, memory). Several gaps — 5xx dropped, queued bodies replayed
+with a stale timestamp (R13), keyless `sendBeacon`, crash replayed with the current build (R14),
+queue lost on WebView storage wipe — come from send living in JS. The closest sibling, Cordova,
+already moved native (Cordova spec A1, A8, W1–W4).
+
+**Decision:**
+
+1. **Native core owns** config prefs, app identity, `device_id`, the outbox, the sender and the
+   8-key contract-4 envelope, on Android and iOS — a port of the Cordova native core. JS owns
+   WebView/Angular/Ionic capture and an in-memory buffer handed to native. The JS
+   `PayloadBuilder` / `RetryTransport` / `OfflineQueue` / `sendBeacon` path is removed. This
+   realizes R3, R12, R13, R14 by construction. Where session state and sampling sit is decided
+   with the architecture ticket (#78), defaulting to Cordova A1 (native).
+2. **Web is a silent no-op** (R16, Cordova A8): every method exists, nothing is captured or sent,
+   one debug-mode warning. `device.platform=web` is gone.
+3. **App identity is native only, no override** (Cordova W3): Android `PackageManager`
+   (`applicationId`, `versionName`, `versionCode`); iOS `Bundle.main` (bundle id,
+   `CFBundleShortVersionString`, `CFBundleVersion`). `app.platform` = `android`|`ios`. Nil → key
+   omitted (R15). `EdgeRumConfig.appName` / `appVersion` / `appPackage` / `appBuild` are removed.
+4. **`device_id`** (R9) per Cordova W4: Android = `IdGenerator` port (SharedPreferences UUID,
+   persisted fallback pinned per process, in-memory last resort); iOS = Keychain, UserDefaults
+   fallback. Never JS/localStorage. **No carry-over** of the 4.x `device_<ms>_<hex>_<platform>`
+   id: a fresh UUID on the first 5.0 launch; the old localStorage key is deleted.
+5. **Header values** fixed by contract: `sdk.name = "ionic"` (R2), `contract_version = "4.0.0"`
+   (R11/S1), `sdk.version` = package version `5.0.0`. `sdk.platform`, `location` (R7) and
+   `app.environment` (R8) stop being sent; `location` / `resolveLocation` /
+   `locationProviderUrl` / `environment` leave the config (exact API shape: #80).
+
+**Not decided here:** whether the native sender gzips (Cordova does; `CLAUDE.md` Rule 2 bans
+compression) — goes to the architecture/budget ticket (#78).
+
+**Consequences:**
+- (+) Send-policy bugs fixed structurally; outbox survives WebView death and storage wipes.
+- (+) JS bundle shrinks (pipeline, queue, payload builder, location resolver removed).
+- (+) Identity cannot drift from the store binary; key binding always matches.
+- (−) Largest native diff in the SDK's history (two native cores); Cordova code is the template.
+- (−) Ionic web/PWA monitoring ends.
+- (−) Device counts jump once at upgrade (new UUIDs).
+- (−) 5.0 config break: app identity, `location*` and `environment` keys removed.
+- Supersedes the ID-format, envelope and offline-queue sections of `CLAUDE.md`, and the related
+  ADRs on localStorage identity and the JS offline queue, at 5.0 implementation time.

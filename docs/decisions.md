@@ -965,3 +965,44 @@ after >30 min idle) would report the cumulative process-lifetime `sdk.error_coun
    consecutive-run counters are left intact — a disposed capture is physically torn down and stays
    dead across the rotation, so `sdk.disposed_captures` continues to report it and a fresh throw
    never re-disposes it. Only the two per-session tallies are scoped to the session.
+
+---
+
+## ADR-033 — Terminology firewall narrowed to OpenTelemetry identity; `trace`/`span` allowed (#75)
+
+**Date:** 2026-10
+
+**Context:** ADR-001 hid OpenTelemetry from the public surface. `CLAUDE.md` Rule 1 and
+`docs/terminology.md` went further and banned the generic words `span` / `trace` / `tracing`.
+edge-rum 5.0 adopts distributed trace v3 (map #68; `docs/research/trace-v3-for-webview.md`):
+dotted `trace.id` / `span.id` / `traceparent.outcome` on `http.request`, a W3C `traceparent`
+header, and a host allowlist that consumers must configure and whose CORS requirement docs must
+explain. W3C trace context is a standard, not OTel. Every sibling (RN, Android, Flutter) names
+its allowlist `traceHostAllowlist`. Partially supersedes ADR-001's "zero OTel concepts" wording
+and Rule 1's `span / trace` row.
+
+**Decision:**
+
+1. **Firewall protects OTel / vendor identity only.** Still banned in public surface:
+   `opentelemetry`, `otel`, `otlp`, `TracerProvider`, `SpanProcessor`, `SpanExporter`,
+   `MeterProvider`, `LoggerProvider`, `tracer`. `trace`, `span`, `tracing`, `traceparent`
+   become ordinary consumer vocabulary (API names, docs, errors, debug output).
+2. **Only `trace`/`span` are freed.** The other non-OTel bans (`telemetry`, `metric(s)` in API
+   names, `instrumentation`, `sampling`, `batch`, `flush`, `collector`, `pipeline`, …) stay —
+   brand voice, unchanged.
+3. **Config key is `traceHostAllowlist`** (family parity). Value shape is decided in the public
+   API ticket (#80).
+4. **Guard tests afterwards:**
+   - `scripts/terminology-check.mjs` (`.d.ts` grep) — unchanged; already OTel-only.
+   - `test/docs-terminology.test.ts` — drop `span` / `tracer` / `tracing` from the banned list;
+     add `tracer` back only as part of the OTel set (`TracerProvider` etc.); keep the rest.
+   - Payload tests keep banning camelCase `traceId` / `spanId` / `resourceSpans` /
+     `opentelemetry` as the OTel-leak guard (dotted keys never collide).
+   - New payload test pins dotted `trace.id` / `span.id` / `traceparent.outcome` on
+     `http.request`.
+
+**Consequences:**
+- (+) Consumer docs can name `traceparent` and explain the CORS allowlist plainly.
+- (+) One config name across the SDK family.
+- (−) `CLAUDE.md` Rule 1, `docs/terminology.md` and the docs test must be edited in the 5.0
+  implementation — until then they are stale on `span`/`trace` only.

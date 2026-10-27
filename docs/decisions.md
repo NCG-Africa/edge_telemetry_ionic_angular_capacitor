@@ -1185,3 +1185,73 @@ native and left two questions here: gzip, and where session + sampling live.
 - (−) CI bench adds a Playwright job to every PR; noise risk handled by median + headroom.
 - Supersedes `CLAUDE.md` Rule 2, the Bundle rules section (`noExternal` OTel, 90/200 KB), and
   ADR-030's native frame samplers, at 5.0 implementation time.
+
+---
+
+## ADR-037 — Event catalogue for 5.0.0: Cordova names as baseline, gap fills, Ionic-only captures (#79)
+
+**Date:** 2026-10
+
+**Context:** `docs/research/ionic-gap-inventory.md` (#69) tags 13 Ionic captures as renames
+against the processor's typed child tables and 13 as missing. `docs/research/ionic-platform-capabilities.md`
+(#72) lists the cheap, Ionic-unique captures and two live bugs. ADR-034 (contract 4, native send),
+ADR-035 (trace model) and ADR-036 (imported captures, rAF frames, opt-in memory) left the
+catalogue itself open, along with two inputs: the outcome for requests sent before `getState`,
+and the resource-timing volume/URL leak.
+
+**Decision:**
+
+1. **Baseline = Cordova's catalogue, name-for-name and key-for-key**, for every concept Ionic
+   shares with it. Ionic only adds captures; it never renames a shared one. Concretely:
+   `user.interaction` → `ui.interaction` (`ui.*`); M:`frame_render_time` → E:`frame.summary`
+   (`frame.*`, `frame.source=raf`); `app.crash` `cause=ANR|Hang` → `app.anr` / `app.hang`;
+   dotless memory keys → `memory.*`, pressure → E:`memory_pressure`; `metric.screen` →
+   `screen.name`; `lifecycle.event` → `lifecycle.state`; battery keys camelCase → snake_case;
+   `page_load` folded into `app.start.*` phases.
+2. **Gap fills (on unless noted):**
+   - `app.start`: built natively, Cordova phase model adapted to Capacitor (no `deviceready`).
+     Carries the `launch` trace root. Part of core. Replaces `page_load` and `lifecycle.cold_start_ms`.
+   - WebView death: `app.crash` `cause=WebViewTerminated`, `webview.{reason,detected_by}`.
+     Android via `onRenderProcessGone`; iOS via JS reload heuristic (no swizzle). Always on.
+   - `app.exit`: Android `ApplicationExitInfo`, harvested next launch. Always on.
+   - `app.hang`: added on Android at 2 s; iOS threshold 5 s → 2 s. No JS-thread hang detector
+     (long tasks cover it).
+   - Rage / dead taps: `ui.rage` / `ui.dead` booleans on `ui.interaction`, Cordova rules, in
+     `interactions()`.
+   - `task.complete`: event reserved; API shape → #80.
+   - `http.request`: templated `http.url` (digits or ≥32 chars → `{id}`, `vN` kept, depth ≤ 6),
+     `http.{request_size,response_size}` where available, `success` = 200–399.
+   - Skipped: view rollup, `screen.load`, `storage_usage`, `cpu_usage`, `sdk.health` event
+     (counters stay on `session.finalized`).
+3. **Ionic-only captures:**
+
+   | Capture | Wire | Export | Default |
+   |---|---|---|---|
+   | Plugin-call timing (wrap `Capacitor.nativePromise`; SDK's own plugins excluded) | E:`bridge.summary` per screen window, `bridge.{plugin,method,count,p50_ms,p95_ms,error_count,error_codes}`. No per-call `bridge.call` | `bridge()` | on |
+   | Router guards / resolvers / lazy chunk | `navigation.{guards_ms,resolvers_ms,chunk_load_ms}`; trace child spans per ADR-035 | angular `RouterCapture` | on |
+   | Ionic page lifecycle | `screen.duration` fixed via capture-phase listener (bug fix) | angular | on |
+   | Overlays / tabs / hardware back / keyboard | `ui.interaction`, `ui.type ∈ overlay_open\|overlay_dismiss\|tab_change\|back\|keyboard_show`, `ui.target` = component | `ionicUi()` | off |
+   | WebView version, live-update bundle | context attrs `webview.version`, `app.bundle_id` (`WebView.getServerBasePath()`) | capacitor | always |
+   | Angular route error | `app.crash` `cause=NavigationError`, unchanged | angular | on |
+
+   Skipped: change-detection cost (private API), `nativeCallback` stream counts. Capgo rollback
+   events → source-maps / live-updates fog.
+4. **Requests before `getState` resolves** (ADR-036 §2): `traceparent.outcome =
+   skipped_no_session` — an eighth value beside ADR-035's `skipped_no_cors`. The row still gets
+   `trace.id`/`span.id` once the session lands.
+5. **Resource timing:** `resourceTiming()` stays opt-in. Emits an aggregate `resource_timing`
+   per screen window grouped by templated host: `resource.{initiator_type,count,p95_ms,transfer_kb}`.
+   No per-resource URLs; CapacitorHttp proxy URLs (`/_capacitor_http_interceptor_`) and the SDK
+   endpoint are excluded.
+
+**Consequences:**
+- (+) Ionic rows land in the processor's typed child tables (`ui.interaction`, `app.anr`/`app.hang`,
+  `frame.summary`) instead of the generic bag; Ionic and Cordova are interchangeable for analytics.
+- (+) Two live 4.x bugs (`screen.duration` blind, `HttpClient` XHR uncaptured) are closed by design.
+- (+) Resource-timing leak and volume amplifier removed.
+- (−) Breaking wire change for every renamed event; dashboards on 4.x names need the backend
+  mapping (#81).
+- (−) `skipped_no_session` and `bridge.summary` / `navigation.*_ms` / `webview.version` /
+  `app.bundle_id` need backend columns or docs (#81).
+- `docs/payload-schema.json` and the `CLAUDE.md` eventName table are rewritten at 5.0
+  implementation time, not now.

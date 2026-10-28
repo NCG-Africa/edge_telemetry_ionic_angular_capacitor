@@ -1446,3 +1446,34 @@ the 4.x `telemetry_batch` wire after 5.0 ships.
 - (+) Old installs keep reporting until users update the app.
 - (−) Backend carries two ingest paths for an open-ended period.
 - (−) Dashboards show a device/user discontinuity at the upgrade boundary.
+
+## ADR-042 — Release identity and symbol upload for 5.0 (#101)
+
+**Date:** 2026-10
+
+**Context:** ADR-040 adds `init({ release? })`; ADR-037/039 add `app.bundle_id` (last segment of
+`getServerBasePath()`, or `builtin`). The backend has no symbol store or symbolicator. Cordova
+settled the same question as Y1 (wire-ready only). Competitor research (#73) found that Sentry
+defaults `release` to the native binary's release, so source maps for Capgo/Appflow OTA bundles
+resolve against the wrong upload.
+
+**Decision:**
+
+1. **Wire-ready only (Cordova Y1 parity).** 5.0 ships no source-map/dSYM/NDK upload CLI, Xcode
+   phase, Gradle task, upload API, or Debug IDs. The backend needs no changes.
+2. **`release` has no default.** When the app doesn't set `init({ release })`, the attribute is
+   omitted. The SDK never derives it from the native version/build.
+3. **`release` is stamped only on JS-origin `app.crash`** (unhandled `error`/`unhandledrejection`
+   and `captureError`). It is not added to other events, and no new wire keys are introduced.
+4. **Symbol-set keys** (for a future symbolicator):
+   - JS: `release` when set, otherwise `app.bundle_id`, plus the normalised `app://` frame path.
+   - Native (iOS/Android): `app.version` + `app.build_number`, because dSYM/NDK symbols belong to the binary.
+5. **OTA docs recipe only.** The docs show how to set `release` from the Capgo/Appflow bundle
+   version at build time. The SDK has no hook into either vendor.
+
+**Consequences:**
+- (+) Zero bytes, zero dependencies and no backend gate added to 5.0. A later symbolicator needs no wire change.
+- (+) OTA bundles get distinct JS keys even without `release`, via `app.bundle_id`.
+- (−) Production JS/native stacks stay unsymbolicated until upload tooling exists (a later effort).
+- (−) If `release` is unset on a `builtin` bundle, JS maps fall back to keying off `builtin`, which
+  is ambiguous across binary versions. Pair it with `app.version` when that's needed.

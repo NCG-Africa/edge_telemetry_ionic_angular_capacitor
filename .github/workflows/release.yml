@@ -9,6 +9,9 @@ on:
     tags: ['v*.*.*']
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   # Spec V1: fresh Capacitor app + packed packages, `npx cap add`, native build.
   # Release-only (slow native builds); publish waits on both.
   fixture-android:
@@ -44,7 +47,7 @@ jobs:
       - run: scripts/fixture-build.sh ios
 
   publish:
-    needs: [fixture-android, fixture-ios]
+    needs: [ci, fixture-android, fixture-ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write    # for GitHub Releases (created by changeset publish)

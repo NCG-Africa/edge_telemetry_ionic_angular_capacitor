@@ -17,7 +17,7 @@ import com.getcapacitor.annotation.CapacitorPlugin
  * `goofy-rolling-flask.md` "Manual validation steps" for the smoke tests
  * you need to run on a real Android device or emulator.
  */
-@CapacitorPlugin(name = "EdgeRumCrash")
+@CapacitorPlugin(name = "EdgeRum")
 class EdgeRumCrashPlugin : Plugin() {
 
     @Volatile private var installed = false

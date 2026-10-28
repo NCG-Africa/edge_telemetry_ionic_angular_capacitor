@@ -5,7 +5,7 @@
 // Capacitor 8 SPM-only iOS projects (no Podfile) need this file for
 // `npx cap sync ios` to discover and link the native plugin. The legacy
 // CocoaPods path remains supported via the parallel podspec at
-// `ios/EdgeRumCapacitor.podspec`.
+// `ios/EdgeRum.podspec`.
 //
 // Naming note — the Capacitor CLI auto-derives the consumer's
 // `CapApp-SPM/Package.swift` entries from `Plugin.name`, which is
@@ -16,9 +16,9 @@
 // package + product + target names below MUST match the auto-derived
 // value or the consumer manifest fails with "product '...' not found
 // in package '...'". The Swift class name (`@objc(EdgeRumCrashPlugin)`),
-// the `jsName = "EdgeRumCrash"` declared in `CAPBridgedPlugin`, and the
-// CocoaPods podspec name (`EdgeRumCapacitor`) are unrelated to this
-// SPM-side naming and remain unchanged.
+// the `jsName = "EdgeRum"` declared in `CAPBridgedPlugin`, and the
+// CocoaPods podspec name (`EdgeRum`) are independent of this SPM-side
+// naming.
 //
 // Versioning note — `capacitor-swift-pm`'s major version is aligned with
 // Capacitor's major version (7.x for Capacitor 7, 8.x for Capacitor 8).

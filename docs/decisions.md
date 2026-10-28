@@ -1158,6 +1158,9 @@ native and left two questions here: gzip, and where session + sampling live.
 3. **JS size budgets (gzip, size-limit, CI-fail):** core 14 KB, capacitor own 7 KB, angular own
    4 KB, full stack deduped 24 KB, **minimal** (`init` + errors + requests) 8 KB. Raising a
    ceiling needs an ADR line.
+   - *Temporary (#107):* core and minimal ceilings sit at 17 KB while the 4.x JS transport and
+     session code still ship (core 16.1 KB gzip at 5.0 impl 01). #116 deletes them (spec K4) and
+     drops both to 14 KB / 8 KB.
 4. **Tree-shakeable imported captures.** `EdgeRum.init({ captures: [vitals(), frames(), …] })`.
    Always in core: errors, fetch/XHR requests + traces, session/native relay (the minimal build).
    Opt-in exports: `vitals`, `interactions`, `frames`, `memory`, `resourceTiming`, `longTasks`,

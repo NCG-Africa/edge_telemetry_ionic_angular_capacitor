@@ -16,15 +16,16 @@ const consumerDocs = [
   'CHANGELOG.md',
 ];
 
+// Spec N3/N4: OpenTelemetry identity only. `trace`, `span`, `tracing`, `traceparent` are allowed.
 const bannedTerms = [
   'opentelemetry',
   'otlp',
-  'span',
   'tracer',
-  'tracing',
-  'spanprocessor',
   'tracerprovider',
+  'spanprocessor',
+  'spanexporter',
   'meterprovider',
+  'loggerprovider',
 ];
 
 // "telemetry" must never appear as prose. The string `/collector/telemetry` and

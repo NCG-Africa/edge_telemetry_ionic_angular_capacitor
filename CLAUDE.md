@@ -29,15 +29,16 @@ The following words and identifiers **must never appear** in:
 - Any error message thrown to consumers
 - Any `console.*` output in production mode
 
-**Banned in public surface:**
+**Banned in public surface** (spec N3, ADR-033):
 ```
-opentelemetry / otel / otlp
-span / trace / tracer
+opentelemetry / otel / otlp / tracer
 TracerProvider / SpanProcessor / SpanExporter
 MeterProvider / LoggerProvider
-instrumentation / telemetry
+telemetry / instrumentation / sampling / batch / flush / collector / pipeline
 metric / metrics (in API names — fine in docs as "performance data")
 ```
+
+`trace`, `span`, `tracing`, `traceparent` are **allowed** (5.0 ships traces as a feature).
 
 **Allowed internally** (inside `internal/`, `instrumentation/`, `transport/`):
 use any name that makes the code clear. The firewall is the `index.ts` export boundary only.
@@ -46,7 +47,6 @@ use any name that makes the code clear. The firewall is the `index.ts` export bo
 
 | Instead of... | Say... |
 |---|---|
-| span / trace | event |
 | instrumentation | capture |
 | telemetry | performance data |
 | emit / record a span | record an event |
@@ -619,10 +619,11 @@ Batch max size: `batchSize` (default 30, matches Android default).
 
 ## Bundle rules
 
-- `noExternal: [/@opentelemetry\/.*/]` — OTel always bundled, never a peer dep.
+- No OpenTelemetry dependency (spec L4); trace ids/spans are hand-rolled.
 - `sideEffects: false` on all packages.
 - `@capacitor/*` and `@angular/*` are peer deps — never bundled.
-- Size limits: core < 90KB gzipped, full stack < 200KB gzipped.
+- Size limits (gzip, spec L1): core 14 KB, `-capacitor` own 7 KB, `-angular` own 4 KB,
+  full stack deduped 24 KB, minimal (`init` + errors + requests) 8 KB. See `.size-limit.json`.
 
 ---
 

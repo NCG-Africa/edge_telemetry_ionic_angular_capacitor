@@ -7,7 +7,7 @@ import { registerNativeCrashCapture, type NativeCrashRecord } from '../src/Nativ
 // registerPlugin proxy behaves. If the SDK ever returns this proxy directly
 // from a Promise resolution, JavaScript's thenable assimilation will call
 // `proxy.then(resolve, reject)`, Capacitor will route that to the native
-// plugin, and Android will respond "EdgeRumCrash.then() is not implemented".
+// plugin, and Android will respond "EdgeRum.then() is not implemented".
 // The test asserts the wrapper in defaultLoadPlugin prevents that.
 const mocks = vi.hoisted(() => {
   type Crashes = { crashes: NativeCrashRecord[] };

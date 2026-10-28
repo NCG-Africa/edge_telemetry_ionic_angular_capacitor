@@ -1,5 +1,5 @@
 Pod::Spec.new do |s|
-  s.name = 'EdgeRumCapacitor'
+  s.name = 'EdgeRum'
   s.version = '3.3.6'
   s.summary = 'Edge RUM Capacitor native crash bridge (PLCrashReporter + hang detector)'
   s.license = 'MIT'

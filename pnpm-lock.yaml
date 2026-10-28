@@ -50,6 +50,9 @@ importers:
       '@nathanclaire/rum':
         specifier: workspace:*
         version: link:../core
+      '@nathanclaire/rum-capacitor':
+        specifier: workspace:*
+        version: link:../capacitor
     devDependencies:
       '@angular/common':
         specifier: ^18.0.0

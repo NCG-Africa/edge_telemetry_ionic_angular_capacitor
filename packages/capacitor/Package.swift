@@ -17,8 +17,8 @@
 // value or the consumer manifest fails with "product '...' not found
 // in package '...'". The Swift class name (`@objc(EdgeRumCrashPlugin)`),
 // the `jsName = "EdgeRum"` declared in `CAPBridgedPlugin`, and the
-// CocoaPods podspec name (`EdgeRum`) are unrelated to this
-// SPM-side naming and remain unchanged.
+// CocoaPods podspec name (`EdgeRum`) are independent of this SPM-side
+// naming.
 //
 // Versioning note — `capacitor-swift-pm`'s major version is aligned with
 // Capacitor's major version (7.x for Capacitor 7, 8.x for Capacitor 8).

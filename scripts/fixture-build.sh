@@ -3,7 +3,7 @@
 # Usage: scripts/fixture-build.sh android|ios [workdir]
 set -euo pipefail
 
-platform="$1"
+platform="${1:-}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="${2:-$(mktemp -d)}"
 cap_version="^8.0.0"
@@ -15,7 +15,7 @@ esac
 
 (cd "$root" && pnpm build)
 
-rm -rf "$work/fixture" && mkdir -p "$work/fixture/www" "$work/tarballs"
+rm -rf "$work/fixture" "$work/tarballs" && mkdir -p "$work/fixture/www" "$work/tarballs"
 # pnpm pack rewrites workspace:* to real versions; installing both tarballs together satisfies the core dep.
 (cd "$root/packages/core" && pnpm pack --pack-destination "$work/tarballs" >/dev/null)
 (cd "$root/packages/capacitor" && pnpm pack --pack-destination "$work/tarballs" >/dev/null)

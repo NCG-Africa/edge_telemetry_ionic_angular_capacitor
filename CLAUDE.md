@@ -49,7 +49,6 @@ use any name that makes the code clear. The firewall is the `index.ts` export bo
 |---|---|
 | instrumentation | capture |
 | telemetry | performance data |
-| emit / record a span | record an event |
 | metrics | performance data |
 | OTLP / collector | (never mentioned) |
 
@@ -624,6 +623,7 @@ Batch max size: `batchSize` (default 30, matches Android default).
 - `@capacitor/*` and `@angular/*` are peer deps — never bundled.
 - Size limits (gzip, spec L1): core 14 KB, `-capacitor` own 7 KB, `-angular` own 4 KB,
   full stack deduped 24 KB, minimal (`init` + errors + requests) 8 KB. See `.size-limit.json`.
+  Core + minimal temporarily at 17 KB until #116 lands (ADR-036 §3).
 
 ---
 

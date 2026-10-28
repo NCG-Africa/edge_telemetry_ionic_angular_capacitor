@@ -35,11 +35,7 @@
   },
   {
     "name": "full stack (core + capacitor + angular, deduped)",
-    "path": [
-      "packages/core/dist/index.mjs",
-      "packages/capacitor/dist/index.mjs",
-      "packages/angular/dist/fesm2022/nathanclaire-rum-angular.mjs"
-    ],
+    "path": "scripts/size-full-stack.mjs",
     "limit": "24 KB",
     "gzip": true,
     "ignore": [

@@ -17,6 +17,7 @@ const consumerDocs = [
 ];
 
 // Spec N3/N4: OpenTelemetry identity only. `trace`, `span`, `tracing`, `traceparent` are allowed.
+// `otel` is omitted: a substring match false-positives on words like "hotel".
 const bannedTerms = [
   'opentelemetry',
   'otlp',

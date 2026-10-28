@@ -2,15 +2,30 @@
   {
     "name": "@nathanclaire/rum (core)",
     "path": "packages/core/dist/index.mjs",
-    "limit": "90 KB",
+    "limit": "17 KB",
     "gzip": true
   },
   {
-    "name": "@nathanclaire/rum-angular",
-    "path": "packages/angular/dist/fesm2022/nathanclaire-rum-angular.mjs",
-    "limit": "60 KB",
+    "name": "@nathanclaire/rum-capacitor (own)",
+    "path": "packages/capacitor/dist/index.mjs",
+    "limit": "7 KB",
     "gzip": true,
     "ignore": [
+      "@nathanclaire/rum",
+      "@capacitor/core",
+      "@capacitor/device",
+      "@capacitor/network",
+      "@capacitor/app"
+    ]
+  },
+  {
+    "name": "@nathanclaire/rum-angular (own)",
+    "path": "packages/angular/dist/fesm2022/nathanclaire-rum-angular.mjs",
+    "limit": "4 KB",
+    "gzip": true,
+    "ignore": [
+      "@nathanclaire/rum",
+      "@nathanclaire/rum-capacitor",
       "@angular/core",
       "@angular/common",
       "@angular/router",
@@ -19,25 +34,9 @@
     ]
   },
   {
-    "name": "@nathanclaire/rum-capacitor",
-    "path": "packages/capacitor/dist/index.mjs",
-    "limit": "60 KB",
-    "gzip": true,
-    "ignore": [
-      "@capacitor/core",
-      "@capacitor/device",
-      "@capacitor/network",
-      "@capacitor/app"
-    ]
-  },
-  {
-    "name": "full stack (core + angular + capacitor)",
-    "path": [
-      "packages/core/dist/index.mjs",
-      "packages/angular/dist/fesm2022/nathanclaire-rum-angular.mjs",
-      "packages/capacitor/dist/index.mjs"
-    ],
-    "limit": "200 KB",
+    "name": "full stack (core + capacitor + angular, deduped)",
+    "path": "scripts/size-full-stack.mjs",
+    "limit": "24 KB",
     "gzip": true,
     "ignore": [
       "@angular/core",
@@ -50,5 +49,12 @@
       "@capacitor/network",
       "@capacitor/app"
     ]
+  },
+  {
+    "name": "minimal (init + errors + requests)",
+    "path": "packages/core/dist/index.mjs",
+    "import": "{ EdgeRum }",
+    "limit": "17 KB",
+    "gzip": true
   }
 ]

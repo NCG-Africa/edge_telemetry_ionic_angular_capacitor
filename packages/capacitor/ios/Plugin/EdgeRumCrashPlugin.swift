@@ -13,7 +13,7 @@ import Capacitor
 public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
 
     public let identifier = "EdgeRumCrashPlugin"
-    public let jsName = "EdgeRumCrash"
+    public let jsName = "EdgeRum"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "install", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "fetchPending", returnType: CAPPluginReturnPromise),

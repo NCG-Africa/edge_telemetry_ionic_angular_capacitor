@@ -2,7 +2,7 @@
   "type": "telemetry_batch",
   "timestamp": "2024-01-15T10:30:00.000Z",
   "location": "Nairobi/Kenya",
-  "batch_size": 2,
+  "batch_size": 3,
   "events": [
     {
       "type": "event",
@@ -32,6 +32,31 @@
         "navigation.route_type": "deeplink",
         "navigation.has_arguments": true,
         "navigation.timestamp": "2024-01-15T10:30:00.123Z"
+      }
+    },
+    {
+      "type": "event",
+      "eventName": "http.request",
+      "timestamp": "2024-01-15T10:30:01.000Z",
+      "attributes": {
+        "app.name": "MyApp",
+        "app.version": "2.1.0",
+        "app.package_name": "com.yourco.app",
+        "app.build_number": "42",
+        "device.id": "device_1704067200000_a8b9c2d176b4ce41_web",
+        "device.platform": "web",
+        "session.id": "session_1704067200000_x9y8z7w6deadbeef_web",
+        "session.start_time": "2024-01-15T10:25:00.000Z",
+        "user.id": "user_1704067200000_abcd1234deadbeef",
+        "sdk.platform": "ionic-angular-capacitor",
+        "sdk.version": "5.0.0-alpha",
+        "http.url": "https://api.example.com/products/:id",
+        "http.method": "GET",
+        "http.status_code": 200,
+        "http.duration_ms": 342,
+        "trace.id": "4bf92f3577b34da6a3ce929d0e0e4736",
+        "span.id": "00f067aa0ba902b7",
+        "traceparent.outcome": "injected"
       }
     },
     {

@@ -14,5 +14,4 @@ export default defineConfig({
     '@capacitor/network',
     '@capacitor/app',
   ],
-  noExternal: [/@opentelemetry\/.*/],
 });

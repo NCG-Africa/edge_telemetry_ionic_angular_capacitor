@@ -251,13 +251,14 @@ describe.skipIf(!hasDist)('Public API surface in .d.ts files', () => {
     'resourceSpans',
   ];
 
-  it('index.d.ts exports all expected public symbols', () => {
+  // Spec K5: services/module/provider + types only; capture classes and tokens stay internal.
+  it('index.d.ts exports exactly the K5 public symbols', () => {
     const content = readFileSync(join(ANGULAR_DIST, 'index.d.ts'), 'utf-8');
 
-    const expectedExports = [
-      'EdgeRumService',
-      'EdgeRumModule',
-      'provideEdgeRum',
+    for (const symbol of ['EdgeRumService', 'EdgeRumModule', 'provideEdgeRum']) {
+      expect(content).toContain(symbol);
+    }
+    for (const symbol of [
       'EDGE_RUM_CONFIG',
       'edgeRumInitializerFactory',
       'RouterCapture',
@@ -265,10 +266,10 @@ describe.skipIf(!hasDist)('Public API surface in .d.ts files', () => {
       'ERROR_ROUTE_PROVIDER',
       'IonicLifecycleCapture',
       'LIFECYCLE_EVENT_SOURCE',
-    ];
-
-    for (const symbol of expectedExports) {
-      expect(content).toContain(symbol);
+      'SDK_PLATFORM',
+      'SDK_VERSION',
+    ]) {
+      expect(content).not.toContain(symbol);
     }
   });
 

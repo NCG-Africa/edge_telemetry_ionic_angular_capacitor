@@ -73,4 +73,12 @@ describe('telemetry_batch envelope', () => {
     expect(body).not.toMatch(/instrumentationScope/);
     expect(body).not.toMatch(/opentelemetry/i);
   });
+
+  // Spec N4: dotted trace keys are allowed and never collide with the camelCase OTel guard above.
+  it('http.request carries dotted trace.id / span.id / traceparent.outcome', () => {
+    const req = fixture.events.find((e) => e.type === 'event' && e.eventName === 'http.request');
+    expect(req?.attributes['trace.id']).toMatch(/^[0-9a-f]{32}$/);
+    expect(req?.attributes['span.id']).toMatch(/^[0-9a-f]{16}$/);
+    expect(typeof req?.attributes['traceparent.outcome']).toBe('string');
+  });
 });

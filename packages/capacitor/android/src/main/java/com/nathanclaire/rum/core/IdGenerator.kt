@@ -25,8 +25,8 @@ class IdGenerator(private val store: Store) {
         return try {
             // A persisted fallback wins over the primary slot, so a transient primary failure
             // can't make device_id flip between processes.
-            store.get(KEY_FALLBACK_DEVICE_ID) ?: store.get(KEY_DEVICE_ID) ?: generate("device").also {
-                store.put(KEY_DEVICE_ID, it)
+            store.get(KEY_FALLBACK_DEVICE_ID) ?: store.get(KEY_DEVICE_ID) ?: generate("device").let {
+                if (store.put(KEY_DEVICE_ID, it)) it else fallbackId()
             }
         } catch (e: RuntimeException) {
             fallbackId()

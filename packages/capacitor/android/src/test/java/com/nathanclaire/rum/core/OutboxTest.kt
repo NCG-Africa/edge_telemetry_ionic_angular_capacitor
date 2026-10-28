@@ -129,4 +129,16 @@ class OutboxTest {
         reloaded.subtract(mapOf("events_dropped.expired" to 3L))
         assertEquals(mapOf("events_dropped.expired" to 2L), Health(dir).snapshot())
     }
+
+    @Test fun failedSealDoesNotStallAppends() {
+        outbox.append(ID_V1, events(Outbox.SEAL_EVENTS - 1))
+        dir.setWritable(false) // rename into the dir fails, so the seal at 50 can't happen
+        try {
+            outbox.append(ID_V1, events(3))
+        } finally {
+            dir.setWritable(true)
+        }
+        outbox.seal()
+        assertEquals(52, outbox.read(outbox.sealed()[0]).events.size)
+    }
 }

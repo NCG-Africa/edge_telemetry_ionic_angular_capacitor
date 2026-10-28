@@ -10,6 +10,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.GZIPOutputStream
@@ -57,11 +58,14 @@ class Sender(
 
     /** Schedules a drain on the sender thread; triggers while one is queued coalesce. */
     fun trigger() {
-        if (pending.compareAndSet(false, true)) {
+        if (!pending.compareAndSet(false, true)) return
+        try {
             executor.execute {
                 pending.set(false)
                 drain()
             }
+        } catch (ignored: RejectedExecutionException) {
+            // shut down; segments stay on disk for the next process
         }
     }
 

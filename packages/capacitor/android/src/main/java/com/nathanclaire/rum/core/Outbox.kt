@@ -32,7 +32,8 @@ class Outbox(private val dir: File, private val clock: () -> Long, private val h
     fun append(identity: String, events: List<String>) {
         var i = 0
         while (i < events.size) {
-            val n = minOf(events.size - i, SEAL_EVENTS - openCount)
+            // At least 1: if a seal's rename failed, the segment grows past 50 rather than spinning here.
+            val n = minOf(events.size - i, maxOf(1, SEAL_EVENTS - openCount))
             write(identity, events.subList(i, i + n))
             i += n
             if (openCount >= SEAL_EVENTS) seal()

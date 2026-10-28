@@ -46,27 +46,28 @@ class EdgeRumCrashPlugin : Plugin() {
     private lateinit var health: Health
     private lateinit var outbox: Outbox
     private lateinit var sender: Sender
-    /** Serial: timers and every append, so seals can't interleave a hand-off. */
-    private lateinit var worker: ScheduledExecutorService
+    /** Serial: core init, timers and every plugin method, so nothing runs before init or interleaves a hand-off. */
+    private val worker: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
     private lateinit var identity: String
     private val processStartedAt =
         System.currentTimeMillis() - (SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime())
 
     override fun load() {
-        val dir = File(context.filesDir, "edge_rum")
-        health = Health(dir)
-        outbox = Outbox(dir, System::currentTimeMillis, health)
-        sender = Sender(outbox, health, BuildConfig.SDK_VERSION)
-        // C1: `plugins.EdgeRum` in capacitor.config; missing key/endpoint → capture to disk until `configure`.
-        sender.configure(config.getString("apiKey", null), config.getString("endpoint", null))
-        identity = identityLine(context, IdGenerator(prefsStore(context)).deviceId())
-
-        worker = Executors.newSingleThreadScheduledExecutor()
+        // Off the UI thread: outbox caps and the id store touch disk.
+        onWorker {
+            val dir = File(context.filesDir, "edge_rum")
+            health = Health(dir)
+            outbox = Outbox(dir, System::currentTimeMillis, health)
+            sender = Sender(outbox, health, BuildConfig.SDK_VERSION)
+            // C1: `plugins.EdgeRum` in capacitor.config; missing key/endpoint → capture to disk until `configure`.
+            sender.configure(config.getString("apiKey", null), config.getString("endpoint", null))
+            identity = identityLine(context, IdGenerator(prefsStore(context)).deviceId())
+            sender.trigger()
+        }
         // T3: 30 s after the first event, within a second.
         worker.scheduleWithFixedDelay({ outbox.sealIfDue() }, 1, 1, TimeUnit.SECONDS)
         // T6: 30 s retry tick for parked segments.
         worker.scheduleWithFixedDelay({ sender.trigger() }, 30, 30, TimeUnit.SECONDS)
-        sender.trigger()
 
         bridge.addWebViewListener(object : WebViewListener() {
             override fun onPageLoaded(webView: WebView) {
@@ -79,21 +80,27 @@ class EdgeRumCrashPlugin : Plugin() {
     @PluginMethod
     fun getState(call: PluginCall) {
         // ponytail: session, sampling and consent fields arrive with the session store (#109).
-        call.resolve(
-            JSObject()
-                .put("enabled", true)
-                .put("configured", sender.configured())
-                .put("sdkVersion", BuildConfig.SDK_VERSION)
-                .put("deviceStartedAt", processStartedAt),
-        )
+        onWorker(call) {
+            call.resolve(
+                JSObject()
+                    .put("enabled", true)
+                    .put("configured", sender.configured())
+                    .put("sdkVersion", BuildConfig.SDK_VERSION)
+                    .put("deviceStartedAt", processStartedAt),
+            )
+        }
     }
 
     @PluginMethod
     fun configure(call: PluginCall) {
         // From init(); runtime only, never persisted (C1).
-        sender.configure(call.getString("apiKey"), call.getString("endpoint"))
-        sender.trigger()
-        call.resolve()
+        val apiKey = call.getString("apiKey")
+        val endpoint = call.getString("endpoint")
+        onWorker(call) {
+            sender.configure(apiKey, endpoint)
+            sender.trigger()
+            call.resolve()
+        }
     }
 
     @PluginMethod
@@ -105,7 +112,7 @@ class EdgeRumCrashPlugin : Plugin() {
         }
         val lines = (0 until events.length()).mapNotNull { events.optJSONObject(it)?.toString() }
         val drops = call.getObject("drops")
-        onWorker {
+        onWorker(call) {
             try {
                 if (lines.isNotEmpty()) outbox.append(identity, lines)
             } catch (e: Exception) {
@@ -121,11 +128,12 @@ class EdgeRumCrashPlugin : Plugin() {
         }
     }
 
-    private fun onWorker(task: () -> Unit) {
+    /** A [call] is rejected if the worker has shut down, so it never hangs unsettled. */
+    private fun onWorker(call: PluginCall? = null, task: () -> Unit) {
         try {
             worker.execute(task)
         } catch (ignored: RejectedExecutionException) {
-            // shutting down
+            call?.reject("shutting down")
         }
     }
 
@@ -142,13 +150,14 @@ class EdgeRumCrashPlugin : Plugin() {
 
     override fun handleOnResume() {
         super.handleOnResume()
-        sender.trigger()
+        onWorker { sender.trigger() }
     }
 
     override fun handleOnDestroy() {
         super.handleOnDestroy()
-        worker.shutdownNow()
-        sender.shutdown()
+        // Graceful: queued hand-offs still land on disk; the sender stops after them.
+        onWorker { sender.shutdown() }
+        worker.shutdown()
     }
 
     @PluginMethod
@@ -235,6 +244,7 @@ class EdgeRumCrashPlugin : Plugin() {
     // Backgrounding is a scene change: close the current frame window so the
     // background gap isn't measured as one giant dropped frame on resume
     // (mirrors iOS didEnterBackground). No-op unless frame sampling is running.
+    // T3: background also seals the open segment and sends (repeated on stop).
     override fun handleOnPause() {
         super.handleOnPause()
         runCatching { FrameSampler.onBackground() }

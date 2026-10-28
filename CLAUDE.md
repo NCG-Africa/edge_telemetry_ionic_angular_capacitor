@@ -52,12 +52,12 @@ use any name that makes the code clear. The firewall is the `index.ts` export bo
 | metrics | performance data |
 | OTLP / collector | (never mentioned) |
 
-### Rule 2 — JSON only, always
+### Rule 2 — JSON only; gzip on the wire, applied by the native sender
 
-All data sent to the backend must be:
+All data sent to the backend must be (spec T2):
 - `Content-Type: application/json`
-- `JSON.stringify(payload)` as the body
-- No compression, no binary encoding, no Protobuf
+- A JSON envelope as the body, gzipped by the native sender (`Content-Encoding: gzip`)
+- No other encoding, no binary formats, no Protobuf
 
 ---
 

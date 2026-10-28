@@ -53,3 +53,21 @@ jobs:
       - name: Integration tests
         run: pnpm test:integration
         if: ${{ hashFiles('playwright.config.ts') != '' }}
+
+  # Spec Q2: native core JUnit suite (outbox, sender, goldens) on the JVM, no Android host app.
+  android-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: current
+
+      - name: Android core tests
+        run: gradle -p packages/capacitor/android/core-test test

@@ -1,0 +1,40 @@
+// The plugin's build.gradle needs a host app (`:capacitor-android`); the core under
+// `com.nathanclaire.rum.core` is plain Kotlin + org.json, so it compiles and tests here alone.
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '2.2.20'
+}
+
+repositories {
+    mavenCentral()
+}
+
+sourceSets {
+    main {
+        kotlin {
+            srcDirs = ['../src/main/java']
+            include 'com/nathanclaire/rum/core/**'
+        }
+    }
+    test {
+        kotlin { srcDirs = ['../src/test/java'] }
+        resources { srcDirs = ['../src/test/resources'] }
+    }
+}
+
+kotlin {
+    jvmToolchain(17)
+}
+
+dependencies {
+    // Android ships org.json; this is its API-identical clone, so what compiles here compiles in the app.
+    def androidJson = 'com.vaadin.external.google:android-json:0.0.20131108.vaadin1'
+    compileOnly androidJson
+    testImplementation androidJson
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
+}
+
+test {
+    useJUnit()
+    testLogging { exceptionFormat 'full'; events 'failed' }
+}

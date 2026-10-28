@@ -1477,3 +1477,40 @@ resolve against the wrong upload.
 - (−) Production JS/native stacks stay unsymbolicated until upload tooling exists (a later effort).
 - (−) If `release` is unset on a `builtin` bundle, JS maps fall back to keying off `builtin`, which
   is ambiguous across binary versions. Pair it with `app.version` when that's needed.
+
+## ADR-043 — Test strategy and coordinated rollout for 5.0 (#102)
+
+**Date:** 2026-10
+
+**Context:** 5.0 moves capture onto a native core ported from Cordova (ADR-034), so web is a silent
+no-op and today's Playwright harness can't see a real batch. ADR-036 already set the size budgets
+and the per-PR runtime speed check; ADR-038 already set the backend gate (prod deploy check →
+processor live → analytics may trail). Cordova settled tests and release as Q1–Q6 / V1–V4.
+
+**Decision:**
+
+1. **Adopt Cordova Q1–Q6 + V1–V4**, with these Ionic changes:
+   - Q2 Playwright harness gets a fake Capacitor bridge that sends to mock-ingest; the ADR-036 speed check stays in it.
+   - Q5 example app = the existing `demo/` upgraded to an Ionic Angular app (`provideEdgeRum`), one scenario per button/deep link.
+   - V1 CI fixture = `npx cap add android|ios` + native build (macOS job for iOS).
+   - `sdk.name=ionic`, `contract_version=4.0.0` wherever Cordova checks `cordova`.
+2. **Golden batches:** one snapshot per event type in native JUnit/XCTest (Q3). The same files are
+   copied as fixtures into `edge_telemetry_processor_go`, where a test asserts every Ionic event
+   (incl. `bridge.summary`, router phase keys) lands in its ADR-038 column. A golden change ⇒
+   matching processor fixture PR.
+3. **Device e2e gate** (emulator + simulator, nightly, required on release tag): Cordova Q4 happy
+   path + envelope, plus: `navigation` carries router phase keys; an `HttpClient` (XHR) request is
+   captured; a request to an allowlisted host carries `traceparent` and its `http.request` records
+   the injection outcome.
+4. **Rollout order:**
+   1. ADR-038 backend gate is a box in `docs/release-checklist.md`, ticked in the release PR.
+   2. `5.0.0-rc.N` on the npm `next` dist-tag.
+   3. One internal pilot app runs the RC in production for ~1 week.
+   4. GA when pilot batches land in the ADR-038 tables with zero DLQ. GA freezes 4.x (ADR-041).
+   Native code ships inside the plugin — no separate native release order.
+
+**Consequences:**
+- (+) Same test layers as Cordova; most harness/checklist code is a copy.
+- (+) Wire drift is caught from either side before a device ever runs.
+- (−) Golden changes need a paired processor PR.
+- (−) GA waits on a pilot week on top of the backend gate.

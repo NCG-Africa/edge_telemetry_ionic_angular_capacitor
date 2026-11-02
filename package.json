@@ -11,6 +11,7 @@
     "type-check": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:android": "gradle -p packages/capacitor/android/core-test test",
     "test:integration": "pnpm build && node e2e/build-harness.mjs && playwright test",
     "size": "size-limit",
     "terminology-check": "node scripts/terminology-check.mjs",

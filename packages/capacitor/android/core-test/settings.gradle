@@ -1,0 +1,2 @@
+// Spec Q2: JVM-only build of the native core so its JUnit suite runs without an Android host app.
+rootProject.name = 'edge-rum-core-test'

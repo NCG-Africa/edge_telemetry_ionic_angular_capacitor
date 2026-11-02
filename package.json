@@ -5,7 +5,7 @@
   "description": "Real User Monitoring SDK for Ionic Angular Capacitor apps",
   "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "build": "pnpm -r --filter './packages/*' run build",
+    "build": "node api.js && pnpm -r --filter './packages/*' run build",
     "clean": "pnpm -r --filter './packages/*' run clean && rm -rf node_modules/.cache",
     "lint": "eslint \"packages/*/src/**/*.ts\" \"test/**/*.ts\"",
     "type-check": "tsc -p tsconfig.json --noEmit",

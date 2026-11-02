@@ -33,6 +33,22 @@ class IdGenerator(private val store: Store) {
         }
     }
 
+    /** P7 `reset()`: a fresh device_id replaces both slots; pinned in memory if storage fails. */
+    @Synchronized
+    fun rotate(): String {
+        val id = generate("device")
+        try {
+            if (store.put(KEY_DEVICE_ID, id) && store.put(KEY_FALLBACK_DEVICE_ID, null)) {
+                pinnedFallbackId = null
+                return id
+            }
+        } catch (ignored: RuntimeException) {
+            // falls through to pinning
+        }
+        pinnedFallbackId = id
+        return id
+    }
+
     // R9: a random UUIDv4 persisted once under its own key; if storage fails too, in-memory for
     // this process.
     private fun fallbackId(): String {
@@ -52,10 +68,21 @@ class IdGenerator(private val store: Store) {
         const val KEY_FALLBACK_DEVICE_ID = "device_id_fallback"
         private val RANDOM = SecureRandom()
 
+        fun sessionId() = generate("session")
+
         fun generate(kind: String): String {
             val bytes = ByteArray(8).also { RANDOM.nextBytes(it) }
             return kind + "_" + System.currentTimeMillis() + "_" +
                 bytes.joinToString("") { "%02x".format(it) } + "_android"
         }
+    }
+}
+
+/** A write the caller can live without: on failure the value stays in memory / this process only. */
+fun IdGenerator.Store.putQuietly(key: String, value: String?) {
+    try {
+        put(key, value)
+    } catch (ignored: RuntimeException) {
+        // see above
     }
 }

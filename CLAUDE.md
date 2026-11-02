@@ -92,7 +92,7 @@ The collector drops events missing any of these. PayloadBuilder merges them in f
 - `app.package_name`, `app.name`, `app.version`, `app.build_number`
 - `device.id`, `device.platform`
 - `user.id` (plus optional `user.name`, `user.email`, `user.phone`)
-- `session.id`, `session.start_time`
+- `session.id` (5.0: stamped natively by the session gate; `session.start_time` only on `session.started`/`session.finalized`)
 - `network.type` (optional)
 
 ### Individual event structure
@@ -159,7 +159,7 @@ session.id: "session_{timestampMs}_{16hexchars}_{platform}"
 
 user.id:    "user_{timestampMs}_{16hexchars}"
             e.g. "user_1704067200000_abcd1234deadbeef"
-            (SDK-owned anonymous ID; EdgeRum.identify() does not change it)
+            (4.x anonymous ID. 5.0: `user.id` = the `identify()` id, persisted natively until `clearUser()` — spec P7)
 ```
 
 Format note (v3.1.0): the random segment widened from 8 to 16 hex chars (64 bits of entropy) to eliminate birthday-collision risk at scale. Existing persisted IDs in `localStorage` are invalidated by the new regex on next launch — fresh IDs generate transparently.

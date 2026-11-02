@@ -1,8 +1,12 @@
 package com.nathanclaire.rum
 
+import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
@@ -15,12 +19,15 @@ import com.getcapacitor.PluginMethod
 import com.getcapacitor.WebViewListener
 import com.getcapacitor.annotation.CapacitorPlugin
 import com.nathanclaire.rum.core.Consent
+import com.nathanclaire.rum.core.Crash
+import com.nathanclaire.rum.core.Exits
 import com.nathanclaire.rum.core.Health
 import com.nathanclaire.rum.core.IdGenerator
 import com.nathanclaire.rum.core.Outbox
 import com.nathanclaire.rum.core.Sender
 import com.nathanclaire.rum.core.Session
 import com.nathanclaire.rum.core.User
+import com.nathanclaire.rum.core.Watchdog
 import java.io.File
 import java.security.SecureRandom
 import java.util.concurrent.Executors
@@ -31,10 +38,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
 
 /**
- * Capacitor plugin shim. Thin — delegates to:
- *  - [JvmCrashHandler] for Java/Kotlin uncaught Throwables
- *  - [AnrWatchdog] for main-thread liveness
- *  - [NativeCrashBridge] for NDK signal handlers
+ * Capacitor plugin shim over the native core (`com.nathanclaire.rum.core`): reads the platform,
+ * the core shapes and stores it. Native crash / ANR / hang capture arms itself (E12, E14, E15).
  *
  * NOTE: this file has not been built in this repo's CI — see
  * `goofy-rolling-flask.md` "Manual validation steps" for the smoke tests
@@ -42,9 +47,6 @@ import org.json.JSONObject
  */
 @CapacitorPlugin(name = "EdgeRum")
 class EdgeRumCrashPlugin : Plugin() {
-
-    @Volatile private var installed = false
-    private val storage by lazy { CrashRecordStorage(context.cacheDir) }
 
     // ── 5.0 native core (spec A2, W1–W3, T1) ──────────────────────────────
     private lateinit var health: Health
@@ -55,15 +57,31 @@ class EdgeRumCrashPlugin : Plugin() {
     private lateinit var user: User
     private lateinit var session: Session
     private lateinit var consent: Consent
-    /** Replaced by `reset()`. */
-    private lateinit var identity: String
+    /** Replaced by `reset()`; read by the crash and watchdog threads. */
+    @Volatile private lateinit var identity: String
+    private lateinit var crash: Crash
+    private lateinit var watchdog: Watchdog
+    /** JVM + NDK handlers can't be uninstalled: once per process. */
+    private val armed = AtomicBoolean()
+    /** The watchdog runs in the foreground only (E14, E15). */
+    @Volatile private var foreground = false
     private val processStartedAt =
         System.currentTimeMillis() - (SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime())
 
     override fun load() {
+        val dir = File(context.filesDir, "edge_rum")
+        crash = Crash(dir, Looper.getMainLooper().thread, System::currentTimeMillis)
+        val main = Handler(Looper.getMainLooper())
+        // C1: `hang`/`hangTimeoutMs` (true/2000), `anr`/`anrTimeoutMs` (true/5000).
+        watchdog = Watchdog(
+            if (config.getBoolean("hang", true)) config.getInt("hangTimeoutMs", 2000).toLong() else 0,
+            if (config.getBoolean("anr", true)) config.getInt("anrTimeoutMs", 5000).toLong() else 0,
+            { main.post(it) }, SystemClock::uptimeMillis, { mainStack() },
+            { stack, ms -> solo { crash.stall("app.hang", ms, stack) } },
+            { stack, ms -> solo { crash.stall("app.anr", ms, stack) } },
+        )
         // Off the UI thread: outbox caps and the id store touch disk.
         onWorker {
-            val dir = File(context.filesDir, "edge_rum")
             health = Health(dir)
             outbox = Outbox(dir, System::currentTimeMillis, health)
             sender = Sender(outbox, health, BuildConfig.SDK_VERSION)
@@ -78,8 +96,18 @@ class EdgeRumCrashPlugin : Plugin() {
             val rate = config.configJSON.opt("sampleRate")?.let { (it as? Number)?.toDouble() ?: Double.NaN } ?: 1.0
             session = Session(prefs, health, System::currentTimeMillis, rate, random::nextDouble, IdGenerator::sessionId, user::id)
             consent = Consent(prefs, config.getBoolean("enabled", true), session, user, outbox, ids)
+            // T4: last launch's NDK crash, under the identity it crashed with. Gone either way.
+            val ndk = crash.takeNdk()
+            if (ndk != null && consent.enabled()) writeSolo(ndk.identity, ndk.event)
+            val exits = harvestExits(prefs)
             // P7: opt-in mode starts nothing until enable().
-            if (consent.enabled()) append(session.begin())
+            if (consent.enabled()) {
+                append(session.begin())
+                admit(exits)
+                // Armed after the context exists, so an NDK crash always has one to replay under.
+                saveCrashContext()
+                arm()
+            }
             sender.trigger()
         }
         // T3: 30 s after the first event, within a second.
@@ -134,9 +162,11 @@ class EdgeRumCrashPlugin : Plugin() {
         }
         val received = (0 until events.length()).mapNotNull { events.optJSONObject(it) }
         val drops = call.getObject("drops")
+        val payload = call.data
         onWorker(call) {
             // P7: opt-in mode / disabled → nothing captured or buffered.
             if (!consent.enabled()) return@onWorker call.resolve()
+            crash.mirror(payload) // A3
             // Not counted on failure: JS counts a failed hand-off as a drop and resends (A4, T8).
             if (!admit(received)) return@onWorker call.reject("append failed")
             // T8: JS-side drops, counted only once the append lands so a resend can't double them.
@@ -158,6 +188,7 @@ class EdgeRumCrashPlugin : Plugin() {
     @PluginMethod
     fun clearUser(call: PluginCall) = onWorker(call) {
         user.clear()
+        saveCrashContext()
         call.resolve()
     }
 
@@ -171,9 +202,10 @@ class EdgeRumCrashPlugin : Plugin() {
     @PluginMethod
     fun reset(call: PluginCall) = onWorker(call) {
         identity = identityLine(context, consent.reset())
-        clearCrashRecords()
+        crash.clear()
         if (consent.enabled()) {
             append(session.restart())
+            saveCrashContext()
             notifyState("session")
         }
         call.resolve()
@@ -182,31 +214,90 @@ class EdgeRumCrashPlugin : Plugin() {
     private fun setEnabled(on: Boolean, call: PluginCall) {
         val was = consent.enabled()
         append(consent.setEnabled(on))
-        // ponytail: JVM/NDK handlers can't be uninstalled; they stay but record nothing JS will send
-        // (records cleared here, enqueue refused while disabled). enable() re-arms via JS `install`.
-        if (!on) disarm()
+        // ponytail: JVM/NDK handlers can't be uninstalled; they stay, but `solo` records nothing while
+        // disabled and an NDK report is dropped at the next launch's `takeNdk`.
+        if (on) {
+            saveCrashContext()
+            arm()
+        } else {
+            disarm()
+        }
         if (was != on) notifyState("enabled")
         call.resolve()
     }
 
-    /** P7 `disable()`: stops the watchdog and samplers, deletes unsent crash records. */
+    /** P7 `disable()`: stops the watchdog and samplers, forgets crumbs, root and any NDK report. */
     private fun disarm() {
-        runCatching { AnrWatchdog.stop() }
+        watchdog.stop()
         runCatching { MemorySampler.stop() }
         runCatching { FrameSampler.stop() }
-        installed = false
-        clearCrashRecords()
+        crash.clear()
     }
 
-    private fun clearCrashRecords() {
-        storage.deleteByIds((storage.readJvmCrashes() + storage.readAnrCrashes()).map { it.id })
-        NativeCrashBridge.fetchPendingNdk(storage) // consumes the NDK record file
+    /** E12, E14, E15: crash handlers once per process; the watchdog while in the foreground. Worker only. */
+    private fun arm() {
+        if (foreground) watchdog.start()
+        if (!armed.compareAndSet(false, true)) return
+        crash.installJvm { e -> solo { e } }
+        try {
+            System.loadLibrary("edge-rum-native")
+            Ndk.install(crash.ndkReportPath())
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "NDK crash handler unavailable", e)
+        }
+    }
+
+    /**
+     * T4: a native crash / ANR / hang becomes its own segment under the running build's identity,
+     * after the session gate (a hang follows the roll, S2). Any thread, including a dying one.
+     */
+    private fun solo(record: () -> JSONObject) {
+        try {
+            if (!consent.enabled()) return
+            val event = record()
+            val before = session.id()
+            append(session.rotateIfIdle())
+            for (line in session.admit(listOf(event))) writeSolo(identity, line)
+            if (before != null && before != session.id()) notifyState("session")
+        } catch (e: Exception) {
+            Log.w(TAG, "native record failed", e)
+        }
+    }
+
+    private fun writeSolo(identity: String, line: String) {
+        try {
+            outbox.writeSolo(identity, line)
+            sender.trigger()
+        } catch (e: java.io.IOException) {
+            Log.w(TAG, "solo segment failed", e)
+        }
+    }
+
+    /** What a later NDK crash report replays under (T4): identity, session, user, crumbs, root. */
+    private fun saveCrashContext() = crash.saveContext(identity, session.id(), user.id())
+
+    /** E16: new exit records since the last launch; advances the watermark even when not sent (P7). */
+    private fun harvestExits(store: IdGenerator.Store): List<JSONObject> {
+        if (Build.VERSION.SDK_INT < 30) return emptyList()
+        return try {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val records = am.getHistoricalProcessExitReasons(null, 0, 0).map {
+                val trace = if (it.reason == ApplicationExitInfo.REASON_ANR) trace(it) else null
+                Exits.Record(it.reason, it.importance, it.status, it.description, it.pss, it.rss, it.timestamp, trace)
+            }
+            Exits.harvest(records, store, System.currentTimeMillis())
+        } catch (e: Exception) {
+            // Odd OEM builds throw from the buffer read; never let that take down launch.
+            Log.w(TAG, "exit harvest failed", e)
+            emptyList()
+        }
     }
 
     /** Worker only. S1: every event goes through the session gate on its way into the outbox. */
     private fun admit(events: List<JSONObject>): Boolean {
         val before = session.id()
         val ok = append(session.admit(events))
+        saveCrashContext()
         if (before != null && before != session.id()) notifyState("session")
         return ok
     }
@@ -245,12 +336,15 @@ class EdgeRumCrashPlugin : Plugin() {
 
     override fun handleOnResume() {
         super.handleOnResume()
+        foreground = true
         onWorker {
             // E1: a foreground after the idle timeout starts a new session.
             if (consent.enabled()) {
+                if (foreground) watchdog.start()
                 val bookends = session.rotateIfIdle()
                 if (bookends.isNotEmpty()) {
                     append(bookends)
+                    saveCrashContext()
                     notifyState("session")
                 }
             }
@@ -260,74 +354,35 @@ class EdgeRumCrashPlugin : Plugin() {
 
     override fun handleOnDestroy() {
         super.handleOnDestroy()
+        watchdog.stop()
         // Graceful: queued hand-offs still land on disk; the sender stops after them.
         onWorker { sender.shutdown() }
         worker.shutdown()
     }
 
     @PluginMethod
-    fun install(call: PluginCall) = onWorker(call) {
-        // P7: opt-in mode / disabled arms no native handlers.
-        if (!consent.enabled()) call.resolve(JSObject().put("installed", false)) else arm(call)
-    }
-
-    private fun arm(call: PluginCall) {
-        if (installed) {
-            call.resolve(JSObject().put("installed", true))
-            return
-        }
-
-        val enableAnr = call.getBoolean("enableAnrDetection", true) ?: true
-        val anrTimeoutMs = call.getInt("anrTimeoutMs", 5000) ?: 5000
-
-        try {
-            JvmCrashHandler.install(storage) { lastScreen() }
-            NativeCrashBridge.install(storage.ndkRecordFile.absolutePath) { lastScreen() }
-            if (enableAnr) {
-                AnrWatchdog.start(storage, anrTimeoutMs) { lastScreen() }
-            }
-            installed = true
-            call.resolve(JSObject().put("installed", true))
-        } catch (t: Throwable) {
-            call.resolve(JSObject().put("installed", false).put("error", t.message ?: ""))
-        }
-    }
-
-    @PluginMethod
-    fun fetchPending(call: PluginCall) = onWorker(call) {
-        // P7: a crash recorded while disabled (handlers can't be uninstalled) is never sent.
-        if (!consent.enabled()) {
-            clearCrashRecords()
-            return@onWorker call.resolve(JSObject().put("crashes", JSArray()))
-        }
-        val jvm = storage.readJvmCrashes()
-        val anr = storage.readAnrCrashes()
-        val ndk = NativeCrashBridge.fetchPendingNdk(storage)
-        val all = (jvm + anr + ndk)
-        val arr = JSArray()
-        for (r in all) arr.put(r.toJson())
-        call.resolve(JSObject().put("crashes", arr))
-    }
-
-    @PluginMethod
-    fun markHandled(call: PluginCall) {
-        val ids = call.getArray("ids")
-        val idList = mutableListOf<String>()
-        if (ids != null) {
-            for (i in 0 until ids.length()) {
-                val s = ids.optString(i, null) ?: continue
-                idList.add(s)
-            }
-        }
-        storage.deleteByIds(idList)
-        call.resolve()
-    }
-
-    @PluginMethod
     fun setLastScreen(call: PluginCall) {
         val screen = call.getString("screen", "") ?: ""
-        storage.setLastScreen(screen)
-        call.resolve()
+        onWorker(call) {
+            if (consent.enabled()) {
+                crash.screen(screen)
+                saveCrashContext()
+            }
+            call.resolve()
+        }
+    }
+
+    /** A2 / X10: `{ trace.id, rum.action.id, trace.root_type }` on root mint/replace; empty when cleared. */
+    @PluginMethod
+    fun setRoot(call: PluginCall) {
+        val root = call.data
+        onWorker(call) {
+            if (consent.enabled()) {
+                crash.setRoot(root)
+                saveCrashContext()
+            }
+            call.resolve()
+        }
     }
 
     @PluginMethod
@@ -367,6 +422,10 @@ class EdgeRumCrashPlugin : Plugin() {
     // T3: background also seals the open segment and sends (repeated on stop).
     override fun handleOnPause() {
         super.handleOnPause()
+        foreground = false
+        watchdog.stop()
+        // Again behind any start a resume queued on the worker.
+        onWorker { if (!foreground) watchdog.stop() }
         runCatching { FrameSampler.onBackground() }
         flush()
     }
@@ -405,7 +464,7 @@ class EdgeRumCrashPlugin : Plugin() {
         return obj
     }
 
-    private fun lastScreen(): String = storage.getLastScreen()
+    private fun lastScreen(): String = crash.screen() ?: ""
 
     private companion object {
         const val TAG = "EdgeRum"
@@ -413,6 +472,20 @@ class EdgeRumCrashPlugin : Plugin() {
         const val LEGACY_CLEANUP =
             "['edge_rum_device_id','edge_rum_anon_uid','edge_rum_total_sessions','edge_rum_q','edge_rum_location']" +
                 ".forEach(function(k){try{localStorage.removeItem(k)}catch(e){}})"
+
+        fun mainStack(): String =
+            Looper.getMainLooper().thread.stackTrace.joinToString("") { "at $it\n" }
+
+        /** The OS's ANR text trace, first 8 KB. */
+        fun trace(info: ApplicationExitInfo): String? = try {
+            info.traceInputStream?.bufferedReader()?.use { r ->
+                val sb = StringBuilder()
+                while (sb.length < 8192) sb.append(r.readLine() ?: break).append('\n')
+                sb.toString()
+            }
+        } catch (e: java.io.IOException) {
+            null
+        }
 
         fun prefsStore(ctx: Context): IdGenerator.Store {
             val prefs = ctx.getSharedPreferences("edge_rum_ids", Context.MODE_PRIVATE)
@@ -439,4 +512,9 @@ class EdgeRumCrashPlugin : Plugin() {
             )
         }
     }
+}
+
+/** E12: JNI entry of `native-crash.c` (`libedge-rum-native.so`); idempotent. */
+internal object Ndk {
+    @JvmStatic external fun install(reportPath: String)
 }

@@ -5,6 +5,8 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.RandomAccessFile
 import java.util.Locale
+import org.json.JSONException
+import org.json.JSONObject
 
 /**
  * Spec T1 (= Cordova T2–T4, T7): append-only NDJSON segments. The open segment's first line is the
@@ -62,6 +64,27 @@ class Outbox(private val dir: File, private val clock: () -> Long, private val h
             throw e
         }
         openCount += events.size
+    }
+
+    /**
+     * T4: a native crash / ANR / hang record, sealed at once as a segment of its own under the
+     * identity of the build that produced it. Marked `solo` so the sender keeps `sdk.health` out of
+     * it (E31). Safe from a dying thread: one write, one rename.
+     */
+    @Synchronized
+    @Throws(IOException::class)
+    fun writeSolo(identity: String, event: String) {
+        val tmp = File(dir, "solo.tmp")
+        val line = try {
+            JSONObject(identity).put("solo", true).toString()
+        } catch (e: JSONException) {
+            throw IOException(e)
+        }
+        tmp.writeText(line + '\n' + event + '\n')
+        if (!tmp.renameTo(File(dir, sealedName(clock(), seq++)))) {
+            tmp.delete()
+            throw IOException("solo segment rename failed")
+        }
     }
 
     /** 30 s after the open segment's first event (T3). */

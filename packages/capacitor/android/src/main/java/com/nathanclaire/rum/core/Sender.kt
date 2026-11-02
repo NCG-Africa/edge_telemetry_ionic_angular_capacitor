@@ -109,7 +109,8 @@ class Sender(
             health.count("corrupt", seg.events.size.toLong())
             return true
         }
-        val drops = health.snapshot()
+        // T4: a solo (crash) segment carries no `sdk.health`; the next normal batch does.
+        val drops = if (identity.optBoolean("solo")) emptyMap() else health.snapshot()
         val queueDepth = outbox.sealed().size
         var attempt = 0
         while (true) {

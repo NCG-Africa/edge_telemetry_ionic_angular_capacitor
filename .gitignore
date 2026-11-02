@@ -10,6 +10,7 @@ coverage/
 # Editor / tooling
 .idea/
 .claude/
+temp_auto_push.bat
 .env
 .env.local
 pnpm-debug.log*
@@ -23,3 +24,5 @@ Package.resolved
 # Gradle (native core JVM tests)
 .gradle/
 build/
+.gitignore
+branch_structure.json

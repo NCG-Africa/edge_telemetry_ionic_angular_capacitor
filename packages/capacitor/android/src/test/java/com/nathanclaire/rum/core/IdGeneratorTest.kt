@@ -51,4 +51,15 @@ class IdGeneratorTest {
         assertEquals(id, ids.deviceId())
         assertNotEquals(id, IdGenerator(store).deviceId())
     }
+
+    @Test fun rotateReplacesTheIdAndClearsThePersistedFallback() {
+        val store = FakeStore()
+        store.failPrimaryRead = true
+        val fallback = IdGenerator(store).deviceId()
+        store.failPrimaryRead = false
+        val rotated = IdGenerator(store).rotate()
+        assertNotEquals(fallback, rotated)
+        assertEquals(rotated, IdGenerator(store).deviceId())
+        assertTrue(IdGenerator.sessionId().matches(Regex("session_\\d+_[0-9a-f]{16}_android")))
+    }
 }

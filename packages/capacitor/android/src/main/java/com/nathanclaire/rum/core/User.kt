@@ -3,7 +3,7 @@ package com.nathanclaire.rum.core
 import org.json.JSONObject
 
 /** Spec P7 (= Cordova P6): `identify()` traits, persisted until `clearUser()`. */
-class User(private val store: IdGenerator.Store) {
+class User(private val store: IdGenerator.Store, private val clock: () -> Long = System::currentTimeMillis) {
     private var user: JSONObject = try {
         store.get(KEY)?.let(::JSONObject) ?: JSONObject()
     } catch (ignored: Exception) {
@@ -26,11 +26,7 @@ class User(private val store: IdGenerator.Store) {
             if (k != "id" && v != user.opt(k)) traitsChanged = true
             user.put(k, v)
         }
-        try {
-            store.put(KEY, user.toString())
-        } catch (ignored: RuntimeException) {
-            // kept in memory for this process
-        }
+        store.putQuietly(KEY, user.toString())
         if (!traitsChanged) return null
         val attrs = JSONObject()
         if (user.has("id")) attrs.put("user.id", user.get("id"))
@@ -38,18 +34,15 @@ class User(private val store: IdGenerator.Store) {
         return JSONObject()
             .put("type", "event")
             .put("eventName", "user.profile.update")
-            .put("timestamp", Sender.rfc3339(System.currentTimeMillis()))
+            .put("timestamp", Sender.rfc3339(clock()))
             .put("attributes", attrs)
     }
 
     @Synchronized
     fun clear() {
         user = JSONObject()
-        try {
-            store.put(KEY, null)
-        } catch (ignored: RuntimeException) {
-            // forgotten in memory; a stale copy may return next launch
-        }
+        // On failure: forgotten in memory; a stale copy may return next launch.
+        store.putQuietly(KEY, null)
     }
 
     companion object {

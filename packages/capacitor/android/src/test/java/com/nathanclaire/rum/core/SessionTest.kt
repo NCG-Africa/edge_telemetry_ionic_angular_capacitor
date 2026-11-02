@@ -237,18 +237,6 @@ class SessionTest {
         assertEquals("ended session not finalized on relaunch", listOf("session.started"), names(session(1.0).begin()))
     }
 
-    @Test fun passiveSignalsNeitherRotateNorKeepTheSessionAlive() {
-        val s = session(1.0)
-        s.begin()
-        now += Session.IDLE_MS / 2
-        assertEquals(listOf("network_change"), names(s.admitPassive(listOf(event("network_change")))))
-        now += Session.IDLE_MS / 2 + 1
-        val late = s.admitPassive(listOf(event("memory_pressure")))
-        assertEquals("no rotation from the background", listOf("memory_pressure"), names(late))
-        assertEquals("session_1", attrs(late[0]).getString("session.id"))
-        assertEquals(listOf("session.finalized", "session.started", "custom_event"), names(s.admit(listOf(event("custom_event")))))
-    }
-
     @Test fun capDropsReachTheWireAsSdkHealth() {
         val s = session(1.0)
         val lines = s.begin() + s.admit(repeat(event("ui.interaction"), 201))

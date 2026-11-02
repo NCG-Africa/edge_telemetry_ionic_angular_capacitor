@@ -77,3 +77,12 @@ class IdGenerator(private val store: Store) {
         }
     }
 }
+
+/** A write the caller can live without: on failure the value stays in memory / this process only. */
+fun IdGenerator.Store.putQuietly(key: String, value: String?) {
+    try {
+        put(key, value)
+    } catch (ignored: RuntimeException) {
+        // see above
+    }
+}

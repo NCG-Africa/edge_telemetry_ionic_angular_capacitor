@@ -105,7 +105,7 @@ class EdgeRumCrashPlugin : Plugin() {
             .put("enabled", consent.enabled())
             .put("sessionId", session.id())
             .put("userId", user.id())
-            .put("sampled", session.id() != null && session.sampled())
+            .put("sampled", session.sampled())
             .put("configured", sender.configured())
             .put("sdkVersion", BuildConfig.SDK_VERSION)
             .put("deviceStartedAt", processStartedAt)
@@ -132,13 +132,13 @@ class EdgeRumCrashPlugin : Plugin() {
             call.reject("events missing")
             return
         }
-        val list = (0 until events.length()).mapNotNull { events.optJSONObject(it) }
+        val received = (0 until events.length()).mapNotNull { events.optJSONObject(it) }
         val drops = call.getObject("drops")
         onWorker(call) {
             // P7: opt-in mode / disabled → nothing captured or buffered.
             if (!consent.enabled()) return@onWorker call.resolve()
             // Not counted on failure: JS counts a failed hand-off as a drop and resends (A4, T8).
-            if (!admit(list)) return@onWorker call.reject("append failed")
+            if (!admit(received)) return@onWorker call.reject("append failed")
             // T8: JS-side drops, counted only once the append lands so a resend can't double them.
             drops?.keys()?.forEach { health.count(it, drops.optLong(it)) }
             call.resolve()

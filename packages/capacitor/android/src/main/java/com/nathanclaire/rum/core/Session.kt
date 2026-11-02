@@ -32,7 +32,8 @@ class Session(
 
     @Synchronized fun id(): String? = id
 
-    @Synchronized fun sampled(): Boolean = sampled
+    /** False without a live session. */
+    @Synchronized fun sampled(): Boolean = id != null && sampled
 
     /** Launch / `enable()`: resumes the recorded session if still live, else finalizes it and starts one. */
     @Synchronized
@@ -78,19 +79,6 @@ class Session(
         return out
     }
 
-    /**
-     * The gate for native signals that arrive in the background (network, memory): never rotate
-     * and don't count as activity, so they can't keep an idle session alive (E1).
-     */
-    @Synchronized
-    fun admitPassive(events: List<JSONObject>): List<String> {
-        if (id == null) return emptyList()
-        val out = ArrayList<String>()
-        gate(events, out)
-        persist()
-        return out
-    }
-
     private fun gate(events: List<JSONObject>, out: MutableList<String>) {
         for (e in events) {
             val attrs = e.optJSONObject("attributes") ?: JSONObject()
@@ -128,7 +116,7 @@ class Session(
             }
             "ui.interaction" -> if (allow("interaction", CAP_INTERACTIONS)) null else "cap.interaction"
             "bridge.summary" -> if (allow("bridge", CAP_BRIDGE)) null else "cap.bridge"
-            // and host metrics
+            // `custom_event`, host metrics (mapped above) and tasks share one budget.
             "custom_event", "task.complete" -> if (allow("custom", CAP_CUSTOM)) null else "cap.custom"
             else -> null
         }
@@ -204,13 +192,7 @@ class Session(
         .toString())
 
     /** Storage failures keep the in-memory session going; a relaunch then starts a new one. */
-    private fun put(key: String, value: String?) {
-        try {
-            store.put(key, value)
-        } catch (ignored: RuntimeException) {
-            // see above
-        }
-    }
+    private fun put(key: String, value: String?) = store.putQuietly(key, value)
 
     private fun load() {
         try {

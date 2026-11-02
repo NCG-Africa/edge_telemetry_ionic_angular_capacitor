@@ -4,14 +4,14 @@ package com.nathanclaire.rum.core
 class Consent(
     private val store: IdGenerator.Store,
     /** C1 `enabled`; a persisted `enable()`/`disable()` overrides it. */
-    prefEnabled: Boolean,
+    configEnabled: Boolean,
     private val session: Session,
     private val user: User,
     private val outbox: Outbox,
     private val ids: IdGenerator,
 ) {
     // Unreadable: the config decides.
-    @Volatile private var enabled = runCatching { store.get(KEY_ENABLED) }.getOrNull()?.toBoolean() ?: prefEnabled
+    @Volatile private var enabled = runCatching { store.get(KEY_ENABLED) }.getOrNull()?.toBoolean() ?: configEnabled
 
     fun enabled() = enabled
 
@@ -21,26 +21,26 @@ class Consent(
      */
     @Synchronized
     fun setEnabled(on: Boolean): List<String> {
-        try {
-            store.put(KEY_ENABLED, on.toString())
-        } catch (ignored: RuntimeException) {
-            // applies to this process only
-        }
+        store.putQuietly(KEY_ENABLED, on.toString())
         if (on == enabled) return emptyList()
         enabled = on
         if (on) return session.begin()
         session.end()
-        outbox.clear()
-        user.clear()
+        wipe()
         return emptyList()
     }
 
     /** Clears user and outbox and rotates device_id; the caller starts the new session. Returns the new device_id. */
     @Synchronized
     fun reset(): String {
+        wipe()
+        return ids.rotate()
+    }
+
+    /** Unsent events and the user's traits. */
+    private fun wipe() {
         outbox.clear()
         user.clear()
-        return ids.rotate()
     }
 
     companion object {

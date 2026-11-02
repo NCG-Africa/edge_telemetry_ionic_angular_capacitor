@@ -171,6 +171,7 @@ class EdgeRumCrashPlugin : Plugin() {
     @PluginMethod
     fun reset(call: PluginCall) = onWorker(call) {
         identity = identityLine(context, consent.reset())
+        clearCrashRecords()
         if (consent.enabled()) {
             append(session.restart())
             notifyState("session")
@@ -181,8 +182,25 @@ class EdgeRumCrashPlugin : Plugin() {
     private fun setEnabled(on: Boolean, call: PluginCall) {
         val was = consent.enabled()
         append(consent.setEnabled(on))
+        // ponytail: JVM/NDK handlers can't be uninstalled; they stay but record nothing JS will send
+        // (records cleared here, enqueue refused while disabled). enable() re-arms via JS `install`.
+        if (!on) disarm()
         if (was != on) notifyState("enabled")
         call.resolve()
+    }
+
+    /** P7 `disable()`: stops the watchdog and samplers, deletes unsent crash records. */
+    private fun disarm() {
+        runCatching { AnrWatchdog.stop() }
+        runCatching { MemorySampler.stop() }
+        runCatching { FrameSampler.stop() }
+        installed = false
+        clearCrashRecords()
+    }
+
+    private fun clearCrashRecords() {
+        storage.deleteByIds((storage.readJvmCrashes() + storage.readAnrCrashes()).map { it.id })
+        NativeCrashBridge.fetchPendingNdk(storage) // consumes the NDK record file
     }
 
     /** Worker only. S1: every event goes through the session gate on its way into the outbox. */
@@ -276,7 +294,12 @@ class EdgeRumCrashPlugin : Plugin() {
     }
 
     @PluginMethod
-    fun fetchPending(call: PluginCall) {
+    fun fetchPending(call: PluginCall) = onWorker(call) {
+        // P7: a crash recorded while disabled (handlers can't be uninstalled) is never sent.
+        if (!consent.enabled()) {
+            clearCrashRecords()
+            return@onWorker call.resolve(JSObject().put("crashes", JSArray()))
+        }
         val jvm = storage.readJvmCrashes()
         val anr = storage.readAnrCrashes()
         val ndk = NativeCrashBridge.fetchPendingNdk(storage)
@@ -331,7 +354,8 @@ class EdgeRumCrashPlugin : Plugin() {
     }
 
     @PluginMethod
-    fun stopPerfSampling(call: PluginCall) {
+    fun stopPerfSampling(call: PluginCall) = onWorker(call) {
+        // On the worker so it can't overtake a queued startPerfSampling.
         runCatching { MemorySampler.stop() }
         runCatching { FrameSampler.stop() }
         call.resolve()

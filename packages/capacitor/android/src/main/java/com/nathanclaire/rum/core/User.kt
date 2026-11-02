@@ -6,7 +6,7 @@ import org.json.JSONObject
 class User(private val store: IdGenerator.Store) {
     private var user: JSONObject = try {
         store.get(KEY)?.let(::JSONObject) ?: JSONObject()
-    } catch (e: Exception) {
+    } catch (ignored: Exception) {
         JSONObject()
     }
 

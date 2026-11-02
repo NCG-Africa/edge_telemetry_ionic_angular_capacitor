@@ -228,7 +228,7 @@ class Session(
             // org.json `keys()` is a raw Iterator on Android.
             for (k in c.keys()) caps[k as String] = c.getInt(k)
             id = r.getString("id") // last: a corrupt record leaves no half-loaded session
-        } catch (e: Exception) {
+        } catch (ignored: Exception) {
             id = null
         }
     }

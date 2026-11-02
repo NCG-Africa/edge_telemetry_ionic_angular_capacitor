@@ -77,6 +77,14 @@ class Outbox(private val dir: File, private val clock: () -> Long, private val h
         enforceCaps()
     }
 
+    /** P7: `disable()` / `reset()` delete everything unsent; not counted as drops. */
+    @Synchronized
+    fun clear() {
+        open.delete()
+        openCount = 0
+        for (f in sealed()) f.delete()
+    }
+
     /** Sealed segments, oldest first. */
     fun sealed(): List<File> =
         dir.listFiles { _, name -> sealedAt(name) >= 0 }?.sorted() ?: emptyList()

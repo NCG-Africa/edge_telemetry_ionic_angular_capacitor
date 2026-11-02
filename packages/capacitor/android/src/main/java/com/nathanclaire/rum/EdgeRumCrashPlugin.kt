@@ -14,11 +14,15 @@ import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.WebViewListener
 import com.getcapacitor.annotation.CapacitorPlugin
+import com.nathanclaire.rum.core.Consent
 import com.nathanclaire.rum.core.Health
 import com.nathanclaire.rum.core.IdGenerator
 import com.nathanclaire.rum.core.Outbox
 import com.nathanclaire.rum.core.Sender
+import com.nathanclaire.rum.core.Session
+import com.nathanclaire.rum.core.User
 import java.io.File
+import java.security.SecureRandom
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledExecutorService
@@ -48,6 +52,10 @@ class EdgeRumCrashPlugin : Plugin() {
     private lateinit var sender: Sender
     /** Serial: core init, timers and every plugin method, so nothing runs before init or interleaves a hand-off. */
     private val worker: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
+    private lateinit var user: User
+    private lateinit var session: Session
+    private lateinit var consent: Consent
+    /** Replaced by `reset()`. */
     private lateinit var identity: String
     private val processStartedAt =
         System.currentTimeMillis() - (SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime())
@@ -61,7 +69,17 @@ class EdgeRumCrashPlugin : Plugin() {
             sender = Sender(outbox, health, BuildConfig.SDK_VERSION)
             // C1: `plugins.EdgeRum` in capacitor.config; missing key/endpoint → capture to disk until `configure`.
             sender.configure(config.getString("apiKey", null), config.getString("endpoint", null))
-            identity = identityLine(context, IdGenerator(prefsStore(context)).deviceId())
+            val prefs = prefsStore(context)
+            val ids = IdGenerator(prefs)
+            identity = identityLine(context, ids.deviceId())
+            user = User(prefs)
+            val random = SecureRandom()
+            // C1 `sampleRate`; a non-number is NaN, which Session treats as keep-all (S1).
+            val rate = config.configJSON.opt("sampleRate")?.let { (it as? Number)?.toDouble() ?: Double.NaN } ?: 1.0
+            session = Session(prefs, health, System::currentTimeMillis, rate, random::nextDouble, IdGenerator::sessionId, user::id)
+            consent = Consent(prefs, config.getBoolean("enabled", true), session, user, outbox, ids)
+            // P7: opt-in mode starts nothing until enable().
+            if (consent.enabled()) append(session.begin())
             sender.trigger()
         }
         // T3: 30 s after the first event, within a second.
@@ -79,17 +97,21 @@ class EdgeRumCrashPlugin : Plugin() {
 
     @PluginMethod
     fun getState(call: PluginCall) {
-        // ponytail: session, sampling and consent fields arrive with the session store (#109).
-        onWorker(call) {
-            call.resolve(
-                JSObject()
-                    .put("enabled", true)
-                    .put("configured", sender.configured())
-                    .put("sdkVersion", BuildConfig.SDK_VERSION)
-                    .put("deviceStartedAt", processStartedAt),
-            )
-        }
+        onWorker(call) { call.resolve(state()) }
     }
+
+    private fun state(): JSObject =
+        JSObject()
+            .put("enabled", consent.enabled())
+            .put("sessionId", session.id())
+            .put("userId", user.id())
+            .put("sampled", session.id() != null && session.sampled())
+            .put("configured", sender.configured())
+            .put("sdkVersion", BuildConfig.SDK_VERSION)
+            .put("deviceStartedAt", processStartedAt)
+
+    /** A2 `addListener('state')`: `{ type, …state }` on session rotation / enabled change. */
+    private fun notifyState(type: String) = notifyListeners("state", state().put("type", type))
 
     @PluginMethod
     fun configure(call: PluginCall) {
@@ -110,21 +132,76 @@ class EdgeRumCrashPlugin : Plugin() {
             call.reject("events missing")
             return
         }
-        val lines = (0 until events.length()).mapNotNull { events.optJSONObject(it)?.toString() }
+        val list = (0 until events.length()).mapNotNull { events.optJSONObject(it) }
         val drops = call.getObject("drops")
         onWorker(call) {
-            try {
-                if (lines.isNotEmpty()) outbox.append(identity, lines)
-            } catch (e: Exception) {
-                // Not counted: JS counts a failed hand-off as a drop and resends (A4, T8).
-                Log.w(TAG, "append failed", e)
-                call.reject("append failed")
-                return@onWorker
-            }
+            // P7: opt-in mode / disabled → nothing captured or buffered.
+            if (!consent.enabled()) return@onWorker call.resolve()
+            // Not counted on failure: JS counts a failed hand-off as a drop and resends (A4, T8).
+            if (!admit(list)) return@onWorker call.reject("append failed")
             // T8: JS-side drops, counted only once the append lands so a resend can't double them.
             drops?.keys()?.forEach { health.count(it, drops.optLong(it)) }
-            sender.trigger()
             call.resolve()
+        }
+    }
+
+    /** P7 (= Cordova P6): persisted traits; a trait change becomes one `user.profile.update`. */
+    @PluginMethod
+    fun identify(call: PluginCall) {
+        val traits = call.data
+        onWorker(call) {
+            if (consent.enabled()) user.identify(traits)?.let { admit(listOf(it)) }
+            call.resolve()
+        }
+    }
+
+    @PluginMethod
+    fun clearUser(call: PluginCall) = onWorker(call) {
+        user.clear()
+        call.resolve()
+    }
+
+    @PluginMethod
+    fun enable(call: PluginCall) = onWorker(call) { setEnabled(true, call) }
+
+    @PluginMethod
+    fun disable(call: PluginCall) = onWorker(call) { setEnabled(false, call) }
+
+    /** P7: new device_id and session, user and outbox cleared; enabled state untouched. */
+    @PluginMethod
+    fun reset(call: PluginCall) = onWorker(call) {
+        identity = identityLine(context, consent.reset())
+        if (consent.enabled()) {
+            append(session.restart())
+            notifyState("session")
+        }
+        call.resolve()
+    }
+
+    private fun setEnabled(on: Boolean, call: PluginCall) {
+        val was = consent.enabled()
+        append(consent.setEnabled(on))
+        if (was != on) notifyState("enabled")
+        call.resolve()
+    }
+
+    /** Worker only. S1: every event goes through the session gate on its way into the outbox. */
+    private fun admit(events: List<JSONObject>): Boolean {
+        val before = session.id()
+        val ok = append(session.admit(events))
+        if (before != null && before != session.id()) notifyState("session")
+        return ok
+    }
+
+    private fun append(lines: List<String>): Boolean {
+        if (lines.isEmpty()) return true
+        return try {
+            outbox.append(identity, lines)
+            sender.trigger()
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "append failed", e)
+            false
         }
     }
 
@@ -150,7 +227,17 @@ class EdgeRumCrashPlugin : Plugin() {
 
     override fun handleOnResume() {
         super.handleOnResume()
-        onWorker { sender.trigger() }
+        onWorker {
+            // E1: a foreground after the idle timeout starts a new session.
+            if (consent.enabled()) {
+                val bookends = session.rotateIfIdle()
+                if (bookends.isNotEmpty()) {
+                    append(bookends)
+                    notifyState("session")
+                }
+            }
+            sender.trigger()
+        }
     }
 
     override fun handleOnDestroy() {
@@ -161,7 +248,12 @@ class EdgeRumCrashPlugin : Plugin() {
     }
 
     @PluginMethod
-    fun install(call: PluginCall) {
+    fun install(call: PluginCall) = onWorker(call) {
+        // P7: opt-in mode / disabled arms no native handlers.
+        if (!consent.enabled()) call.resolve(JSObject().put("installed", false)) else arm(call)
+    }
+
+    private fun arm(call: PluginCall) {
         if (installed) {
             call.resolve(JSObject().put("installed", true))
             return
@@ -216,7 +308,11 @@ class EdgeRumCrashPlugin : Plugin() {
     }
 
     @PluginMethod
-    fun startPerfSampling(call: PluginCall) {
+    fun startPerfSampling(call: PluginCall) = onWorker(call) {
+        if (!consent.enabled()) call.resolve(JSObject().put("started", false)) else startSampling(call)
+    }
+
+    private fun startSampling(call: PluginCall) {
         val captureFrames = call.getBoolean("captureFrames", true) ?: true
         val captureMemory = call.getBoolean("captureMemory", true) ?: true
         val memoryIntervalMs = call.getInt("memoryIntervalMs", 10_000) ?: 10_000

@@ -424,6 +424,8 @@ class EdgeRumCrashPlugin : Plugin() {
         super.handleOnPause()
         foreground = false
         watchdog.stop()
+        // Again behind any start a resume queued on the worker.
+        onWorker { if (!foreground) watchdog.stop() }
         runCatching { FrameSampler.onBackground() }
         flush()
     }

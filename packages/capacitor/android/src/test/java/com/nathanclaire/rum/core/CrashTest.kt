@@ -206,20 +206,35 @@ class CrashTest {
         SenderTest.assertGolden("app-anr.json", bodies[1])
     }
 
-    @Test fun rootAgeAtTheCapIsLiveOverItIsExpired() {
+    @Test fun rootIsLiveUpToTheIdleLineAtTheEvent() {
         crash.setRoot(ROOT)
-        now += Crash.ROOT_CAP_MS
-        assertFalse(attrs(crash.stall("app.hang", 2_000, "")).has("trace.root_expired"))
+        now += Crash.ROOT_IDLE_MS
+        assertFalse(attrs(crash.jvm(main, fixedException())).has("trace.root_expired"))
         now += 1
-        assertTrue(attrs(crash.stall("app.hang", 2_000, "")).getBoolean("trace.root_expired"))
+        assertTrue(attrs(crash.jvm(main, fixedException())).getBoolean("trace.root_expired"))
         crash.setRoot(ROOT)
-        assertFalse("a new root is live again", attrs(crash.stall("app.hang", 2_000, "")).has("trace.root_expired"))
+        assertFalse("a new root is live again", attrs(crash.jvm(main, fixedException())).has("trace.root_expired"))
+    }
+
+    @Test fun launchRootIsIdleExemptUpToTheCap() {
+        crash.setRoot(JSONObject(ROOT.toString()).put("trace.root_type", "launch"))
+        now += Crash.ROOT_CAP_MS
+        assertFalse(attrs(crash.jvm(main, fixedException())).has("trace.root_expired"))
+        now += 1
+        assertTrue(attrs(crash.jvm(main, fixedException())).getBoolean("trace.root_expired"))
+    }
+
+    @Test fun stallIsJudgedWhenTheMainThreadBlocked() {
+        crash.setRoot(ROOT)
+        now += 5_000 // ANR seen 5 s into a stall that began right after the tap
+        assertFalse(attrs(crash.stall("app.anr", 5_000, "")).has("trace.root_expired"))
+        assertTrue("hang that began 3 s after the tap", attrs(crash.stall("app.hang", 2_000, "")).getBoolean("trace.root_expired"))
     }
 
     @Test fun clearingWithNoRootStaysUnannotated() {
         crash.setRoot(null)
         crash.setRoot(JSONObject())
-        assertFalse(attrs(crash.webViewTerminated("crash")).has("trace.id"))
+        assertFalse(attrs(crash.jvm(main, fixedException())).has("trace.id"))
     }
 
     @Test fun sampledOutSessionKeepsAnrDropsHang() {
@@ -231,18 +246,5 @@ class CrashTest {
         val sealed = outbox.sealed()
         assertEquals(1, sealed.size)
         assertTrue(outbox.read(sealed[0]).events[0].contains("\"app.anr\""))
-    }
-
-    @Test fun webViewTerminatedIsFatalWithCrumbsScreenAndRoot() {
-        crash.mirror(payload(3, "/checkout"))
-        crash.setRoot(ROOT)
-        val a = attrs(crash.webViewTerminated("oom_killed"))
-        assertEquals("WebViewTerminated", a.getString("cause"))
-        assertEquals("oom_killed", a.getString("webview.reason"))
-        assertEquals("callback", a.getString("webview.detected_by"))
-        assertEquals("/checkout", a.getString("screen_name"))
-        assertEquals(3, JSONArray(a.getString("crash.breadcrumbs")).length())
-        assertEquals("interaction", a.getString("trace.root_type"))
-        assertTrue(a.getBoolean("is_fatal"))
     }
 }

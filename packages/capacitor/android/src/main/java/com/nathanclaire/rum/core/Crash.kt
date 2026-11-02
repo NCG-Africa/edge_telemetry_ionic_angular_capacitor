@@ -12,7 +12,7 @@ import org.json.JSONException
 import org.json.JSONObject
 
 /**
- * Spec A3, E12–E15, X10, Y3 (= Cordova `Crash`): the native breadcrumb mirror, the last trace root,
+ * Spec A3, E12, E14, E15, X10, Y3 (= Cordova `Crash`): the native breadcrumb mirror, the last trace root,
  * and the `app.crash` / `app.anr` / `app.hang` records built from them. JVM crashes are written
  * in-process; an NDK crash leaves a plain-text report (`native-crash.c`) that [takeNdk] turns into
  * an event next launch, under the identity, session, breadcrumbs and root saved by [saveContext].
@@ -105,18 +105,6 @@ class Crash(dir: File, private val main: Thread, private val clock: () -> Long) 
         return event("app.crash", at, fatal(a, at))
     }
 
-    /** E13: WebView renderer death, fatal, same path as a JVM crash. `reason` is `crash` or `oom_killed`. */
-    fun webViewTerminated(reason: String): JSONObject {
-        val a = JSONObject()
-            .put("message", "WebView renderer process gone ($reason)")
-            .put("exception_type", "WebViewTerminated")
-            .put("cause", "WebViewTerminated")
-            .put("webview.reason", reason)
-            .put("webview.detected_by", "callback")
-        val at = clock()
-        return event("app.crash", at, fatal(a, at))
-    }
-
     /** E14 / E15: main-thread stall at or past its threshold. Not fatal, not handled; main stack only. */
     fun stall(name: String, durationMs: Long, stack: String): JSONObject {
         val a = JSONObject()
@@ -130,7 +118,8 @@ class Crash(dir: File, private val main: Thread, private val clock: () -> Long) 
         val at = clock()
         synchronized(this) {
             screen?.let { a.put("screen_name", it) }
-            annotate(a, root, at)
+            // Judged when the main thread blocked, not when the watchdog noticed.
+            annotate(a, root, at - durationMs)
         }
         return event(name, at, a)
     }
@@ -194,7 +183,9 @@ class Crash(dir: File, private val main: Thread, private val clock: () -> Long) 
 
     companion object {
         const val BREADCRUMBS = 50
-        /** X1 cap: no root lives past it, so a root older than this at the event is stale. */
+        /** X1 idle line, counted from mint (native sees no extensions); `launch` is idle-exempt. */
+        const val ROOT_IDLE_MS = 2_000L
+        /** X1 cap: no root lives past it. */
         const val ROOT_CAP_MS = 10_000L
         private const val KEY_SET_AT = "set_at"
         private const val KEY_ENDED = "ended"
@@ -207,16 +198,19 @@ class Crash(dir: File, private val main: Thread, private val clock: () -> Long) 
 
         /**
          * X8 Tier 2 + X10: the root's keys, plus `trace.root_expired=true` when JS had cleared it or
-         * it was older than the cap at [at].
+         * it was past X1's lines at [at] (iOS v3 §12.2: absent = the root was live).
          */
-        // ponytail: native sees mint time only, not JS's idle extensions, so idle-expired roots under
-        // 10 s read as live; relay expiry through setRoot(null) from JS if that misattributes.
+        // ponytail: native sees mint time only, not JS's idle extensions, so a root kept alive by a
+        // slow request reads expired after 2 s (errs toward "expired"; ids still sent). Relay
+        // extensions through setRoot if the backend needs the finer claim.
         private fun annotate(a: JSONObject, root: JSONObject?, at: Long) {
             if (root == null) return
+            val type = root.getString("trace.root_type")
             a.put("trace.id", root.getString("trace.id"))
                 .put("rum.action.id", root.getString("rum.action.id"))
-                .put("trace.root_type", root.getString("trace.root_type"))
-            if (root.optBoolean(KEY_ENDED) || at - root.getLong(KEY_SET_AT) > ROOT_CAP_MS) a.put("trace.root_expired", true)
+                .put("trace.root_type", type)
+            val line = if (type == "launch") ROOT_CAP_MS else ROOT_IDLE_MS
+            if (root.optBoolean(KEY_ENDED) || at - root.getLong(KEY_SET_AT) > line) a.put("trace.root_expired", true)
         }
 
         /** Y3: frames as a tombstone backtrace (`#00 pc <rel pc>  <image> (BuildId: <id>)`), ndk-stack readable. */

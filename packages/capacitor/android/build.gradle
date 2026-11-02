@@ -25,6 +25,9 @@ buildscript {
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
+// W1: `sdk.version` = the npm package version.
+def sdkVersion = new groovy.json.JsonSlurper().parse(file('../package.json')).version
+
 android {
     namespace 'com.nathanclaire.rum'
     compileSdk project.hasProperty('compileSdkVersion') ? rootProject.ext.compileSdkVersion : 36
@@ -32,7 +35,8 @@ android {
         minSdkVersion project.hasProperty('minSdkVersion') ? rootProject.ext.minSdkVersion : 24
         targetSdkVersion project.hasProperty('targetSdkVersion') ? rootProject.ext.targetSdkVersion : 36
         versionCode 1
-        versionName "3.3.0"
+        versionName sdkVersion
+        buildConfigField 'String', 'SDK_VERSION', "\"${sdkVersion}\""
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17 -fvisibility=hidden -fno-exceptions -fno-rtti"
@@ -46,6 +50,9 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+    buildFeatures {
+        buildConfig true
     }
     kotlinOptions {
         jvmTarget = '17'
@@ -66,4 +73,7 @@ repositories {
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation project(':capacitor-android')
+    // Native core JUnit suite; runs standalone via core-test/ (no host app needed).
+    testImplementation "junit:junit:$junitVersion"
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
 }

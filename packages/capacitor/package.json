@@ -19,6 +19,8 @@
     "!dist/**/*.map",
     "ios/",
     "android/",
+    "!android/src/test",
+    "!android/core-test",
     "Package.swift",
     "README.md"
   ],

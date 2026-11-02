@@ -19,3 +19,7 @@ test-results/
 # Swift Package Manager (Capacitor iOS)
 .build/
 Package.resolved
+
+# Gradle (native core JVM tests)
+.gradle/
+build/

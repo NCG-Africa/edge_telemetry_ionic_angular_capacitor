@@ -206,6 +206,17 @@ class CrashTest {
         SenderTest.assertGolden("app-anr.json", bodies[1])
     }
 
+    /** E13: renderer death is a solo segment, replayed next launch, exempt from a sampled-out session (S2). */
+    @Test fun webViewDeathIsExemptSoloSegmentGoldenBatch() {
+        session = Session(store, health, { now }, 0.0, { 0.9 }, { "session_1" }, { "u1" })
+        session.restart()
+        crash.mirror(payload(1, "/checkout"))
+        crash.setRoot(ROOT)
+        solo(crash.webViewTerminated("crash"))
+        SenderTest.assertGolden("app-crash-webview.json", relaunchAndSend()[0])
+        assertEquals("oom_killed", attrs(crash.webViewTerminated("oom_killed")).getString("webview.reason"))
+    }
+
     @Test fun rootIsLiveUpToTheIdleLineAtTheEvent() {
         crash.setRoot(ROOT)
         now += Crash.ROOT_IDLE_MS

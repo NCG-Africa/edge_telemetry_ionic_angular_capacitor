@@ -12,7 +12,7 @@ import org.json.JSONException
 import org.json.JSONObject
 
 /**
- * Spec A3, E12, E14, E15, X10, Y3 (= Cordova `Crash`): the native breadcrumb mirror, the last trace root,
+ * Spec A3, E12–E15, X10, Y3 (= Cordova `Crash`): the native breadcrumb mirror, the last trace root,
  * and the `app.crash` / `app.anr` / `app.hang` records built from them. JVM crashes are written
  * in-process; an NDK crash leaves a plain-text report (`native-crash.c`) that [takeNdk] turns into
  * an event next launch, under the identity, session, breadcrumbs and root saved by [saveContext].
@@ -101,6 +101,21 @@ class Crash(dir: File, private val main: Thread, private val clock: () -> Long) 
             .put("error_context", cap(jvmContext(stack), MAX_CONTEXT))
             .put("crash_thread", thread.name)
             .put("crash_is_main_thread", thread === main)
+        val at = clock()
+        return event("app.crash", at, fatal(a, at))
+    }
+
+    /**
+     * E13 / A6: WebView renderer death (`onRenderProcessGone`), fatal, same path as a JVM crash.
+     * `reason` is `crash` or `oom_killed` (the system reclaimed it).
+     */
+    fun webViewTerminated(reason: String): JSONObject {
+        val a = JSONObject()
+            .put("message", "WebView renderer process gone ($reason)")
+            .put("exception_type", "WebViewTerminated")
+            .put("cause", "WebViewTerminated")
+            .put("webview.reason", reason)
+            .put("webview.detected_by", "callback")
         val at = clock()
         return event("app.crash", at, fatal(a, at))
     }

@@ -1517,3 +1517,31 @@ processor live → analytics may trail). Cordova settled tests and release as Q1
 - (+) Wire drift is caught from either side before a device ever runs.
 - (−) Golden changes need a paired processor PR.
 - (−) GA waits on a pilot week on top of the backend gate.
+
+---
+
+## ADR-044 — Android `app.start` phase names and native signal details for 5.0 (#111)
+
+**Date:** 2026-11
+
+**Context:** Spec A5 lists "bridge ready" as a Capacitor phase but does not name it on the `markPhase`
+wire. A5 also says `app.start` "carries the `launch` root", while X8 and the spec §18 table put
+`app.start` in the no-trace-keys tier. The 4.x `startPerfSampling` / `fetch*Samples` methods drained
+dotless memory and frame samples into JS; E22–E24 now emit `memory.*` natively.
+
+**Decision:**
+1. `markPhase({ phase, ts })` phases: `responseEnd`, `DOMContentLoaded`, `load`, `bridgeReady`, `markReady`.
+   `ts` is epoch ms. `bridgeReady` takes the place of Cordova's `deviceready`: it opens the 30 s
+   `markReady` window, and `app.start` goes when `markReady` lands, when the window closes, or at the
+   first background. Key: `app.start.bridge_ready_ms`. No ready-timeout marker (E17 not emitted).
+2. `app.start` carries no trace keys (X8 wins). The `launch` root lives in JS from `performance.timeOrigin`.
+3. Android `startPerfSampling`, `stopPerfSampling`, `fetchFrameSamples`, `fetchMemorySamples`,
+   `MemorySampler.kt` and `FrameSampler.kt` are removed. The 4.x JS caller already treats a failed
+   call as a health error; issue 16 removes that caller.
+4. The plugin manifest declares `ACCESS_NETWORK_STATE` (a normal permission) for the E26 default-network callback.
+5. `app.bundle_id` is read on every event, so a live OTA `setServerBasePath` shows up without a relaunch.
+   `webview.version` comes from `WebView.getCurrentWebViewPackage()` and is omitted below API 26.
+
+**Consequences:**
+- (+) JS issue 16 has a fixed phase table to relay.
+- (−) Apps on minSdk 24–25 send no `webview.version`.

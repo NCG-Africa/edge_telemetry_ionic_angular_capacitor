@@ -29,6 +29,12 @@ class Session(
     private var screenCount = 0
     private var screens = ArrayList<String>()
     private var caps = HashMap<String, Int>()
+    /** E32: device / app / network context stamped under each event's own keys. */
+    private var context: () -> JSONObject = { JSONObject() }
+
+    @Synchronized fun context(supplier: () -> JSONObject) {
+        context = supplier
+    }
 
     @Synchronized fun id(): String? = id
 
@@ -75,6 +81,19 @@ class Session(
         val out = ArrayList(rotateIfIdle())
         gate(events, out)
         lastActivityAt = clock()
+        persist()
+        return out
+    }
+
+    /**
+     * The gate for background signals (network, memory): no idle rotation and no activity, so a
+     * backgrounded app's session still ends after the idle timeout (= Cordova `admitPassive`).
+     */
+    @Synchronized
+    fun admitPassive(events: List<JSONObject>): List<String> {
+        if (id == null) return emptyList()
+        val out = ArrayList<String>()
+        gate(events, out)
         persist()
         return out
     }
@@ -133,6 +152,9 @@ class Session(
     }
 
     private fun stamp(attrs: JSONObject): JSONObject {
+        val ctx = context()
+        // org.json `keys()` is a raw Iterator on Android.
+        for (k in ctx.keys()) if (!attrs.has(k as String)) attrs.put(k, ctx.get(k))
         attrs.put("session.id", id)
         userId()?.let { attrs.put("user.id", it) }
         return attrs

@@ -178,7 +178,7 @@ The backend dispatches each event by `eventName`. Currently shipped names:
 | Web Vital (LCP, INP, etc.) | (`metric` item, `metricName` = `"LCP"`/`"FCP"`/...) | `packages/core/src/instrumentation/vitals.ts` |
 | JS / unhandled error | `app.crash` | `packages/core/src/instrumentation/errors.ts` (includes `crash.breadcrumbs` JSON-string of last 20 actions) |
 | **iOS native crash** (NSException / Mach signal SIGSEGV-class) | `app.crash` (cause=NativeCrash, runtime=native) | `packages/capacitor/ios/` (PLCrashReporter wrapper) — replayed on next launch |
-| **iOS main-thread hang** | `app.crash` (cause=Hang, runtime=native) | `packages/capacitor/ios/Plugin/HangDetector.swift` |
+| **iOS main-thread hang** | `app.hang` (2 s default, spec E15) | `packages/capacitor/ios/Plugin/Core/Watchdog.swift` |
 | **Android JVM throwable** | `app.crash` (cause=NativeCrash, runtime=native) | `packages/capacitor/android/.../JvmCrashHandler.kt` (Thread.setDefaultUncaughtExceptionHandler) |
 | **Android NDK signal** | `app.crash` (cause=NativeCrash, runtime=native, symbolication=required) | `packages/capacitor/android/src/main/cpp/native-crash.cpp` |
 | **Android ANR** | `app.crash` (cause=ANR, runtime=native) | `packages/capacitor/android/.../AnrWatchdog.kt` |

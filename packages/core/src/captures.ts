@@ -1,9 +1,10 @@
-import { event, metric, route, type Capture } from './core';
+import { event, metric, route, state, type Capture } from './core';
 import { registerConsoleErrorCapture } from './instrumentation/errors';
 import { registerFrameCapture } from './instrumentation/frames';
 import { registerInteractionCapture } from './instrumentation/interactions';
 import { registerPerfObserver } from './instrumentation/perf-observer';
 import { registerVitalsCapture } from './instrumentation/vitals';
+import { breadcrumbs } from './internal/breadcrumbs';
 
 // L2 / C3: each capture is its own import so an app that doesn't list it doesn't ship it.
 
@@ -40,7 +41,8 @@ export const resourceTiming = (): Capture => ({
 /** `console.error` lines, kept as context on the next error report. */
 export const consoleErrors = (): Capture => ({
   name: 'consoleErrors',
-  start: () => registerConsoleErrorCapture({}).dispose,
+  // Consent off keeps nothing, not even crash context.
+  start: () => registerConsoleErrorCapture({ pushBreadcrumb: (m) => state.enabled && breadcrumbs.pushConsole(m) }).dispose,
 });
 
 /** The standard set: vitals, interactions, frames, long tasks, console errors. */

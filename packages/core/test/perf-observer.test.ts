@@ -112,16 +112,26 @@ describe('registerPerfObserver', () => {
     expect(recorded[1]!.attrs['metric.name']).toBe('cross-origin-descendant');
   });
 
-  function resources(route = { current: '/home' }) {
+  function resources() {
     const { ctor, instances } = makeObserverFactory(['resource']);
     g.PerformanceObserver = ctor;
     const recorded: Array<{ name: string; value: number; attrs: Record<string, unknown> }> = [];
+    const route = { current: '/home', listeners: new Set<() => void>() };
     const handle = registerPerfObserver({
       recordMetric: (name, value, attrs) => recorded.push({ name, value, attrs }),
       getCurrentRoute: () => route.current,
+      onRouteChange: (f) => {
+        route.listeners.add(f);
+        return () => route.listeners.delete(f);
+      },
       ignoreResourceUrl: (url) => url.startsWith('https://ingest.example.com'),
     });
-    return { emit: (e: unknown[]) => instances[0]!.emit(e), recorded, handle, route };
+    const navigate = (to: string) => {
+      for (const f of route.listeners) f();
+      route.current = to;
+    };
+    // One observer per test; its absence is a test bug.
+    return { emit: (e: unknown[]) => instances[0]!.emit(e), recorded, handle, navigate, route };
   }
 
   it('aggregates resource_timing per screen window by host and initiator type (E7)', () => {
@@ -132,16 +142,18 @@ describe('registerPerfObserver', () => {
       { duration: 50, name: 'https://api.example.com/users/42', initiatorType: 'fetch', transferSize: 512 },
     ]);
     expect(r.recorded).toHaveLength(0);
-    r.route.current = '/cart';
+    // The window closes on the screen change itself, not on the next entry.
+    r.navigate('/cart');
+    expect(r.recorded).toHaveLength(2);
     r.emit([{ duration: 10, name: 'https://cdn.example.com/a.js', initiatorType: 'script' }]);
 
     expect(r.recorded).toEqual([
       { name: 'resource_timing', value: 300, attrs: {
-        'metric.unit': 'ms', 'metric.screen': '/home', 'resource.host': 'cdn.example.com',
+        'metric.unit': 'ms', 'screen.name': '/home', 'resource.host': 'cdn.example.com',
         'resource.initiator_type': 'img', 'resource.count': 2, 'resource.p95_ms': 300, 'resource.transfer_kb': 3,
       } },
       { name: 'resource_timing', value: 50, attrs: {
-        'metric.unit': 'ms', 'metric.screen': '/home', 'resource.host': 'api.example.com',
+        'metric.unit': 'ms', 'screen.name': '/home', 'resource.host': 'api.example.com',
         'resource.initiator_type': 'fetch', 'resource.count': 1, 'resource.p95_ms': 50, 'resource.transfer_kb': 0.5,
       } },
     ]);
@@ -149,7 +161,8 @@ describe('registerPerfObserver', () => {
 
     r.handle.dispose();
     expect(r.recorded).toHaveLength(3);
-    expect(r.recorded[2]!.attrs).toMatchObject({ 'metric.screen': '/cart', 'resource.initiator_type': 'script', 'resource.transfer_kb': 0 });
+    expect(r.route.listeners.size).toBe(0);
+    expect(r.recorded[2]?.attrs).toMatchObject({ 'screen.name': '/cart', 'resource.initiator_type': 'script', 'resource.transfer_kb': 0 });
   });
 
   it('excludes CapacitorHttp proxy loads and ignored URLs (the SDK endpoint)', () => {
@@ -168,7 +181,7 @@ describe('registerPerfObserver', () => {
     r.emit([{ duration: 10, name: 'https://a.example.com/x' }]);
     r.handle.dispose();
 
-    expect(r.recorded[0]!.attrs['resource.initiator_type']).toBe('unknown');
+    expect(r.recorded[0]?.attrs['resource.initiator_type']).toBe('unknown');
   });
 
   it('only subscribes to types listed in supportedEntryTypes', () => {

@@ -1,4 +1,4 @@
-import { event, metric, route, state, type Capture } from './core';
+import { event, metric, route, routeListeners, state, type Capture } from './core';
 import { registerConsoleErrorCapture } from './instrumentation/errors';
 import { registerFrameCapture } from './instrumentation/frames';
 import { registerInteractionCapture } from './instrumentation/interactions';
@@ -39,8 +39,12 @@ export const resourceTiming = (): Capture => ({
     recordMetric: metric,
     getCurrentRoute: route,
     longTasks: false,
-    // E7: the SDK's own endpoint is never counted.
-    ignoreResourceUrl: (url) => !!state.options.endpoint && url.startsWith(state.options.endpoint),
+    onRouteChange: (f) => {
+      routeListeners.add(f);
+      return () => routeListeners.delete(f);
+    },
+    // E7: the SDK's own endpoint is never counted (same rule as `http.request`).
+    ignoreResourceUrl: (url) => !!state.options.endpoint && url.includes(state.options.endpoint),
   }).dispose,
 });
 

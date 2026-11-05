@@ -12,7 +12,8 @@ export function unwrapProxyUrl(url: string): string {
   const m = PROXY.exec(url);
   if (!m?.[1]) return url;
   try {
-    return decodeURIComponent(m[1]);
+    // Built with `searchParams.append`, so a space arrives as `+`.
+    return decodeURIComponent(m[1].replace(/\+/g, ' '));
   } catch {
     return url;
   }

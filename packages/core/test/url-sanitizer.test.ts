@@ -33,6 +33,9 @@ describe('templateUrl (P2)', () => {
     expect(unwrapProxyUrl(proxy)).toBe('https://api.example.com/users/7?token=t');
     expect(templateUrl(proxy)).toBe('https://api.example.com/users/{id}');
     expect(isProxyUrl('https://api.example.com/x?u=1')).toBe(false);
+    const u = new URL('capacitor://localhost/_capacitor_http_interceptor_');
+    u.searchParams.append('u', 'https://api.example.com/a b');
+    expect(unwrapProxyUrl(u.href)).toBe('https://api.example.com/a b');
   });
 });
 

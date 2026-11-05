@@ -317,6 +317,20 @@ describe('registerRequestCapture — XMLHttpRequest (#85)', () => {
     expect(recorded.map((r) => r['http.url'])).toEqual(['https://api.example.com/a', 'https://api.example.com/b']);
   });
 
+  it('drops the listener of a send that a reopen abandoned', () => {
+    const handle = capture();
+    const xhr = new FakeXhr();
+    xhr.open('GET', 'https://api.example.com/a');
+    xhr.send();
+    // Reopened in flight: the browser aborts without a loadend for /a.
+    xhr.open('GET', 'https://api.example.com/b');
+    xhr.send();
+    xhr.finish(200);
+    handle.dispose();
+
+    expect(recorded.map((r) => r['http.url'])).toEqual(['https://api.example.com/b']);
+  });
+
   it('records status 0 and success false on network error', () => {
     const handle = capture();
     const xhr = new FakeXhr();

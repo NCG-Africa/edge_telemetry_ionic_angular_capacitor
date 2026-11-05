@@ -6,6 +6,8 @@ export interface PerfObserverDeps {
   recordMetric: (metricName: string, value: number, attributes: EventAttributes) => void;
   getCurrentRoute: () => string;
   ignoreResourceUrl?: (url: string) => boolean;
+  /** Subscribes to screen changes (called while the old screen is current); returns the unsubscribe. */
+  onRouteChange?: (f: () => void) => () => void;
   // Both default on; `longTasks()` and `resourceTiming()` each turn on one.
   longTasks?: boolean;
   resources?: boolean;
@@ -75,15 +77,15 @@ export function registerPerfObserver(deps: PerfObserverDeps): PerfObserverHandle
     for (const g of groups.values()) {
       try {
         const sorted = g.durations.sort((a, b) => a - b);
-        const p95 = sorted[Math.min(sorted.length - 1, Math.ceil(0.95 * sorted.length) - 1)] ?? 0;
+        const p95 = Math.round(sorted[Math.min(sorted.length - 1, Math.ceil(0.95 * sorted.length) - 1)] ?? 0);
         deps.recordMetric('resource_timing', p95, {
           'metric.unit': 'ms',
-          'metric.screen': windowRoute,
+          'screen.name': windowRoute,
           'resource.host': g.host,
           'resource.initiator_type': g.type,
           'resource.count': sorted.length,
           'resource.p95_ms': p95,
-          'resource.transfer_kb': Math.round(g.bytes / 102.4) / 10,
+          'resource.transfer_kb': Math.round(g.bytes / 102.4) / 10, // kB to 1 dp
         });
         healthMonitor.reportSuccess('perf-observer.resource.emit');
       } catch (err) {
@@ -95,13 +97,12 @@ export function registerPerfObserver(deps: PerfObserverDeps): PerfObserverHandle
   const onHidden = (): void => {
     if (document.visibilityState === 'hidden') flushResources();
   };
+  let offRoute = (): void => undefined;
   if (deps.resources !== false && supportsType('resource')) {
     try {
       const obs = new Ctor((list) => {
-        const route = deps.getCurrentRoute();
-        // ponytail: the window closes on the first entry after a screen change, on hide or on dispose.
-        if (route !== windowRoute) flushResources();
-        windowRoute = route;
+        // The window closes on a screen change, on hide or on dispose.
+        if (groups.size === 0) windowRoute = deps.getCurrentRoute();
         for (const entry of list.getEntries() as ResourceEntryLike[]) {
           const url = entry.name ?? '';
           if (isProxyUrl(url) || deps.ignoreResourceUrl?.(url)) continue;
@@ -118,6 +119,7 @@ export function registerPerfObserver(deps: PerfObserverDeps): PerfObserverHandle
       obs.observe({ type: 'resource', buffered: true });
       observers.push(obs);
       if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onHidden);
+      offRoute = deps.onRouteChange?.(flushResources) ?? offRoute;
     } catch (err) {
       healthMonitor.reportError('perf-observer.resource.setup', err);
     }
@@ -126,6 +128,7 @@ export function registerPerfObserver(deps: PerfObserverDeps): PerfObserverHandle
   return {
     dispose: () => {
       flushResources();
+      offRoute();
       if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onHidden);
       for (const obs of observers) {
         try {

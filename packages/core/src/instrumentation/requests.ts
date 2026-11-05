@@ -129,9 +129,12 @@ export function registerRequestCapture(deps: RequestsDeps): RequestsHandle {
     const originalOpen = proto.open;
     const originalSend = proto.send;
     const pending = new WeakMap<XMLHttpRequest, { method: string; url: string }>();
+    // The send whose `loadend` counts: a reopen or a throwing send leaves an older listener behind.
+    const live = new WeakMap<XMLHttpRequest, object>();
 
     const patchedOpen = function (this: XMLHttpRequest, method: string, url: string | URL, ...rest: unknown[]): void {
       pending.set(this, { method, url: resolve(String(url)) });
+      live.delete(this);
       (originalOpen as (...args: unknown[]) => void).apply(this, [method, url, ...rest]);
     } as typeof proto.open;
 
@@ -140,8 +143,12 @@ export function registerRequestCapture(deps: RequestsDeps): RequestsHandle {
       if (req && !shouldIgnore(req.url, ignoreUrls)) {
         const requestSize = bodySize(body);
         const startTime = clock();
+        const token = {};
+        live.set(this, token);
         // status is 0 on network error / abort / timeout, matching fetch rejection.
         this.addEventListener('loadend', () => {
+          if (live.get(this) !== token) return;
+          live.delete(this);
           let size: number | undefined;
           try {
             size = contentLength(this.getResponseHeader('content-length'));

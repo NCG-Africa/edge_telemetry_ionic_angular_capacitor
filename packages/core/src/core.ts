@@ -137,6 +137,8 @@ function count(reason: string, n = 1) {
 export const now = () => new Date().toISOString();
 /** The current screen (normalised route or `trackScreen()` name). */
 export const route = () => state.route;
+/** Run just before the screen changes, while `route()` is still the old one (E7 screen windows). */
+export const routeListeners = new Set<() => void>();
 
 export function record(e: EdgeRumEvent): void {
   if (!live() || !state.enabled) return;

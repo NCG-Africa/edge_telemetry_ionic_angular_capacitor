@@ -87,7 +87,7 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
             self.consent = Consent(defaults: defaults, configEnabled: config.getBoolean("enabled", true),
                                    session: self.session, user: self.user, outbox: self.outbox, deviceId: ids)
             // P7: opt-in mode starts nothing until enable().
-            if self.consent.enabled { self.append(self.session.begin()) }
+            if self.consent.enabled { self.append(self.session.begin()) } else { self.clearCrashRecords() }
             self.sender.trigger()
             // T3: 30 s after the first event, within a second. T6: 30 s retry tick for parked segments.
             var ticks = 0
@@ -220,18 +220,17 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         worker.async { call.resolve(self.state()) }
     }
 
-    /// Worker only. Nil ids are omitted (Capacitor's JS bridge has no null for them).
+    /// Worker only.
     private func state() -> [String: Any] {
-        var s: [String: Any] = [
+        [
             "enabled": consent.enabled,
+            "sessionId": session.id ?? NSNull(),
+            "userId": user.id ?? NSNull(),
             "sampled": session.sampled,
             "configured": sender.configured,
             "sdkVersion": Sender.packageVersion,
             "deviceStartedAt": processStartedAt,
         ]
-        s["sessionId"] = session.id
-        s["userId"] = user.id
-        return s
     }
 
     /// A2 `addListener('state')`: `{ type, …state }` on session rotation / enabled change.
@@ -329,6 +328,7 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func clearCrashRecords() {
+        CrashReporter.shared.purgeNativeReport()
         CrashReporter.shared.markHandled(ids: CrashReporter.shared.fetchPending().compactMap { $0["id"] as? String })
     }
 

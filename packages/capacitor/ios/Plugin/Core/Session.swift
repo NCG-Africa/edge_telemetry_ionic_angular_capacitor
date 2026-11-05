@@ -40,7 +40,7 @@ final class Session {
     private var screens: [String] = []
     private var caps: [String: Int] = [:]
 
-    /// `roll` defaults to the system RNG (SecRandom-backed on Apple platforms).
+    /// `roll` defaults to `SystemRandomNumberGenerator`, cryptographically secure on Apple platforms.
     init(defaults: UserDefaults, health: Health, clock: @escaping () -> Int64 = Outbox.now, sampleRate: Double,
          roll: @escaping () -> Double = { Double.random(in: 0..<1) },
          newId: @escaping () -> String = { DeviceId.newId("session") }, userId: @escaping () -> String?) {

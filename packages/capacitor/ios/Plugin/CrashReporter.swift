@@ -47,6 +47,13 @@ final class CrashReporter {
         UserDefaults.standard.string(forKey: lastScreenKey) ?? ""
     }
 
+    /// P7: drops a report PLCrashReporter wrote (handlers stay armed after `disable()`) that
+    /// `install` hasn't turned into a pending record yet.
+    func purgeNativeReport() {
+        PLCrashReporter(configuration: PLCrashReporterConfig(signalHandlerType: .BSD, symbolicationStrategy: []))?
+            .purgePendingCrashReport()
+    }
+
     func install() throws {
         // `.none` ships raw addresses in the crash record and relies on the
         // backend to symbolicate from uploaded dSYMs — the standard pattern

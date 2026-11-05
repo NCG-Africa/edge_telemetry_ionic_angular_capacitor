@@ -24,7 +24,9 @@ struct DeviceId {
     }
 
     func resolve() -> String {
-        valid(try? keychain.read()) ?? valid(defaults.string(forKey: Self.fallbackKey)) ?? rotate()
+        // A persisted fallback wins: it only exists when a Keychain write failed, and a Keychain row
+        // left behind then (locked before first unlock) would otherwise flip the id back.
+        valid(defaults.string(forKey: Self.fallbackKey)) ?? valid(try? keychain.read()) ?? rotate()
     }
 
     /// First launch and P7 `reset()`: a new id, stored.

@@ -3,8 +3,8 @@ import Capacitor
 import UIKit
 import WebKit
 
-/// Capacitor plugin bridge. Thin shim — delegates to `CrashReporter` (PLCrashReporter wrapper)
-/// and `HangDetector` for the actual work.
+/// Capacitor plugin bridge. Hosts the 5.0 native core (`Core/`: identity, outbox, sender) and
+/// delegates crash work to `CrashReporter` (PLCrashReporter wrapper) and `HangDetector`.
 ///
 /// Uses the `CAPBridgedPlugin` protocol (Capacitor 6+) for Swift-only method
 /// registration. The legacy `.m` file with the `CAP_PLUGIN` macro that lived

@@ -19,6 +19,8 @@ final class DeviceIdTests: XCTestCase {
         }
 
         func delete() throws {
+            // A locked Keychain (before first unlock) fails every call.
+            if failRead && failWrite { throw NSError(domain: "keychain", code: -25308) }
             value = nil
         }
     }
@@ -64,6 +66,17 @@ final class DeviceIdTests: XCTestCase {
         let id = DeviceId(keychain: keychain, defaults: defaults).resolve()
         XCTAssertNotEqual(id, "not-a-device-id")
         XCTAssertEqual(keychain.value, id)
+    }
+
+    func testTransientKeychainFailureDoesNotFlipBackNextLaunch() {
+        let keychain = FakeKeychain()
+        keychain.value = "device_1_0123456789abcdef_ios"
+        keychain.failRead = true
+        keychain.failWrite = true
+        let fallback = DeviceId(keychain: keychain, defaults: defaults).resolve()
+        // Next launch: the Keychain is readable again, but the persisted fallback wins (no flip).
+        keychain.failRead = false
+        XCTAssertEqual(DeviceId(keychain: keychain, defaults: defaults).resolve(), fallback)
     }
 
     func testSessionIdFormat() {

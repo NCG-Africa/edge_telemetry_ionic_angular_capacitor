@@ -5,6 +5,9 @@ export interface PerfObserverDeps {
   recordMetric: (metricName: string, value: number, attributes: EventAttributes) => void;
   getCurrentRoute: () => string;
   ignoreResourceUrl?: (url: string) => boolean;
+  // Both default on; `longTasks()` and `resourceTiming()` each turn on one.
+  longTasks?: boolean;
+  resources?: boolean;
 }
 
 export interface PerfObserverHandle {
@@ -41,7 +44,7 @@ export function registerPerfObserver(deps: PerfObserverDeps): PerfObserverHandle
   const observers: ObserverLike[] = [];
 
   // Long tasks
-  if (supportsType('longtask')) {
+  if (deps.longTasks !== false && supportsType('longtask')) {
     try {
       const obs = new Ctor((list) => {
         for (const entry of list.getEntries()) {
@@ -65,7 +68,7 @@ export function registerPerfObserver(deps: PerfObserverDeps): PerfObserverHandle
   }
 
   // Resource timing
-  if (supportsType('resource')) {
+  if (deps.resources !== false && supportsType('resource')) {
     try {
       const obs = new Ctor((list) => {
         for (const entry of list.getEntries() as ResourceEntryLike[]) {

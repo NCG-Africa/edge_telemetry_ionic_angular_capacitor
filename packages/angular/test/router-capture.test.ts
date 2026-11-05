@@ -9,7 +9,6 @@ import type {
 
 import { EdgeRum, type EventAttributes } from '@nathanclaire/rum';
 import * as rumInternals from '@nathanclaire/rum';
-import { __resetEdgeRumForTests } from '../../core/src/EdgeRum';
 
 import { RouterCapture } from '../src/RouterCapture';
 
@@ -97,7 +96,6 @@ function callsByName(spy: ReturnType<typeof vi.spyOn>, name: string): SpyCall[] 
 }
 
 beforeEach(() => {
-  __resetEdgeRumForTests();
   EdgeRum.init({ apiKey: 'edge_test_key', endpoint: 'https://example.com/collector/telemetry' });
 });
 

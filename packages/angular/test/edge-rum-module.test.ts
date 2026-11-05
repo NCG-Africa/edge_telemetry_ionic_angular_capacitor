@@ -1,8 +1,7 @@
-import { APP_INITIALIZER, ErrorHandler } from '@angular/core';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { APP_INITIALIZER, ErrorHandler, type NgZone } from '@angular/core';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { EdgeRum, type EdgeRumConfig } from '@nathanclaire/rum';
-import { __resetEdgeRumForTests } from '../../core/src/EdgeRum';
+import { EdgeRum, type EdgeRumOptions } from '@nathanclaire/rum';
 
 import {
   EDGE_RUM_CONFIG,
@@ -19,11 +18,9 @@ function isClassProvider(p: unknown): p is ClassProvider {
   return typeof p === 'object' && p !== null && 'useClass' in p;
 }
 
-const VALID_CONFIG: EdgeRumConfig = {
+const VALID_CONFIG: EdgeRumOptions = {
   apiKey: 'edge_test_key',
   endpoint: 'https://example.com/collector/telemetry',
-  appName: 'TestApp',
-  appVersion: '1.0.0',
 };
 
 type ValueProvider = { provide: unknown; useValue: unknown };
@@ -42,9 +39,7 @@ function isFactoryProvider(p: unknown): p is FactoryProvider {
   return typeof p === 'object' && p !== null && 'useFactory' in p;
 }
 
-beforeEach(() => {
-  __resetEdgeRumForTests();
-});
+const zone = { runOutsideAngular: <T>(f: () => T): T => f() } as unknown as NgZone;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -93,14 +88,14 @@ describe('EdgeRumModule.forRoot', () => {
 
     expect(appInit).toBeDefined();
     expect(appInit!.multi).toBe(true);
-    expect(appInit!.deps).toHaveLength(3);
+    expect(appInit!.deps).toHaveLength(4);
     expect(appInit!.deps![0]).toBe(EDGE_RUM_CONFIG);
 
-    const initializer = appInit!.useFactory(VALID_CONFIG, {} as never, null) as () => void;
+    const initializer = appInit!.useFactory(VALID_CONFIG, zone, {} as never, null) as () => void;
     initializer();
 
     expect(initSpy).toHaveBeenCalledTimes(1);
-    expect(initSpy).toHaveBeenCalledWith(VALID_CONFIG);
+    expect(initSpy).toHaveBeenCalledWith(expect.objectContaining(VALID_CONFIG));
   });
 });
 
@@ -133,35 +128,31 @@ describe('provideEdgeRum', () => {
       (p) => isFactoryProvider(p) && p.provide === APP_INITIALIZER,
     ) as FactoryProvider;
 
-    const initializer = appInit.useFactory(VALID_CONFIG) as () => void;
+    const initializer = appInit.useFactory(VALID_CONFIG, zone) as () => void;
     initializer();
 
-    expect(initSpy).toHaveBeenCalledWith(VALID_CONFIG);
+    expect(initSpy).toHaveBeenCalledWith(expect.objectContaining(VALID_CONFIG));
   });
 });
 
 describe('edgeRumInitializerFactory', () => {
-  it('propagates EdgeRum.init errors on invalid config (empty apiKey)', () => {
-    const badConfig = { apiKey: '' } as unknown as EdgeRumConfig;
-    const fn = edgeRumInitializerFactory(badConfig, {} as never, null);
-
-    expect(fn).toThrowError(/apiKey is required/);
+  it('fails open on a malformed apiKey (C5)', () => {
+    const fn = edgeRumInitializerFactory({ apiKey: 'wrong_prefix' }, zone, {} as never, null);
+    expect(fn).not.toThrow();
   });
 
-  it('propagates EdgeRum.init errors when apiKey lacks "edge_" prefix', () => {
-    const badConfig = { apiKey: 'wrong_prefix' } as unknown as EdgeRumConfig;
-    const fn = edgeRumInitializerFactory(badConfig, {} as never, null);
-
-    expect(fn).toThrowError(/must start with "edge_"/);
-  });
-
-  it('returns a no-arg function that successfully calls EdgeRum.init on valid config', () => {
+  it('runs init outside the Angular zone with defaultCaptures() unless captures are given (A8, C3)', () => {
     const initSpy = vi.spyOn(EdgeRum, 'init');
-    const fn = edgeRumInitializerFactory(VALID_CONFIG, {} as never, null);
+    const runOutside = vi.spyOn(zone, 'runOutsideAngular');
+    const fn = edgeRumInitializerFactory(VALID_CONFIG, zone, {} as never, null);
 
     expect(fn.length).toBe(0);
     fn();
+    expect(runOutside).toHaveBeenCalledOnce();
+    const names = initSpy.mock.calls[0]?.[0]?.captures?.map((c) => c.name);
+    expect(names).toEqual(['vitals', 'interactions', 'frames', 'longTasks', 'consoleErrors', 'bridge']);
 
-    expect(initSpy).toHaveBeenCalledWith(VALID_CONFIG);
+    edgeRumInitializerFactory({ captures: [] }, zone, {} as never, null)();
+    expect(initSpy.mock.calls[1]?.[0]?.captures).toEqual([]);
   });
 });

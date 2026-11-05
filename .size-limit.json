@@ -2,7 +2,7 @@
   {
     "name": "@nathanclaire/rum (core)",
     "path": "packages/core/dist/index.mjs",
-    "limit": "17 KB",
+    "limit": "14 KB",
     "gzip": true
   },
   {
@@ -12,10 +12,7 @@
     "gzip": true,
     "ignore": [
       "@nathanclaire/rum",
-      "@capacitor/core",
-      "@capacitor/device",
-      "@capacitor/network",
-      "@capacitor/app"
+      "@capacitor/core"
     ]
   },
   {
@@ -44,17 +41,14 @@
       "@angular/router",
       "rxjs",
       "rxjs/operators",
-      "@capacitor/core",
-      "@capacitor/device",
-      "@capacitor/network",
-      "@capacitor/app"
+      "@capacitor/core"
     ]
   },
   {
     "name": "minimal (init + errors + requests)",
     "path": "packages/core/dist/index.mjs",
     "import": "{ EdgeRum }",
-    "limit": "17 KB",
+    "limit": "8 KB",
     "gzip": true
   }
 ]

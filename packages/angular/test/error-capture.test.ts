@@ -1,16 +1,13 @@
 import { ErrorHandler } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { EdgeRum, type EdgeRumConfig } from '@nathanclaire/rum';
-import { __resetEdgeRumForTests } from '../../core/src/EdgeRum';
+import { EdgeRum, type EdgeRumOptions } from '@nathanclaire/rum';
 
 import { EdgeRumErrorCapture } from '../src/ErrorCapture';
 
-const VALID_CONFIG: EdgeRumConfig = {
+const VALID_CONFIG: EdgeRumOptions = {
   apiKey: 'edge_test_key',
   endpoint: 'https://example.com/collector/telemetry',
-  appName: 'TestApp',
-  appVersion: '1.0.0',
 };
 
 function route(url: string): () => string {
@@ -18,7 +15,6 @@ function route(url: string): () => string {
 }
 
 beforeEach(() => {
-  __resetEdgeRumForTests();
   EdgeRum.init(VALID_CONFIG);
 });
 
@@ -121,7 +117,7 @@ describe('EdgeRumErrorCapture', () => {
 
     capture.handleError('something went wrong');
 
-    const passed = spy.mock.calls[0]![0]!;
+    const passed = spy.mock.calls[0]![0] as Error;
     expect(passed).toBeInstanceOf(Error);
     expect(passed.message).toBe('something went wrong');
   });
@@ -134,7 +130,7 @@ describe('EdgeRumErrorCapture', () => {
 
     capture.handleError({ message: 'rejection', stack });
 
-    const passed = spy.mock.calls[0]![0]!;
+    const passed = spy.mock.calls[0]![0] as Error;
     const context = spy.mock.calls[0]![1] as Record<string, unknown>;
     expect(passed.message).toBe('rejection');
     expect(context['component']).toBe('CheckoutComponent');

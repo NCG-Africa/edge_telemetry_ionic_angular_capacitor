@@ -1,668 +1,183 @@
 # CLAUDE.md — edge-rum SDK Development Guide
 
-This file is the source of truth for AI-assisted development on this project.
-Read it completely before writing any code, generating any files, or making any suggestions.
+Read this before writing code. **`docs/spec.md` (edge-rum 5.0 build spec) is the source of truth**;
+rules are cited by number ("spec A4"). Reasoning lives in `docs/decisions.md` (ADRs). Where this file
+and the spec disagree, the spec wins — fix this file.
 
 ---
 
 ## What this project is
 
-`edge-rum` is a Real User Monitoring SDK for **Ionic Angular Capacitor** apps. It captures
-performance data, errors, network requests, and user interactions, then ships them as JSON
-to a proprietary backend — the EdgeTelemetryProcessor — that also receives data from the
-Edge Telemetry Android SDK.
+`edge-rum` is a Real User Monitoring SDK for **Ionic Angular Capacitor** apps, published as three
+packages (spec K1): `@nathanclaire/rum` (core), `@nathanclaire/rum-capacitor` (required; the native
+plugin is the only sink), `@nathanclaire/rum-angular`.
 
-**Payload compatibility is a hard requirement.** The wire format conforms to the
-EdgeTelemetryProcessor contract documented in `docs/payload-schema.json`. The same Kafka
-processor handles both platforms.
+Data goes to the EdgeTelemetryProcessor on **wire contract 4.0.0**, shared with the Android, iOS,
+Flutter, React Native and Cordova SDKs (`sdk.name = "ionic"`, spec W1).
+
+### Who owns what (spec A1, ADR-034/036)
+
+| Native plugin `EdgeRum` (Kotlin / Swift) | JS (core + -capacitor + -angular) |
+|---|---|
+| config (`capacitor.config.ts` → `plugins.EdgeRum`), app identity, `device_id`, session + rotation, sampling, caps, user store, consent, outbox, gzip sender, envelope | WebView capture (errors, fetch/XHR, router, Ionic lifecycle, taps, vitals, frames), `beforeSend`, global attributes, in-memory buffer |
+| native capture: crash, ANR, hang, exit, WebView death, `app.start`, lifecycle, memory, network | hands events to native via `enqueue` (spec T1) |
+
+There is **no JS transport, queue, session or ID generation** (spec K4). JS reaches the plugin through
+the `Capacitor` global (ADR-046). On web the SDK is a silent no-op (spec A7).
 
 ---
 
-## The two rules that override everything else
+## The rules that override everything else
 
-### Rule 1 — The terminology firewall
+### Rule 1 — Terminology firewall (spec N3, ADR-033)
 
-The following words and identifiers **must never appear** in:
-- Any file under `packages/*/src/index.ts`
-- Any public type declaration (`.d.ts` output files)
-- Any documentation, README, or comment visible to consumers
-- Any error message thrown to consumers
-- Any `console.*` output in production mode
+Banned in the public surface: `packages/*/src/index.ts` exports, `.d.ts` output, consumer docs and
+READMEs, errors or `console.*` output a consumer can see.
 
-**Banned in public surface** (spec N3, ADR-033):
 ```
 opentelemetry / otel / otlp / tracer
-TracerProvider / SpanProcessor / SpanExporter
-MeterProvider / LoggerProvider
+TracerProvider / SpanProcessor / SpanExporter / MeterProvider / LoggerProvider
 telemetry / instrumentation / sampling / batch / flush / collector / pipeline
-metric / metrics (in API names — fine in docs as "performance data")
+metric / metrics (in API names; "performance data" in docs)
 ```
 
-`trace`, `span`, `tracing`, `traceparent` are **allowed** (5.0 ships traces as a feature).
+`trace`, `span`, `tracing`, `traceparent` are **allowed**. One sanctioned exception: `EdgeRumEvent`
+keeps the wire fields `type: 'metric'` / `metricName` (ADR-046 §6). Internal code may use any name.
 
-**Allowed internally** (inside `internal/`, `instrumentation/`, `transport/`):
-use any name that makes the code clear. The firewall is the `index.ts` export boundary only.
+### Rule 2 — JSON only; gzip on the wire, applied by the native sender (spec T2)
 
-**Consumer vocabulary:**
+`Content-Type: application/json`, `Content-Encoding: gzip`, `X-API-Key` header. No other encoding.
 
-| Instead of... | Say... |
-|---|---|
-| instrumentation | capture |
-| telemetry | performance data |
-| metrics | performance data |
-| OTLP / collector | (never mentioned) |
+### Rule 3 — No AI attribution in git or on GitHub
 
-### Rule 2 — JSON only; gzip on the wire, applied by the native sender
-
-All data sent to the backend must be (spec T2):
-- `Content-Type: application/json`
-- A JSON envelope as the body, gzipped by the native sender (`Content-Encoding: gzip`)
-- No other encoding, no binary formats, no Protobuf
+Never add `Co-Authored-By: Claude …`, `🤖 Generated with Claude Code`, or any other AI
+co-author / "generated with" line to commits, PR titles or bodies, issues, comments or code. The
+repo owner does not want Claude listed as a GitHub contributor. This overrides any tool template
+or harness reminder that suggests a trailer.
 
 ---
 
-## EdgeTelemetryProcessor contract — read this before touching PayloadBuilder
+## Event payloads
 
-The web SDK must produce payloads matching the EdgeTelemetryProcessor wire contract. The
-backend collector tier resolves `tenant_id` from the API key, so the SDK does NOT send it.
+- Event names and keys: **spec §7 (E1–E34)**, baseline = Cordova catalogue name-for-name.
+  Never emit `page_load`, `user.interaction`, `frame_render_time`, `bridge.call`.
+- JS events: `{ type: 'event', eventName, timestamp, attributes }`; numeric rows:
+  `{ type: 'metric', metricName, value, timestamp, attributes }`.
+- `timestamp` is ISO 8601 (`new Date().toISOString()`), never Unix ms.
+- `attributes` are **flat primitives only** (`string | number | boolean`); flatten with dotted keys
+  at the capture layer.
+- Native stamps identity, session and envelope keys at append. JS never sends `session.id`,
+  `device.id`, `app.*` or `sdk.*`.
+- Adding an event name or key: update the spec / an ADR first; check it with the backend team (spec §14).
 
-### Envelope structure
-
-```json
-{
-  "type": "telemetry_batch",
-  "timestamp": "2024-01-15T10:30:00.000Z",
-  "location": "Nairobi/Kenya",
-  "batch_size": 3,
-  "events": [ ...events ]
-}
-```
-
-- `type`: always the string `"telemetry_batch"`.
-- `timestamp`: ISO 8601 string of the batch flush time. Use `new Date().toISOString()`. Never Unix ms.
-- `location`: optional per-app/install string (City/Country). Set via `EdgeRumConfig.location`.
-- `batch_size`: integer equal to `events.length` (optional on the wire, but included for parity).
-- `events`: array of event and metric items.
-
-### Required identity attributes on every event
-
-The collector drops events missing any of these. PayloadBuilder merges them in from
-`ContextManager` so every emitted event carries them:
-
-- `app.package_name`, `app.name`, `app.version`, `app.build_number`
-- `device.id`, `device.platform`
-- `user.id` (plus optional `user.name`, `user.email`, `user.phone`)
-- `session.id` (5.0: stamped natively by the session gate; `session.start_time` only on `session.started`/`session.finalized`)
-- `network.type` (optional)
-
-### Individual event structure
-
-```json
-{
-  "type": "event",
-  "eventName": "navigation",
-  "timestamp": "2024-01-15T10:30:00.123Z",
-  "attributes": {
-    "app.name": "MyApp",
-    "app.version": "1.0.0",
-    "app.package_name": "com.example.myapp",
-    "app.build_number": "42",
-    "app.environment": "production",
-    "device.id": "device_1704067200000_a8b9c2d1_web",
-    "device.platform": "web",
-    "device.model": "iPhone 15 Pro",
-    "device.manufacturer": "Apple",
-    "device.os": "ios",
-    "device.platform_version": "17.4",
-    "device.isVirtual": false,
-    "device.screenWidth": 390,
-    "device.screenHeight": 844,
-    "device.pixelRatio": 3.0,
-    "device.batteryLevel": 0.82,
-    "device.batteryCharging": false,
-    "network.type": "wifi",
-    "network.effectiveType": "4g",
-    "network.downlinkMbps": 24.5,
-    "session.id": "session_1704067200000_x9y8z7w6_web",
-    "session.start_time": "2024-01-15T10:25:00.000Z",
-    "session.sequence": 42,
-    "user.id": "user_1704067200000_abcd1234",
-    "sdk.version": "3.0.0",
-    "sdk.platform": "ionic-angular-capacitor",
-    "...eventSpecificAttributes": "..."
-  }
-}
-```
-
-**Wire contract pinned facts:**
-
-| Field | Value | Notes |
-|---|---|---|
-| Outer batch `type` | `"telemetry_batch"` | Never the old `"batch"` value |
-| Per-event `type` | `"event"` (or `"metric"`) | Discriminator |
-| `eventName` | see mapping table below | Backend routes by this |
-| `timestamp` | ISO 8601 string | `new Date().toISOString()` |
-| `attributes` | flat key-value object | Primitives only, no nesting |
-| `app.package_name` | in `attributes` | NOT `app.package` |
-| `session.start_time` | in `attributes` | NOT `session.startTime` |
-| `device.platform_version` | in `attributes` | NOT `device.osVersion` |
-| Auth header | `X-API-Key` | |
-
-### ID formats
-
-```
-device.id:  "device_{timestampMs}_{16hexchars}_{platform}"
-            e.g. "device_1704067200000_a8b9c2d176b4ce41_web"
-
-session.id: "session_{timestampMs}_{16hexchars}_{platform}"
-            e.g. "session_1704067200000_x9y8z7w6deadbeef_web"
-
-user.id:    "user_{timestampMs}_{16hexchars}"
-            e.g. "user_1704067200000_abcd1234deadbeef"
-            (4.x anonymous ID. 5.0: `user.id` = the `identify()` id, persisted natively until `clearUser()` — spec P7)
-```
-
-Format note (v3.1.0): the random segment widened from 8 to 16 hex chars (64 bits of entropy) to eliminate birthday-collision risk at scale. Existing persisted IDs in `localStorage` are invalidated by the new regex on next launch — fresh IDs generate transparently.
+> `docs/payload-schema.json`, `docs/terminology.md`, `docs/config-reference.md` and the READMEs still
+> describe 4.x; they are rewritten in 5.0 impl 18 (#124, spec M3). Don't copy shapes from them.
 
 ---
 
-## eventName values
+## Public API (spec C2–C6, ADR-040/046)
 
-The backend dispatches each event by `eventName`. Currently shipped names:
-
-| Web SDK concept | `eventName` value | Where emitted |
-|---|---|---|
-| Angular route change (entry hop) | `navigation` | `packages/angular/src/RouterCapture.ts` |
-| Ionic screen exit (dwell time) | `screen.duration` | `packages/angular/src/IonicLifecycleCapture.ts` |
-| HTTP request | `http.request` | `packages/core/src/instrumentation/requests.ts` |
-| Web Vital (LCP, INP, etc.) | (`metric` item, `metricName` = `"LCP"`/`"FCP"`/...) | `packages/core/src/instrumentation/vitals.ts` |
-| JS / unhandled error | `app.crash` | `packages/core/src/instrumentation/errors.ts` (includes `crash.breadcrumbs` JSON-string of last 20 actions) |
-| **iOS native crash** (NSException / Mach signal SIGSEGV-class) | `app.crash` (cause=NativeCrash, runtime=native) | `packages/capacitor/ios/` (PLCrashReporter wrapper) — replayed on next launch |
-| **iOS main-thread hang** | `app.hang` (2 s default, spec E15) | `packages/capacitor/ios/Plugin/Core/Watchdog.swift` |
-| **Android JVM throwable** | `app.crash` (cause=NativeCrash, runtime=native) | `packages/capacitor/android/.../JvmCrashHandler.kt` (Thread.setDefaultUncaughtExceptionHandler) |
-| **Android NDK signal** | `app.crash` (cause=NativeCrash, runtime=native, symbolication=required) | `packages/capacitor/android/src/main/cpp/native-crash.cpp` |
-| **Android ANR** | `app.crash` (cause=ANR, runtime=native) | `packages/capacitor/android/.../AnrWatchdog.kt` |
-| Click / tap | `user.interaction` | `packages/core/src/instrumentation/interactions.ts` |
-| Long task (PerformanceObserver longtask) | (`metric` item, metricName = `"long_task"`) | `packages/core/src/instrumentation/perf-observer.ts` |
-| Resource timing (PerformanceObserver resource) | (`metric` item, metricName = `"resource_timing"`) | `packages/core/src/instrumentation/perf-observer.ts` |
-| WebView frame render (rAF, windowed summary) | (`metric` item, metricName = `"frame_render_time"`, dotless attrs; one summary per window, `value`=p95, emitted only when `slow_frames>0` — ADR-030) | `packages/core/src/instrumentation/frames.ts` |
-| Android frame render (Choreographer) | (`metric` item, metricName = `"frame_render_time"`, windowed summary shape matching web+iOS — ADR-030; window closes on JS route change (relayed via `setLastScreen`), 30s cap, background (`handleOnPause`), or stop) | `packages/capacitor/android/.../FrameSampler.kt` |
-| WebView memory (performance.memory) | (`metric` item, metricName = `"memory_usage"`, value in MB) | `packages/core/src/instrumentation/memory-web.ts` |
-| iOS memory (footprint + RSS bookends, memory warning, opt-in periodic) | (`metric` item, metricName = `"memory_usage"`, `memory.*` keys; `memory_pressure` event) | `packages/capacitor/ios/Plugin/Core/Signals.swift` |
-| Android memory (Debug.MemoryInfo + onTrimMemory) | (`metric` item, metricName = `"memory_usage"`) | `packages/capacitor/android/.../MemorySampler.kt` |
-| Session begins (init / resume / rotation) | `session.started` | `EdgeRum.init()` + `packages/capacitor/src/LifecycleCapture.ts` |
-| Session ends (background / app close) | `session.finalized` | `packages/capacitor/src/LifecycleCapture.ts` (immediate-flush; carries journey summary + `sdk.error_count` + `sdk.dropped_count` (ADR-028) + `sdk.disposed_captures` (ADR-031)) |
-| `EdgeRum.identify()` user attach | `user.profile.update` | `EdgeRum.identify()` |
-| Custom `EdgeRum.track()` | `custom_event` | `EdgeRum.track()` |
-| Custom `EdgeRum.time()` | (`metric` item) | `EdgeRum.time()` — uses the `metric` item shape, not `eventName` |
-| App foreground / background | `app_lifecycle` | `packages/capacitor/src/LifecycleCapture.ts` |
-| Page load timing | `page_load` | `packages/core/src/instrumentation/pageload.ts` |
-| Network connectivity change | `network_change` | `packages/capacitor/src/NetworkCapture.ts` |
-
-> The `network_request` and `screen_view` names from earlier SDK versions are **gone**.
-> Backend silently drops anything else.
-
----
-
-## Complete payload example — what edge-rum sends
-
-```jsonc
-// POST /collector/telemetry
-// Content-Type: application/json
-// X-API-Key: edge_your_api_key_here
-
-{
-  "type": "telemetry_batch",
-  "timestamp": "2024-01-15T10:30:00.000Z",
-  "location": "Nairobi/Kenya",
-  "batch_size": 3,
-  "events": [
-
-    // ── navigation (entry hop in user journey) ──────────────────────────
-    {
-      "type": "event",
-      "eventName": "navigation",
-      "timestamp": "2024-01-15T10:30:00.123Z",
-      "attributes": {
-        "app.name": "MyApp",
-        "app.version": "2.1.0",
-        "app.package_name": "com.yourco.app",
-        "app.build_number": "42",
-        "app.environment": "production",
-        "device.id": "device_1704067200000_a8b9c2d1_web",
-        "device.platform": "ios",
-        "device.model": "iPhone 15 Pro",
-        "device.platform_version": "17.4",
-        "network.type": "wifi",
-        "session.id": "session_1704067200000_x9y8z7w6_web",
-        "session.start_time": "2024-01-15T10:25:00.000Z",
-        "session.sequence": 1,
-        "user.id": "user_1704067200000_abcd1234",
-        "sdk.version": "3.0.0",
-        "sdk.platform": "ionic-angular-capacitor",
-        "navigation.from_screen": "/tabs/products",
-        "navigation.to_screen": "/tabs/profile",
-        "navigation.method": "push",
-        "navigation.route_type": "main_flow",
-        "navigation.has_arguments": false,
-        "navigation.timestamp": "2024-01-15T10:30:00.123Z"
-      }
-    },
-
-    // ── screen.duration (on screen exit, full dwell time) ───────────────
-    {
-      "type": "event",
-      "eventName": "screen.duration",
-      "timestamp": "2024-01-15T10:30:04.456Z",
-      "attributes": {
-        "app.name": "MyApp",
-        "app.package_name": "com.yourco.app",
-        "app.build_number": "42",
-        "device.id": "device_1704067200000_a8b9c2d1_web",
-        "device.platform": "ios",
-        "network.type": "wifi",
-        "session.id": "session_1704067200000_x9y8z7w6_web",
-        "session.start_time": "2024-01-15T10:25:00.000Z",
-        "user.id": "user_1704067200000_abcd1234",
-        "sdk.version": "3.0.0",
-        "sdk.platform": "ionic-angular-capacitor",
-        "screen.name": "/tabs/profile",
-        "screen.duration_ms": 4331,
-        "screen.exit_method": "navigate",
-        "screen.timestamp": "2024-01-15T10:30:04.456Z"
-      }
-    },
-
-    // ── http.request (fetch capture) ────────────────────────────────────
-    {
-      "type": "event",
-      "eventName": "http.request",
-      "timestamp": "2024-01-15T10:30:00.456Z",
-      "attributes": {
-        "app.name": "MyApp",
-        "app.package_name": "com.yourco.app",
-        "app.build_number": "42",
-        "device.id": "device_1704067200000_a8b9c2d1_web",
-        "device.platform": "ios",
-        "network.type": "wifi",
-        "session.id": "session_1704067200000_x9y8z7w6_web",
-        "session.start_time": "2024-01-15T10:25:00.000Z",
-        "user.id": "user_1704067200000_abcd1234",
-        "sdk.version": "3.0.0",
-        "sdk.platform": "ionic-angular-capacitor",
-        "http.url": "https://api.example.com/products",
-        "http.method": "GET",
-        "http.status_code": 200,
-        "http.duration_ms": 342,
-        "http.success": true,
-        "http.timestamp": "2024-01-15T10:30:00.456Z"
-      }
-    }
-  ]
-}
-```
-
-Web Vitals are emitted as `metric` items with top-level `metricName` (`"LCP"` /
-`"FCP"` / `"CLS"` / `"INP"` / `"TTFB"`) and numeric `value`. Example:
-
-```jsonc
-{
-  "type": "metric",
-  "metricName": "FCP",
-  "value": 670,
-  "timestamp": "2024-01-15T10:30:00.500Z",
-  "attributes": {
-    "metric.unit": "ms",
-    "metric.rating": "good",
-    "metric.screen": "/tabs/profile",
-    "app.name": "MyApp",
-    "device.id": "device_1704067200000_a8b9c2d1_web",
-    "session.id": "session_1704067200000_x9y8z7w6_web",
-    "user.id": "user_1704067200000_abcd1234",
-    "sdk.version": "3.0.1",
-    "sdk.platform": "ionic-angular-capacitor"
-  }
-}
-```
-
-Other event shapes (`app.crash`, `user.profile.update`, `custom_event`,
-`app_lifecycle`, `page_load`, `network_change`, and `metric` items from
-`EdgeRum.time()`) follow the same envelope and identity attribute rules. See
-`docs/payload-schema.json` for the authoritative attribute lists.
-
----
-
-## PayloadBuilder implementation notes
-
-Because every event carries the full context (app, device, session, user) as flat attributes,
-`PayloadBuilder` must:
-
-1. Maintain a `contextAttributes` object in `ContextManager` — updated once on init and
-   on any change (user identify, network change, etc.).
-2. On each event, call `{ ...contextAttributes, ...eventAttributes }` to merge flat.
-3. Build the outer envelope:
-   `{ type: "telemetry_batch", timestamp: new Date().toISOString(), location?, batch_size, events }`.
-   `location` is sourced from `EdgeRumConfig.location` and threaded through the `Pipeline`.
-4. Never nest objects inside `attributes` — all values must be primitives
-   (`string | number | boolean`). Flatten any nested data with dot-notation keys.
-
-**Flattening example:**
 ```typescript
-// Internal representation (fine to use internally)
-const deviceInfo = { model: "iPhone 15 Pro", os: "ios", screen: { width: 390 } };
-
-// What goes into attributes (must be flat)
-{
-  "device.model": "iPhone 15 Pro",
-  "device.os": "ios",
-  "device.screenWidth": 390          // flattened, camelCase
-}
+EdgeRum.init({ apiKey?, endpoint?, captures?, traceHostAllowlist?, ignoreUrls?, sanitizeUrl?,
+               beforeSend?, release?, debug? })   // fails open, never throws (C5)
+EdgeRum.identify({ id?, name?, email?, phone? }) / clearUser()
+EdgeRum.track(name, attrs?) / measure(name, value, attrs?) / time(name).end(attrs?)
+EdgeRum.trackScreen(name, attrs?) / captureError(err, attrs?)
+EdgeRum.startTask(name, attrs?) / completeTask(name) / failTask(name, reason?)
+EdgeRum.markReady() / setAttribute(k, v) / removeAttribute(k)
+EdgeRum.enable() / disable() / reset() / getSessionId(): Promise<string>
 ```
+
+- Every method is sync, fire-and-forget, safe before native is ready, and a no-op on web.
+- Captures are imported factories: core `vitals()`, `interactions()`, `frames()`, `longTasks()`,
+  `resourceTiming()`, `consoleErrors()`, `defaultCaptures()`; `-capacitor` `bridge()` and its own
+  `defaultCaptures()` (core's + `bridge()`). Plain `init()` runs errors + requests only;
+  `provideEdgeRum()` defaults to `-capacitor`'s `defaultCaptures()` (ADR-046).
+- Launch-time switches (`sampleRate`, `enabled`, ANR/hang, memory sampling) are native config only (C1).
+- `EdgeRumService` mirrors every `EdgeRum` method with no logic.
 
 ---
 
 ## Repository structure
 
 ```
-edge-rum/
-├── packages/
-│   ├── core/
-│   │   └── src/
-│   │       ├── index.ts              ← PUBLIC BOUNDARY only
-│   │       ├── EdgeRum.ts
-│   │       ├── types.ts              ← public types only
-│   │       ├── session/
-│   │       │   ├── SessionManager.ts
-│   │       │   └── SessionIdGenerator.ts
-│   │       ├── internal/             ← OTel wiring. NEVER re-exported.
-│   │       │   ├── pipeline.ts
-│   │       │   ├── collector.ts      ← recordEvent() — single internal entrypoint
-│   │       │   └── context.ts
-│   │       ├── instrumentation/      ← capture hooks
-│   │       │   ├── requests.ts
-│   │       │   ├── errors.ts
-│   │       │   ├── vitals.ts
-│   │       │   └── pageload.ts
-│   │       ├── transport/
-│   │       │   ├── JsonExporter.ts
-│   │       │   ├── PayloadBuilder.ts ← builds Android-compatible envelope
-│   │       │   └── RetryTransport.ts
-│   │       └── queue/
-│   │           └── OfflineQueue.ts
-│   ├── angular/
-│   │   └── src/
-│   │       ├── index.ts
-│   │       ├── EdgeRumModule.ts
-│   │       ├── EdgeRumService.ts
-│   │       ├── RouterCapture.ts
-│   │       ├── ErrorCapture.ts
-│   │       └── IonicLifecycleCapture.ts
-│   └── capacitor/
-│       └── src/
-│           ├── index.ts
-│           ├── DeviceContext.ts
-│           ├── NetworkCapture.ts
-│           └── LifecycleCapture.ts
-├── demo/
-├── docs/
-│   ├── payload-schema.json          ← authoritative wire contract
-│   ├── decisions.md
-│   └── terminology.md
-├── CLAUDE.md
-├── PLAN.md
-└── THIRD_PARTY_LICENSES
+packages/
+  core/src/
+    index.ts           ← PUBLIC BOUNDARY
+    core.ts            ← native relay: buffer, hand-off, consent state, zone escape
+    EdgeRum.ts         ← public methods + internal __hooks for -angular
+    captures.ts        ← capture factories
+    beforeSend.ts
+    instrumentation/   ← errors, requests, vitals, interactions, frames, perf-observer
+    internal/          ← breadcrumbs, health (ADR-031 breaker)
+  capacitor/
+    src/index.ts       ← bridge(), defaultCaptures()
+    android/           ← Kotlin plugin + core (com.nathanclaire.rum), core-test (JUnit, goldens)
+    ios/               ← Swift plugin + Core/, core-test (XCTest, goldens)
+  angular/src/         ← EdgeRumModule / provideEdgeRum, EdgeRumService, Router/Ionic/Error capture
+e2e/                   ← fake Capacitor bridge → mock-ingest; bridge spec (A2 table); L3 bench
+docs/                  ← spec.md, decisions.md, research/, agents/
 ```
 
 ---
 
-## Public API surface
+## Conventions
 
-### `EdgeRumConfig`
-```typescript
-interface EdgeRumConfig {
-  apiKey: string;                    // sent as X-API-Key header — must start with "edge_"
-  endpoint: string;                   // required — no default, must be provided by the developer
-  appName?: string;                  // used as app.name in all events
-  appVersion?: string;               // used as app.version
-  appPackage?: string;               // used as app.package_name (e.g. "com.yourco.app")
-  appBuild?: string;                 // used as app.build_number — omitted entirely when unset
-  environment?: 'production' | 'staging' | 'development';
-  location?: string;                 // batch envelope location, e.g. "Nairobi/Kenya"
-  resolveLocation?: boolean;         // default false. Opt-in IP geolocation: when true and `location` is unset,
-                                     // SDK calls `locationProviderUrl` once on init and stamps "City/Country"
-                                     // into every batch envelope. Result cached in localStorage for 24h.
-                                     // Sends device IP to a third-party provider — confirm privacy posture.
-  locationProviderUrl?: string;      // default "https://ipapi.co/json/". Provider must return {city, country_name}
-                                     // (ipapi.co) or {city, country} (ipinfo.io).
-  sampleRate?: number;               // 0.0–1.0, default 1.0
-  ignoreUrls?: (string | RegExp)[];
-  maxQueueSize?: number;             // default 200
-  flushIntervalMs?: number;          // default 5000
-  batchSize?: number;                // max events per payload, default 30
-  sanitizeUrl?: (url: string) => string;
-  captureConsoleErrors?: boolean;    // default true; adds console.error lines to the crash breadcrumb trail (ADR-029). console.warn is not captured.
-  captureNativeCrashes?: boolean;    // default true; registers the Capacitor native bridge
-  enableAnrDetection?: boolean;      // default true on Android
-  enableHangDetection?: boolean;     // default true on iOS
-  anrTimeoutMs?: number;             // default 5000
-  hangTimeoutMs?: number;            // default 5000
-  debug?: boolean;
-}
+**TypeScript:** `strict`; no `any` (use `unknown`); no non-null assertion without a comment saying
+why; no `enum` (use `as const` objects + derived unions); public types exported from `index.ts`.
+
+**Errors:** never throw to consumers. Internal failures are caught and swallowed; log only when
+`debug` is on, prefixed `[edge-rum]`.
+
+**Capacitor:** reach native through the `Capacitor` global, never assume it exists; never return a
+plugin proxy from a promise (its `.then` breaks `await`).
+
+**Angular:** never import `@angular/*` in core. `APP_INITIALIZER` boots the SDK, inside
+`runOutsideAngular` (spec A8). Route names are normalised templates (`/products/:id`), never raw URLs.
+
+**Zones:** every SDK timer, listener and rAF loop runs outside NgZone (spec A8).
+
+**Tests:** Vitest in Node with the fake bridge (`packages/core/test/core.test.ts`,
+`packages/angular/test/fake-native.ts`). Native goldens per event type (spec Q2). Payload tests ban
+camelCase `traceId` / `spanId` / `resourceSpans` / `opentelemetry` and assert flat attributes.
+
+---
+
+## Budgets (spec L1, L3)
+
+- Size (gzip): core 14 KB, `-capacitor` own 7 KB, `-angular` own 4 KB, full stack 24 KB,
+  minimal (`init` + errors + requests) 8 KB. Raising one needs an ADR line.
+- Runtime (Playwright + CDP, 4× throttle, median of 5): eval + `init()` ≤ 8 ms, `track()` ≤ 10 µs,
+  idle ≤ 1 ms per 10 s static screen, heap after init + 2,000 events ≤ +2 MB.
+- No OpenTelemetry dependency (spec L4). `sideEffects: false`; `@capacitor/*`, `@angular/*` are peers.
+
+---
+
+## Checks (all must pass before a PR)
+
 ```
-
-### `EdgeRum` static methods
-```typescript
-EdgeRum.init(config: EdgeRumConfig): void
-EdgeRum.identify(user: UserContext): void
-EdgeRum.track(name: string, attributes?: Record<string, string | number | boolean>): void
-EdgeRum.trackScreen(name: string, attributes?: Record<string, string | number | boolean>): void  // manual screen tracking; emits a `navigation` event
-EdgeRum.time(name: string): RumTimer           // returns { end(attributes?): void }
-EdgeRum.captureError(error: Error, context?: Record<string, unknown>): void
-EdgeRum.disable(): void
-EdgeRum.enable(): void
-EdgeRum.getSessionId(): string
+pnpm lint && pnpm type-check && pnpm test && pnpm build
+pnpm terminology-check && pnpm attribute-flatness-check && pnpm pack-audit && pnpm size
+pnpm test:integration        # Playwright: bridge spec + L3 bench
+pnpm test:android / test:ios # native core suites
 ```
 
 ---
 
-## TypeScript conventions
+## When in doubt
 
-- `strict: true` — no `any`, no non-null assertions without explaining why.
-- Use `unknown` over `any` when the type is genuinely unknown.
-- All public interfaces in `packages/core/src/types.ts`.
-- No `enum` — use `const` objects + `as const` + derived union types.
-- All async functions return `Promise<void>` or `Promise<T>`.
-- Attributes objects passed to `PayloadBuilder` must always be
-  `Record<string, string | number | boolean>` — never nested objects. Enforce this with a
-  type-level constraint and flatten at the instrumentation layer, not in `PayloadBuilder`.
-
----
-
-## Testing conventions
-
-### Required payload assertions on every transport test
-```typescript
-const payload = JSON.parse(body);
-
-// Envelope shape
-expect(payload.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);   // ISO 8601
-expect(payload.type).toBe('telemetry_batch');
-expect(payload).not.toHaveProperty('device_id');
-expect(payload.events).toBeInstanceOf(Array);
-
-// Each event
-payload.events.forEach(event => {
-  expect(event.type).toBe('event');
-  expect(event.eventName).toBeDefined();
-  expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-  expect(event.attributes).toBeDefined();
-
-  // Context always present
-  expect(event.attributes['session.id']).toMatch(/^session_/);
-  expect(event.attributes['device.id']).toMatch(/^device_/);
-  expect(event.attributes['sdk.platform']).toBe('ionic-angular-capacitor');
-
-  // No OTel field names anywhere
-  expect(JSON.stringify(event)).not.toContain('traceId');
-  expect(JSON.stringify(event)).not.toContain('spanId');
-  expect(JSON.stringify(event)).not.toContain('resourceSpans');
-  expect(JSON.stringify(event)).not.toContain('opentelemetry');
-
-  // No nested objects in attributes
-  Object.values(event.attributes).forEach(v => {
-    expect(typeof v).toMatch(/^(string|number|boolean)$/);
-  });
-});
-
-// Auth header
-expect(headers['x-api-key']).toMatch(/^edge_/);
-expect(headers['content-type']).toBe('application/json');
-```
-
----
-
-## Error handling conventions
-
-### Thrown to consumers
-```typescript
-throw new Error('edge-rum: apiKey is required');
-throw new Error('edge-rum: apiKey must start with "edge_"');
-throw new Error('edge-rum: init() must be called before identify()');
-```
-
-### Internal errors — catch and swallow
-```typescript
-try {
-  await RetryTransport.send(payload);
-} catch (err) {
-  if (config.debug) console.warn('[edge-rum] send failed', err);
-  OfflineQueue.push(JSON.stringify(payload));
-}
-```
-
----
-
-## Capacitor conventions
-
-Every Capacitor plugin call must be guarded:
-```typescript
-if (!Capacitor.isNativePlatform()) {
-  return webFallback();
-}
-const { Device } = await import('@capacitor/device');
-return Device.getInfo();
-```
-
----
-
-## Angular conventions
-
-- Never import `@angular/*` in `packages/core/`.
-- `APP_INITIALIZER` boots the SDK before the first component renders.
-- Route normalisation is mandatory: capture `/products/:id` not `/products/9876`.
-- `EdgeRumService` is a thin DI wrapper — no logic beyond delegating to `EdgeRum.*`.
-
----
-
-## Session and ID rules
-
-```
-device.id:   "device_{Date.now()}_{16hexchars}_{platform}"
-session.id:  "session_{Date.now()}_{16hexchars}_{platform}"
-user.id:     "user_{Date.now()}_{16hexchars}"
-```
-
-Generate the 16 hex chars using `crypto.getRandomValues` or `Math.random().toString(16)`.
-On native, `platform` = `ios` or `android` (from `Device.getInfo()`). On web = `web`.
-
-Session expires after 30 minutes of inactivity. New session on next foreground.
-`session.sequence` increments on every successfully sent payload. Stored in `SessionManager`.
-`session.startTime` = ISO 8601 string of when the session began.
-
----
-
-## Transport rules
-
-```
-Auth:         X-API-Key: <apiKey>         (matches Android SDK header)
-Content-Type: application/json
-Endpoint:     POST /collector/telemetry   (same path as Android SDK)
-```
-
-Retry schedule (same logic as Android SDK's exponential backoff):
-```
-Attempt 1: immediate
-Attempt 2: 2s
-Attempt 3: 8s
-Attempt 4: 30s → push to OfflineQueue
-```
-
-Retry on: `0`, `429` (respect `Retry-After`), `503`.
-Never retry: other `4xx`. Discard + warn in debug mode.
-Errors flush immediately. All other events follow `flushIntervalMs` (default 5000ms).
-Batch max size: `batchSize` (default 30, matches Android default).
-
----
-
-## Offline queue rules
-
-- Storage key: `edge_rum_q`
-- Values: JSON-serialised array of complete batch payload strings.
-- Cap: `maxQueueSize` (default 200). Overflow drops oldest (FIFO).
-- Flush: sequential. Success removes. Failure keeps.
-- Triggers: network reconnect, app foreground, `EdgeRum.enable()`.
-- `EdgeRum.disable()` clears queue entirely.
-
----
-
-## Bundle rules
-
-- No OpenTelemetry dependency (spec L4); trace ids/spans are hand-rolled.
-- `sideEffects: false` on all packages.
-- `@capacitor/*` and `@angular/*` are peer deps — never bundled.
-- Size limits (gzip, spec L1): core 14 KB, `-capacitor` own 7 KB, `-angular` own 4 KB,
-  full stack deduped 24 KB, minimal (`init` + errors + requests) 8 KB. See `.size-limit.json`.
-
----
-
-## CI checks (all must pass before merge)
-
-1. `pnpm lint`
-2. `pnpm type-check`
-3. `pnpm test`
-4. `pnpm build`
-5. Terminology check: `grep -rE "TracerProvider|SpanProcessor|MeterProvider|otlp" dist/**/*.d.ts` → must find nothing
-6. Attribute flatness check: assert no object/array values in `attributes` in any test payload
-7. `pnpm size`
-8. `pnpm test:integration`
-
----
-
-## When in doubt checklist
-
-1. Public surface? → Apply Rule 1 (terminology firewall).
-2. Touches the wire? → Apply Rule 2 (JSON only, `telemetry_batch` envelope).
-3. Adding a new `eventName`? → Confirm with the backend team and update `docs/payload-schema.json`.
-4. Attributes nested? → Flatten them. Always primitives only.
-5. Timestamp field? → ISO 8601 string, never Unix ms.
-6. Auth header? → `X-API-Key`, never `Authorization: Bearer`.
-7. Involves Capacitor? → Guard with `isNativePlatform()`.
-8. Angular-specific? → Goes in `packages/angular/`, not `packages/core/`.
-9. New event field? → Update `docs/payload-schema.json` first.
-10. Non-obvious choice? → Write an entry in `docs/decisions.md`.
+1. Public surface? → Rule 1.
+2. Touches the wire? → spec §4/§7, then native owns it unless it's WebView capture.
+3. New event name / key? → spec or ADR first.
+4. Non-obvious choice? → ADR in `docs/decisions.md`.
+5. Commit or PR? → Rule 3: no AI attribution.
 
 ---
 
 ## Agent skills
 
-### Issue tracker
-
-Issues and PRDs live as GitHub issues on `NCG-Africa/edge_telemetry_ionic_angular_capacitor` (via `gh`); external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Canonical five-role vocabulary, default strings (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context repo; ADRs live in `docs/decisions.md` (no `docs/adr/`). See `docs/agents/domain.md`.
+- **Issue tracker:** GitHub issues on `NCG-Africa/edge_telemetry_ionic_angular_capacitor` via `gh`;
+  external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+- **Triage labels:** `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
+  See `docs/agents/triage-labels.md`.
+- **Domain docs:** single context; ADRs in `docs/decisions.md`. See `docs/agents/domain.md`.

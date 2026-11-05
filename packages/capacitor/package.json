@@ -21,6 +21,7 @@
     "android/",
     "!android/src/test",
     "!android/core-test",
+    "!ios/core-test",
     "Package.swift",
     "README.md"
   ],

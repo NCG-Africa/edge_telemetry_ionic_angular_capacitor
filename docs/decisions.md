@@ -1545,3 +1545,37 @@ dotless memory and frame samples into JS; E22–E24 now emit `memory.*` natively
 **Consequences:**
 - (+) JS issue 16 has a fixed phase table to relay.
 - (−) Apps on minSdk 24–25 send no `webview.version`.
+
+## ADR-045 — iOS WebView death inference and native signal details for 5.0 (#115)
+
+**Date:** 2026-11
+
+**Context:** Spec A6 gives iOS WebView death to "the JS-reload heuristic (= Cordova A6 inference
+path; no swizzle)". Cordova feeds that inference from `CDVPageDidLoadNotification` plus a JS
+`markPhase('pagehide')`; Capacitor iOS posts no page-load notification, and Capacitor's own
+`WebViewDelegationHandler` handles `webViewWebContentProcessDidTerminate` by reloading. E32 asks
+for `webview.version` and `app.bundle_id` on iOS too.
+
+**Decision:**
+1. The plugin injects one document-start `WKUserScript` that posts `{t:'load', u:location.href}`
+   on every document start and `{t:'hide'}` on `pagehide`, to its own `edgeRumPage` script message
+   handler. `PageWatch` (Cordova's, ported) flags a document start of the same document (fragment
+   aside) with no `hide` since the previous one → `app.crash cause=WebViewTerminated
+   webview.detected_by=inference webview.reason=unknown`, live, as a solo segment, with X10 keys.
+   No `markPhase('pagehide')`: native owns the signal, so JS issue 16 relays nothing for it.
+   iOS never emits `detected_by=callback`.
+2. `markPhase` phases and `app.start` = ADR-044 §1–2 (same `Launch`, ported).
+3. iOS `startPerfSampling`, `stopPerfSampling`, `fetchFrameSamples`, `fetchMemorySamples`,
+   `MemorySampler.swift` and `FrameSampler.swift` are removed (as ADR-044 §3).
+4. `app.bundle_id` = last segment of `CAPBridgeViewController.getServerBasePath()`, or `builtin`
+   while it points inside the app bundle (iOS returns the bundled `public` path, not empty).
+   Re-read on every document start, so a live `setServerBasePath` (which reloads) shows up.
+5. `webview.version` = WebKit framework `CFBundleVersion` (the engine build; WebKit ships with the OS).
+6. Memory: footprint + RSS bookends (`session_start` / `session_end`), `memory_pressure` from
+   `UIApplication.didReceiveMemoryWarningNotification`, opt-in `memorySampling` on the 1 s tick.
+   Network: `NWPathMonitor`. Both use the passive gate (no rotation, no activity) = Cordova.
+
+**Consequences:**
+- (+) No private API, no swizzle; survives Capacitor delegate changes.
+- (−) A reload whose `pagehide` message is lost reads as a death; labelled `inference`.
+- (−) A death while the app is killed before the reload is not seen (no next-launch marker).

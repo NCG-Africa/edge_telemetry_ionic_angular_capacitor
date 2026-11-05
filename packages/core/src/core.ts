@@ -52,7 +52,7 @@ export interface EdgeRumOptions {
   debug?: boolean;
 }
 
-interface NativeState { enabled?: boolean; sessionId?: string | null; type?: string }
+interface NativeState { enabled?: boolean; sessionId?: string | null; sampled?: boolean; type?: string }
 type Method = (...args: unknown[]) => Promise<unknown>;
 type Plugin = Record<string, Method>;
 interface CapacitorGlobal {
@@ -64,6 +64,7 @@ interface CapacitorGlobal {
 const FLUSH_MS = 2000; // T1
 const FLUSH_AT = 20; // T1
 const BUFFER_CAP = 500; // A4
+const TIER2_EVENTS = new Set(['app.crash', 'custom_event', 'screen.duration']); // X8
 
 const cap = () => (globalThis as { Capacitor?: CapacitorGlobal }).Capacitor;
 let isLive: boolean | undefined;
@@ -89,8 +90,12 @@ export const state = {
   options: {} as EdgeRumOptions,
   globals: {} as EventAttributes,
   route: '/',
-  /** X8 Tier-2 keys (`trace.id`, `rum.action.id`, `trace.root_type`) of the live trace root, if any. Set by traces (#119). */
-  root: undefined as EventAttributes | undefined,
+  /** Native S1 decision; `false` = no `traceparent` (X5). */
+  sampled: undefined as boolean | undefined,
+  /** X8 Tier-2 keys (`trace.id`, `rum.action.id`, `trace.root_type`) of the live trace root, if any. */
+  annotate: (): EventAttributes | undefined => undefined,
+  /** `appStateChange`: resume mints a root, background clears it (X2, X9). */
+  onAppState: (() => {}) as (active: boolean) => void,
   /** Called when native reports a new session (E29 abandons open tasks). */
   onSessionChange: () => {},
 };
@@ -143,11 +148,9 @@ export const routeListeners = new Set<() => void>();
 export function record(e: EdgeRumEvent): void {
   if (!live() || !state.enabled) return;
   e.attributes = { ...state.globals, ...e.attributes };
-  // Y2: `release` only on JS-origin crashes (native crashes never pass through here); X8 Tier-2 keys.
-  if (e.eventName === 'app.crash') {
-    Object.assign(e.attributes, state.root);
-    if (state.options.release) e.attributes.release = state.options.release;
-  }
+  // X8 Tier-2 keys; Y2: `release` only on JS-origin crashes (native crashes never pass through here).
+  if (e.eventName && TIER2_EVENTS.has(e.eventName)) Object.assign(e.attributes, state.annotate());
+  if (e.eventName === 'app.crash' && state.options.release) e.attributes.release = state.options.release;
   if (e.eventName && e.eventName !== 'app.crash') {
     const a = e.attributes;
     const name = a['navigation.to_screen'] ?? a['screen.name'] ?? a['http.url'] ?? a['event.name'] ?? e.eventName;
@@ -212,6 +215,7 @@ function applyNativeState(s: unknown) {
   if (typeof n.enabled === 'boolean') setEnabled(consentOverride ?? n.enabled);
   consentOverride = undefined;
   state.sessionId = n.sessionId ?? undefined;
+  if (typeof n.sampled === 'boolean') state.sampled = n.sampled;
   if (before && state.sessionId !== before) state.onSessionChange();
 }
 
@@ -233,6 +237,7 @@ export function start(): void {
       if (document.visibilityState === 'hidden') flush();
     });
     c.Plugins?.App?.addListener?.('appStateChange', (s: { isActive?: boolean }) => {
+      state.onAppState(!!s.isActive);
       if (!s.isActive) flush();
     })?.catch(() => {});
     invoke('addListener', 'state', applyNativeState).catch(() => {});

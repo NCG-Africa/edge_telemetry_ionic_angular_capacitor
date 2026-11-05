@@ -5,6 +5,7 @@ import {
 import { healthMonitor } from './internal/health';
 import { crashAttributes, registerErrorCapture } from './instrumentation/errors';
 import { registerRequestCapture } from './instrumentation/requests';
+import { clearRoot, navigationSpan, startTraces, traceRequest } from './traces';
 
 /** Traits passed to `identify()`. */
 export interface UserTraits {
@@ -81,12 +82,18 @@ export const EdgeRum = {
     state.options = opts;
     // E29: open tasks end with the session native rotates.
     state.onSessionChange = () => {
+      clearRoot(); // X9: a trace never spans sessions
       for (const name of [...tasks.keys()]) endTask(name, 'abandoned', { 'task.abandon_source': 'session_end' });
     };
     healthMonitor.setDebug(opts.debug === true);
     // C5: fail open; the key may come from capacitor.config.ts.
     if (typeof opts.apiKey === 'string' && !opts.apiKey.startsWith('edge_')) warn('apiKey should start with "edge_"');
     if (opts.apiKey || opts.endpoint) call('configure', { apiKey: opts.apiKey, endpoint: opts.endpoint });
+    try {
+      startTraces(opts.traceHostAllowlist);
+    } catch (err) {
+      healthMonitor.reportError('traces.start', err); // C5: init fails open
+    }
     outside(() => {
       // L2: errors and requests are always on.
       registerErrorCapture({ recordEvent: event, flushPipeline: flush, getCurrentRoute: route });
@@ -94,6 +101,7 @@ export const EdgeRum = {
         recordEvent: event,
         ignoreUrls: [...(opts.endpoint ? [opts.endpoint] : []), ...(opts.ignoreUrls ?? [])],
         sanitizeUrl: opts.sanitizeUrl,
+        trace: traceRequest,
       });
       for (const c of opts.captures ?? []) {
         try {
@@ -238,6 +246,15 @@ export function __setCurrentRoute(route: string): void {
 }
 
 export const __getCurrentRoute = route;
+
+/** X2 / X8: Router `NavigationStart` — Tier-1 keys for the `navigation` event. */
+export function __navigationSpan(): EventAttributes {
+  try {
+    return navigationSpan();
+  } catch {
+    return {}; // never break the app's navigation
+  }
+}
 
 export function __setLastNavigationMethod(method: string): void {
   lastNavigationMethod = method;

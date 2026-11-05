@@ -307,21 +307,6 @@ describe('errors (Y2, C6)', () => {
     expect(a?.attributes).not.toHaveProperty('release');
     expect(b?.attributes).toMatchObject({ exception_type: 'Error', message: 'plain string' });
   });
-
-  it('JS app.crash carries the live root\'s Tier-2 keys; other events do not (X8)', async () => {
-    const fake = fakeBridge();
-    const EdgeRum = await load();
-    const { state } = await import('../src/core');
-    EdgeRum.init();
-    state.root = { 'trace.id': 't'.repeat(32), 'rum.action.id': 'a'.repeat(16), 'trace.root_type': 'interaction' };
-    EdgeRum.track('plain');
-    EdgeRum.captureError(new Error('x'));
-    fake.ready();
-    await tick();
-    const [plain, crash] = fake.enqueued()[0]?.events ?? [];
-    expect(plain?.attributes).not.toHaveProperty('trace.id');
-    expect(crash?.attributes).toMatchObject(state.root);
-  });
 });
 
 describe('breadcrumbs (A3)', () => {

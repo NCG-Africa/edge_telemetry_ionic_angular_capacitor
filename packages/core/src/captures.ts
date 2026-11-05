@@ -5,6 +5,7 @@ import { registerInteractionCapture } from './instrumentation/interactions';
 import { registerPerfObserver } from './instrumentation/perf-observer';
 import { registerVitalsCapture } from './instrumentation/vitals';
 import { breadcrumbs } from './internal/breadcrumbs';
+import { interactionRoot } from './traces';
 
 // L2 / C3: each capture is its own import so an app that doesn't list it doesn't ship it.
 
@@ -17,7 +18,7 @@ export const vitals = (): Capture => ({
 /** Taps and clicks. */
 export const interactions = (): Capture => ({
   name: 'interactions',
-  start: () => registerInteractionCapture({ recordEvent: event, getCurrentRoute: route }).dispose,
+  start: () => registerInteractionCapture({ recordEvent: event, getCurrentRoute: route, mintRoot: interactionRoot }).dispose,
 });
 
 /** Rendering smoothness. `slowThresholdMs`: a frame slower than this counts as slow. */

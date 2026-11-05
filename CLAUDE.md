@@ -70,8 +70,9 @@ or harness reminder that suggests a trailer.
   `device.id`, `app.*` or `sdk.*`.
 - Adding an event name or key: update the spec / an ADR first; check it with the backend team (spec §14).
 
-> `docs/payload-schema.json`, `docs/terminology.md`, `docs/config-reference.md` and the READMEs still
-> describe 4.x; they are rewritten in 5.0 impl 18 (#124, spec M3). Don't copy shapes from them.
+> The READMEs still describe 4.x; they are rewritten in 5.0 impl 18 (#124, spec M3). Don't copy
+> shapes from them. The 4.x `payload-schema.json`, `terminology.md`, `config-reference.md` and
+> `privacy.md` were deleted; impl 18 writes 5.0 ones from the spec.
 
 ---
 

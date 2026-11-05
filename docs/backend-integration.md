@@ -284,7 +284,7 @@ A misconfigured preflight is the most common integration failure. If no data is 
 
 ## Per-event attribute reference (high level)
 
-The canonical attribute set per event/metric is in [`payload-schema.json`](./payload-schema.json) (a JSON Schema). Below is a quick map of which `*Attributes` block in the schema applies to which event/metric:
+The canonical attribute set per event/metric is in [`spec.md`](./spec.md) §7. Below is a quick map of which `*Attributes` block in the schema applies to which event/metric:
 
 | Item | Schema block |
 |---|---|

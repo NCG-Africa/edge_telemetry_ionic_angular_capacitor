@@ -168,7 +168,7 @@ export class CheckoutPage {
 
 ## Configuration
 
-All options are documented in [docs/config-reference.md](./docs/config-reference.md). Common ones:
+Common options:
 
 | Option | Default | Notes |
 |---|---|---|
@@ -228,12 +228,8 @@ this.rum.enable();    // Resume + flush
 
 - **[docs/TECHNICAL_GUIDE.md](./docs/TECHNICAL_GUIDE.md)** — the authoritative technical reference (auto-capture catalog, lifecycle, sampling, native bridge, debugging)
 - [docs/quick-start.md](./docs/quick-start.md) — five-minute wire-up
-- [docs/config-reference.md](./docs/config-reference.md) — every `EdgeRumConfig` option
 - [docs/backend-integration.md](./docs/backend-integration.md) — endpoint, auth, CORS, wire contract
-- [docs/payload-schema.json](./docs/payload-schema.json) — machine-readable wire contract
 - [docs/decisions.md](./docs/decisions.md) — architecture decision log (ADRs)
-- [docs/privacy.md](./docs/privacy.md) — what is collected and what isn't
-- [docs/terminology.md](./docs/terminology.md) — terminology firewall (internal)
 
 ## License
 

@@ -7,7 +7,7 @@ interface Fake {
   ready: (s?: object) => void;
   push: (s: object) => void;
   failEnqueue: boolean;
-  enqueued: () => { events: { eventName?: string; metricName?: string; attributes: Record<string, unknown> }[]; drops?: Record<string, number> }[];
+  enqueued: () => { events: { eventName?: string; metricName?: string; attributes: Record<string, unknown> }[]; breadcrumbs: { name: string }[]; drops?: Record<string, number> }[];
 }
 
 function fakeBridge(): Fake {
@@ -287,6 +287,77 @@ describe('errors (Y2, C6)', () => {
     const [plain, crash] = fake.enqueued()[0]?.events ?? [];
     expect(plain?.attributes.release).toBeUndefined();
     expect(crash?.attributes).toMatchObject({ release: 'web@1.2.3', handled: true, runtime: 'webview', screen: 'Home' });
+  });
+
+  it('captureError is handled, non-fatal, normalised, with no release by default (E10, Y2, Y3)', async () => {
+    const fake = fakeBridge();
+    const EdgeRum = await load();
+    EdgeRum.init();
+    const err = new TypeError('x');
+    err.stack = 'TypeError: x\n    at f (capacitor://localhost/main.js:1:2)';
+    EdgeRum.captureError(err);
+    EdgeRum.captureError('plain string');
+    fake.ready();
+    await tick();
+    const [a, b] = fake.enqueued()[0]?.events ?? [];
+    expect(a?.attributes).toMatchObject({
+      exception_type: 'TypeError', message: 'x', stacktrace: 'TypeError: x\n    at f (app:///main.js:1:2)',
+      handled: true, is_fatal: false, cause: 'ManualCapture',
+    });
+    expect(a?.attributes).not.toHaveProperty('release');
+    expect(b?.attributes).toMatchObject({ exception_type: 'Error', message: 'plain string' });
+  });
+
+  it('JS app.crash carries the live root\'s Tier-2 keys; other events do not (X8)', async () => {
+    const fake = fakeBridge();
+    const EdgeRum = await load();
+    const { state } = await import('../src/core');
+    EdgeRum.init();
+    state.root = { 'trace.id': 't'.repeat(32), 'rum.action.id': 'a'.repeat(16), 'trace.root_type': 'interaction' };
+    EdgeRum.track('plain');
+    EdgeRum.captureError(new Error('x'));
+    fake.ready();
+    await tick();
+    const [plain, crash] = fake.enqueued()[0]?.events ?? [];
+    expect(plain?.attributes).not.toHaveProperty('trace.id');
+    expect(crash?.attributes).toMatchObject(state.root);
+  });
+});
+
+describe('breadcrumbs (A3)', () => {
+  it('ships new crumbs with each hand-off for the native mirror, and resends after a failure', async () => {
+    const fake = fakeBridge();
+    const EdgeRum = await load();
+    EdgeRum.init();
+    EdgeRum.track('Home');
+    fake.ready();
+    await tick();
+    expect(fake.enqueued()[0]?.breadcrumbs.map((c) => c.name)).toEqual(['Home']);
+
+    fake.failEnqueue = true;
+    EdgeRum.track('Cart');
+    EdgeRum.captureError(new Error('x'));
+    await tick();
+    fake.failEnqueue = false;
+    EdgeRum.captureError(new Error('y'));
+    await tick();
+    expect(fake.enqueued()[1]?.breadcrumbs.map((c) => c.name)).toEqual(['Cart']);
+    expect(fake.enqueued()[2]?.breadcrumbs.map((c) => c.name)).toEqual(['Cart']);
+  });
+
+  it('disable() forgets crumbs, so they never reach native', async () => {
+    const fake = fakeBridge();
+    const EdgeRum = await load();
+    EdgeRum.init();
+    EdgeRum.trackScreen('Secret');
+    EdgeRum.disable();
+    EdgeRum.enable();
+    EdgeRum.captureError(new Error('x'));
+    fake.ready();
+    await tick();
+    const [batch] = fake.enqueued();
+    expect(batch?.breadcrumbs).toEqual([]);
+    expect(batch?.events[0]?.attributes['crash.breadcrumb_count']).toBe(0);
   });
 });
 

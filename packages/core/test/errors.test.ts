@@ -57,7 +57,7 @@ describe('registerErrorCapture', () => {
     target = createTarget();
   });
 
-  it('captures window error events as app.crash with handled:false, is_fatal:false', () => {
+  it('captures window error events as app.crash with handled:false, is_fatal:true (E9)', () => {
     setup();
     const err = new TypeError("Cannot read properties of undefined (reading 'x')");
     err.stack = 'TypeError: boom\n  at foo';
@@ -72,7 +72,7 @@ describe('registerErrorCapture', () => {
     expect(event.attributes.exception_type).toBe('TypeError');
     expect(event.attributes.message).toBe(err.message);
     expect(event.attributes.stacktrace).toBe('TypeError: boom\n  at foo');
-    expect(event.attributes.is_fatal).toBe(false);
+    expect(event.attributes.is_fatal).toBe(true);
     expect(event.attributes.handled).toBe(false);
     expect(event.attributes.cause).toBe('UnhandledError');
     expect(event.attributes.error_context).toBe('screen:/home');
@@ -85,7 +85,7 @@ describe('registerErrorCapture', () => {
     expect(flushes).toBe(1);
   });
 
-  it('captures unhandledrejection with exception_type:UnhandledRejection and cause:PromiseRejection', () => {
+  it('captures unhandledrejection with the Error name and cause:PromiseRejection', () => {
     setup();
     const reason = new Error('rejected');
     reason.stack = 'Error: rejected\n  at p';
@@ -93,11 +93,11 @@ describe('registerErrorCapture', () => {
 
     expect(recorded).toHaveLength(1);
     const event = recorded[0]!;
-    expect(event.attributes.exception_type).toBe('UnhandledRejection');
+    expect(event.attributes.exception_type).toBe('Error');
     expect(event.attributes.cause).toBe('PromiseRejection');
     expect(event.attributes.message).toBe('rejected');
     expect(event.attributes.stacktrace).toBe('Error: rejected\n  at p');
-    expect(event.attributes.is_fatal).toBe(false);
+    expect(event.attributes.is_fatal).toBe(true);
     expect(event.attributes.handled).toBe(false);
     expect(event.attributes.runtime).toBe('webview');
     expect(flushes).toBe(1);
@@ -207,6 +207,23 @@ describe('registerErrorCapture', () => {
     expect(recorded[0]!.attributes.exception_type).toBe('Error');
     expect(recorded[0]!.attributes.message).toBe('boom');
     expect(recorded[0]!.attributes.stacktrace).toBe('');
+  });
+
+  it('falls back to the ErrorEvent location as the frame, normalised (Y3)', () => {
+    setup();
+    target.dispatch('error', { message: 'Script error.', error: null, filename: 'capacitor://localhost/main.js', lineno: 3, colno: 7 });
+    expect(recorded[0]!.attributes.stacktrace).toBe('at app:///main.js:3:7');
+  });
+
+  it('normalises frames in the message and stack, never keeps a raw copy (Y3)', () => {
+    setup();
+    const err = new Error('bad chunk https://localhost/chunk-1.js');
+    err.stack = 'Error: x\n    at f (https://localhost/main.js?v=2:1:2)\n    at g (https://cdn.example.com/lib.js:3:4)';
+    target.dispatch('error', { message: err.message, error: err });
+    const a = recorded[0]!.attributes;
+    expect(a.message).toBe('bad chunk app:///chunk-1.js');
+    expect(a.stacktrace).toBe('Error: x\n    at f (app:///main.js:1:2)\n    at g (https://cdn.example.com/lib.js:3:4)');
+    expect(JSON.stringify(a)).not.toContain('localhost');
   });
 
   it('dispose() removes registered listeners', () => {
@@ -353,5 +370,31 @@ describe('registerConsoleErrorCapture (ADR-029: breadcrumbs only)', () => {
     expect(snap[1]).toMatchObject({ type: 'console.error', name: 'different', count: 1 });
     expect(snap[2]).toMatchObject({ type: 'console.error', name: 'boom', count: 1 });
     breadcrumbs.reset();
+  });
+});
+
+import { normaliseStack } from '../src/instrumentation/errors';
+
+describe('app:/// frame normalisation (Y3)', () => {
+  it.each([
+    ['capacitor://localhost/main.js:10:5', 'app:///main.js:10:5'],
+    ['https://localhost/main.js:10:5', 'app:///main.js:10:5'],
+    ['http://localhost/main.js:10:5', 'app:///main.js:10:5'],
+    ['ionic://localhost/main.js:10:5', 'app:///main.js:10:5'],
+    ['https://localhost/assets/js/chunk-ABC.js?v=1#x:1:2', 'app:///assets/js/chunk-ABC.js:1:2'],
+    ['    at f (capacitor://localhost/main.js:1:2)', '    at f (app:///main.js:1:2)'],
+    ['f@capacitor://localhost/main.js:1:2', 'f@app:///main.js:1:2'],
+    ['capacitor://localhost/main.js', 'app:///main.js'],
+  ])('%s → %s', (from, to) => {
+    expect(normaliseStack(from)).toBe(to);
+  });
+
+  it.each([
+    'https://cdn.example.com/lib.js:1:2',
+    'http://localhost:8100/main.js:1:2', // live-reload dev server: port isn't ours
+    'https://localhost.evil.com/main.js:1:2',
+    'http://192.168.1.5:8100/main.js:1:2',
+  ])('leaves %s untouched', (frame) => {
+    expect(normaliseStack(frame)).toBe(frame);
   });
 });

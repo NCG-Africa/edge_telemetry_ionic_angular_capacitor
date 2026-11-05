@@ -89,6 +89,8 @@ export const state = {
   options: {} as EdgeRumOptions,
   globals: {} as EventAttributes,
   route: '/',
+  /** X8 Tier-2 keys (`trace.id`, `rum.action.id`, `trace.root_type`) of the live trace root, if any. */
+  root: undefined as EventAttributes | undefined,
   /** Called when native reports a new session (E29 abandons open tasks). */
   onSessionChange: () => {},
 };
@@ -119,11 +121,14 @@ export function whenReady(f: () => void): void {
 export function setEnabled(on: boolean): void {
   if (!state.ready) consentOverride = on;
   state.enabled = on;
-  if (!on) buffer = []; // consent, not loss: uncounted
+  if (!on) discard(); // consent, not loss: uncounted
 }
 
 /** Drop everything buffered, uncounted (reset, not loss). */
-export const discard = () => void (buffer = []);
+export function discard(): void {
+  buffer = [];
+  breadcrumbs.reset();
+}
 
 function count(reason: string, n = 1) {
   drops[reason] = (drops[reason] ?? 0) + n;
@@ -136,8 +141,11 @@ export const route = () => state.route;
 export function record(e: EdgeRumEvent): void {
   if (!live() || !state.enabled) return;
   e.attributes = { ...state.globals, ...e.attributes };
-  // Y2: `release` only on JS-origin crashes (native crashes never pass through here).
-  if (e.eventName === 'app.crash' && state.options.release) e.attributes.release = state.options.release;
+  // Y2: `release` only on JS-origin crashes (native crashes never pass through here); X8 Tier-2 keys.
+  if (e.eventName === 'app.crash') {
+    Object.assign(e.attributes, state.root);
+    if (state.options.release) e.attributes.release = state.options.release;
+  }
   if (e.eventName && e.eventName !== 'app.crash') {
     const a = e.attributes;
     const name = a['navigation.to_screen'] ?? a['screen.name'] ?? a['http.url'] ?? a['event.name'] ?? e.eventName;
@@ -181,13 +189,16 @@ export function flush(): void {
   // Cleared only once native has them, so a failed hand-off resends them.
   const sent = { ...drops };
   const hasDrops = Object.keys(sent).length > 0;
-  if (!events.length && !hasDrops) return;
-  invoke('enqueue', { events, breadcrumbs: [], ...(hasDrops && { drops: sent }) }).then(() => {
+  // A3: new crumbs ride every hand-off so native's mirror is current if the app dies natively.
+  const crumbs = breadcrumbs.take();
+  if (!events.length && !hasDrops && !crumbs.length) return;
+  invoke('enqueue', { events, breadcrumbs: crumbs, ...(hasDrops && { drops: sent }) }).then(() => {
     for (const [k, n] of Object.entries(sent)) {
       drops[k] = (drops[k] ?? 0) - n;
       if (!drops[k]) delete drops[k];
     }
   }, () => {
+    breadcrumbs.untake(crumbs);
     if (events.length) count('js_exec_failed', events.length); // A4: no JS fallback sender
   });
 }

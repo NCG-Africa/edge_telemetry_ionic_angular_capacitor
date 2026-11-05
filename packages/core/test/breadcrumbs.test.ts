@@ -16,14 +16,14 @@ describe('Breadcrumbs', () => {
     expect(snap[1]!.name).toBe('https://api/x');
   });
 
-  it('caps at 20 entries (drops oldest)', () => {
-    for (let i = 0; i < 25; i++) {
+  it('caps at 50 entries (drops oldest)', () => {
+    for (let i = 0; i < 55; i++) {
       breadcrumbs.push({ ts: `2026-05-25T10:00:${String(i).padStart(2, '0')}.000Z`, type: 'tick', name: `n_${i}` });
     }
     const snap = breadcrumbs.snapshot();
-    expect(snap).toHaveLength(20);
+    expect(snap).toHaveLength(50);
     expect(snap[0]!.name).toBe('n_5');
-    expect(snap[19]!.name).toBe('n_24');
+    expect(snap[49]!.name).toBe('n_54');
   });
 
   it('snapshot returns a defensive copy', () => {

@@ -178,6 +178,10 @@
           "minimum": 1,
           "description": "Cross-launch monotonic counter of total sessions seen for this install. Bumped at every SessionManager construction and on every startNewSession(). Persisted in localStorage; resets only if storage is cleared."
         },
+        "session.sampled": {
+          "type": "boolean",
+          "description": "5.0, on session.started / session.finalized only, and only when sampleRate < 1: whether this session's persisted roll kept it (spec S1). Sampled-out sessions still send their bookends and exempt events (S2)."
+        },
         "user.id": {
           "type": "string",
           "description": "Required by the collector. SDK-owned anonymous ID until EdgeRum.identify() attaches details.",

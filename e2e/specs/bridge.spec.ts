@@ -53,7 +53,11 @@ test('A2 plugin methods and args', async ({ page }) => {
     { method: 'configure', arg: { apiKey: 'edge_k', endpoint: 'https://ingest.example' } },
     { method: 'markPhase', arg: { phase: 'markReady', ts: expect.any(Number) } },
     { method: 'markPhase', arg: { phase: 'bridgeReady', ts: expect.any(Number) } },
-    { method: 'enqueue', arg: { events: [expect.objectContaining({ eventName: 'custom_event' })], breadcrumbs: [] } },
+    // A3: new crumbs ride every hand-off.
+    { method: 'enqueue', arg: {
+      events: [expect.objectContaining({ eventName: 'custom_event' })],
+      breadcrumbs: [{ ts: expect.any(String), type: 'custom_event', name: 'checkout' }],
+    } },
     { method: 'setLastScreen', arg: { screen: '/tabs/home' } },
     { method: 'clearUser', arg: undefined },
     { method: 'disable', arg: undefined },

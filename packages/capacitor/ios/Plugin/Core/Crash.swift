@@ -117,6 +117,27 @@ final class Crash {
         return Self.record("app.hang", at, a)
     }
 
+    /// E13 / A6: WebView content process gone, found by `PageWatch` (no swizzle, so never `callback`
+    /// on iOS). iOS gives no reason. Fatal, same path as E12, X10 keys judged now.
+    func webViewTerminated() -> [String: Any] {
+        var a: [String: Any] = [
+            "message": "WebView content process terminated",
+            "exception_type": "WebViewTerminated",
+            "cause": "WebViewTerminated",
+            "webview.reason": "unknown",
+            "webview.detected_by": "inference",
+            "is_fatal": true,
+            "handled": false,
+        ]
+        let at = clock()
+        lock.lock()
+        a["crash.breadcrumbs"] = Self.json(crumbs)
+        a["screen_name"] = screen
+        Self.annotate(&a, root, at)
+        lock.unlock()
+        return Self.record("app.crash", at, a)
+    }
+
     /// What a crash report can't know: the identity, session, user, breadcrumbs and root of the
     /// moment. Saved after every hand-off and root change; best effort.
     func saveContext(identity: String, sessionId: String?, userId: String?) {
@@ -233,5 +254,33 @@ final class Crash {
               let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .withoutEscapingSlashes])
         else { return "[]" }
         return String(decoding: data, as: UTF8.self)
+    }
+}
+
+/// Spec A6 (= Cordova A6 inference path, no swizzle): a document start with no clean shutdown
+/// (`pagehide`) since the previous one means the content process died and Capacitor's
+/// `webViewWebContentProcessDidTerminate` reloaded it. Compared by origin, not URL: Ionic routes
+/// with `pushState`, so the reload lands on a later path than the previous document start saw.
+/// A different origin is a navigation away, not a death. The plugin feeds it from a user script.
+/// Worker queue only.
+// ponytail: a reload whose pagehide message never reached native still reads as a death;
+// inference is the labelled best effort (`webview.detected_by=inference`).
+struct PageWatch {
+    private var origin: String?
+    private var clean = false
+
+    /// A document started at `url`. - Returns: true when the previous one died uncleanly.
+    mutating func loaded(_ url: String) -> Bool {
+        let c = URLComponents(string: url)
+        let o = c.map { "\($0.scheme ?? "")://\($0.host ?? "")\($0.port.map { ":\($0)" } ?? "")" } ?? url
+        defer {
+            origin = o
+            clean = false
+        }
+        return origin == o && !clean
+    }
+
+    mutating func hidden() {
+        clean = true
     }
 }

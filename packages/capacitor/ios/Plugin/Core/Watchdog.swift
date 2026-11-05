@@ -49,6 +49,8 @@ final class Watchdog {
         lock.lock(); defer { lock.unlock() }
         timer?.cancel()
         timer = nil
+        // A scan already running past cancel() then posts a fresh heartbeat instead of judging a stale one.
+        waiting = false
     }
 
     /// One heartbeat cycle; tests drive it with a fake clock.

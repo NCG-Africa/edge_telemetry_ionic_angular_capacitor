@@ -33,9 +33,6 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "reset", returnType: CAPPluginReturnPromise)
     ]
 
-    /// PLCrashReporter's handlers can't be uninstalled: once per process. Worker only.
-    private static var crashArmed = false
-
     // ── 5.0 native core (spec A2, W1–W3, T1) ──────────────────────────────
     private var health: Health!
     private var outbox: Outbox!
@@ -138,7 +135,7 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func setLastScreen(_ call: CAPPluginCall) {
         let screen = call.getString("screen") ?? ""
-        // FrameSampler's window closes on route change (ADR-030); it goes with K3.
+        // ponytail: only FrameSampler reads this (ADR-030 window close); delete with it (K3).
         UserDefaults.standard.set(screen, forKey: "edgerum.lastScreen")
         worker.async {
             if self.consent.enabled {
@@ -313,17 +310,8 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// E12, E15: crash handlers once per process; the watchdog while in the foreground. Worker only.
     private func arm() {
-        if !Self.crashArmed {
-            Self.crashArmed = true
-            DispatchQueue.main.async {
-                do {
-                    try CrashReporter.enable()
-                } catch {
-                    NSLog("[EdgeRum] crash capture unavailable: \(error)")
-                }
-            }
-        }
         DispatchQueue.main.async {
+            _ = CrashReporter.enabled
             self.hangArmed = true
             if self.foreground { self.watchdog.start() }
         }

@@ -9,18 +9,22 @@ enum CrashReporter {
     /// which keeps crash-time work and the record small.
     private static let reporter =
         PLCrashReporter(configuration: PLCrashReporterConfig(signalHandlerType: .BSD, symbolicationStrategy: []))
-    /// The main thread's Mach port, so the watchdog thread can walk it; set by `enable`.
+    /// The main thread's Mach port, so the watchdog thread can walk it; set by `enabled`, which
+    /// the plugin queues on main ahead of the watchdog's start.
     private static var mainThread: thread_t = 0
 
-    /// Once per process; PLCrashReporter's handlers can't be uninstalled. Main thread: the
-    /// alternate signal stack (stack overflow) is per thread.
-    static func enable() throws {
+    /// Touch once on the main thread (the alternate signal stack for a stack overflow is per
+    /// thread). Static init runs once per process, however many plugin instances: the handlers
+    /// can't be uninstalled.
+    static let enabled: Void = {
         mainThread = mach_thread_self()
-        guard let reporter else {
-            throw NSError(domain: "EdgeRum", code: -1, userInfo: [NSLocalizedDescriptionKey: "PLCrashReporter unavailable"])
+        do {
+            guard let reporter else { throw CocoaError(.featureUnsupported) }
+            try reporter.enable()
+        } catch {
+            NSLog("[EdgeRum] crash capture unavailable: \(error)")
         }
-        try reporter.enable()
-    }
+    }()
 
     /// Last launch's crash, if any. PLCrashReporter's record is purged either way.
     static func takePending() -> Crash.Report? {

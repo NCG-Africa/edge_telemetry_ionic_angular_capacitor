@@ -19,14 +19,14 @@
     {
       "type": "event",
       "eventName": "app.crash",
-      "timestamp": "2026-10-26T10:00:01.500Z",
+      "timestamp": "2026-10-26T10:00:01.000Z",
       "attributes": {
         "message": "SIGSEGV, code SEGV_MAPERR, fault addr 0x8",
         "exception_type": "SIGSEGV",
         "cause": "signal 11",
         "crash_thread": "main",
         "crash_is_main_thread": true,
-        "stacktrace": "Fixture +0x1a2c -[Cart total]\nlibsystem_c.dylib +0x39f10\n0xdead",
+        "stacktrace": "Fixture +0x1a2c\nlibsystem_c.dylib +0x39f10\n0xdead",
         "error_context": "Fixture +0x1a2c",
         "is_fatal": true,
         "handled": false,

@@ -8,15 +8,15 @@ final class CrashTests: XCTestCase {
     static let app = "/private/var/containers/Bundle/Application/0A1B/Fixture.app/Fixture"
     static let frames = [
         Crash.Frame(pc: 0x102a41a2c, base: 0x102a40000, uuid: "4f6e8a0b1c2d3e4f5a6b7c8d9e0f1a2b", path: app,
-                    symbol: "-[Cart total]"),
+                    symbol: nil), // no on-device symbolication (Y3)
         Crash.Frame(pc: 0x1a0f39f10, base: 0x1a0f00000, uuid: "9a8b7c6d5e4f30211203f4e5d6c7b8a9",
                     path: "/usr/lib/system/libsystem_c.dylib", symbol: nil),
         Crash.Frame(pc: 0xdead, base: 0, uuid: "", path: "", symbol: nil),
     ]
-    /// PLCrashReporter's SIGSEGV on main at 2026-10-26T10:00:01.500Z.
-    static let signal = Crash.Report(at: 1_793_008_801_500, signal: "SIGSEGV", signalCode: "SEGV_MAPERR",
+    /// PLCrashReporter's SIGSEGV on main at 2026-10-26T10:00:01Z (whole seconds).
+    static let signal = Crash.Report(at: 1_793_008_801_000, signal: "SIGSEGV", signalCode: "SEGV_MAPERR",
                                      faultAddress: 0x8, thread: 0, frames: frames)
-    static let exception = Crash.Report(at: 1_793_008_801_500, exceptionName: "NSInvalidArgumentException",
+    static let exception = Crash.Report(at: 1_793_008_801_000, exceptionName: "NSInvalidArgumentException",
                                         exceptionReason: "-[Cart total]: unrecognized selector", thread: 3,
                                         frames: frames)
     static let root: [String: Any] = ["trace.id": "4bf92f3577b34da6a3ce929d0e0e4736",
@@ -108,8 +108,10 @@ final class CrashTests: XCTestCase {
         XCTAssertEqual(events.last?["eventName"] as? String, "sdk.health", "sdk.health rides the normal batch")
     }
 
-    func testExceptionCrashGoldenBatch() throws {
+    func testExceptionCrashGoldenBatchWithExpiredRoot() throws {
         crashContext()
+        crash.setRoot(nil) // JS cleared it (background): ids kept, expired
+        crash.saveContext(identity: Self.crashedIdentity, sessionId: "session_1", userId: "u1")
         let p = try XCTUnwrap(crash.replay(Self.exception))
         try outbox.writeSolo(p.identity, p.event)
         assertGolden("app-crash-exception.json", relaunchAndSend()[0])
@@ -152,8 +154,12 @@ final class CrashTests: XCTestCase {
         XCTAssertNil(a["trace.root_expired"])
     }
 
+    func testRootIsJudgedAtTheEndOfTheCrashSecond() {
+        XCTAssertNil(rootKeys(now + 1_000, Self.root)["trace.root_expired"], "1.999 s at most: live")
+    }
+
     func testRootPastIdleLineIsExpired() {
-        let a = rootKeys(now + 2_001, Self.root)
+        let a = rootKeys(now + 1_002, Self.root)
         XCTAssertEqual(a["trace.id"] as? String, "4bf92f3577b34da6a3ce929d0e0e4736")
         XCTAssertEqual(a["trace.root_expired"] as? Bool, true)
     }
@@ -227,6 +233,6 @@ final class CrashTests: XCTestCase {
         let a = attrs(crash.hang(durationMs: 2_000, frames: many))
         let stack = a["stacktrace"] as? String ?? ""
         XCTAssertLessThanOrEqual(stack.utf8.count, 2000)
-        XCTAssertTrue(stack.hasSuffix("-[Cart total]"), "no torn frame")
+        XCTAssertTrue(stack.hasSuffix("Fixture +0x1a2c"), "no torn frame")
     }
 }

@@ -42,6 +42,7 @@ final class Crash {
 
     /// What the plugin reads out of a PLCrashReporter report (Core can't link PLCrashReporter).
     struct Report {
+        /// Whole seconds from PLCrashReporter, in ms.
         let at: Int64
         /// Uncaught NSException; nil for a signal.
         var exceptionName: String?
@@ -175,7 +176,8 @@ final class Crash {
         a["is_fatal"] = true
         a["handled"] = false
         a.merge(context) { _, saved in saved }
-        annotate(&a, root, r.at)
+        // PLCrashReporter stamps whole seconds: judge the root at the latest the crash could have been.
+        annotate(&a, root, r.at + 999)
         return record("app.crash", r.at, a)
     }
 

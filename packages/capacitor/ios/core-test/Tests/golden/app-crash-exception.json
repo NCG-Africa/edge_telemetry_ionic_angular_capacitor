@@ -19,14 +19,14 @@
     {
       "type": "event",
       "eventName": "app.crash",
-      "timestamp": "2026-10-26T10:00:01.500Z",
+      "timestamp": "2026-10-26T10:00:01.000Z",
       "attributes": {
         "message": "NSInvalidArgumentException: -[Cart total]: unrecognized selector",
         "exception_type": "NSInvalidArgumentException",
         "cause": "NSException",
         "crash_thread": "thread 3",
         "crash_is_main_thread": false,
-        "stacktrace": "Fixture +0x1a2c -[Cart total]\nlibsystem_c.dylib +0x39f10\n0xdead",
+        "stacktrace": "Fixture +0x1a2c\nlibsystem_c.dylib +0x39f10\n0xdead",
         "error_context": "Fixture +0x1a2c",
         "is_fatal": true,
         "handled": false,
@@ -37,7 +37,8 @@
         "rum.action.id": "00f067aa0ba902b7",
         "trace.root_type": "interaction",
         "session.id": "session_1",
-        "user.id": "u1"
+        "user.id": "u1",
+        "trace.root_expired": true
       }
     }
   ]

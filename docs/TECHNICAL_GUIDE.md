@@ -7,11 +7,8 @@
 This document is the authoritative technical reference for what the SDK captures, when it captures it, what each event contains, and how to configure or disable each piece. Companion docs:
 
 - [Quick start](./quick-start.md) — five-minute wire-up
-- [Config reference](./config-reference.md) — every option on `EdgeRumConfig`
 - [Backend integration](./backend-integration.md) — wire contract, auth, CORS
 - [Architecture decisions](./decisions.md) — why things are the way they are
-- [Privacy](./privacy.md) — what is collected and what isn't
-- [`payload-schema.json`](./payload-schema.json) — machine-readable wire contract
 
 ---
 
@@ -546,7 +543,7 @@ The random segment uses 16 hex chars (64 bits of entropy from `crypto.getRandomV
 
 ## 11. Configuration matrix
 
-Grouped by capture domain. Every option is on `EdgeRumConfig`. Full per-option docs in [config-reference.md](./config-reference.md).
+Grouped by capture domain. Every option is on `EdgeRumConfig`.
 
 ### 11.1 Required
 
@@ -614,7 +611,7 @@ Grouped by capture domain. Every option is on `EdgeRumConfig`. Full per-option d
 
 ## 12. Privacy considerations
 
-The SDK is designed not to capture personally-identifying data by default. See [privacy.md](./privacy.md) for the formal policy. Key points:
+The SDK is designed not to capture personally-identifying data by default. Key points:
 
 - **No inner text from clicks.** `user.interaction` only carries tag/id/class/role. The decision is fixed; we don't even read `textContent`. If you need to track which button label was clicked, add a `data-event-name` attribute and capture it via `EdgeRum.track()`.
 - **URL sanitization.** `sanitizeUrl` strips PII-prone query params by default. Override for stricter scrubbing (e.g., path segments containing customer IDs).

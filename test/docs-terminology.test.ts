@@ -5,14 +5,11 @@ import { join } from 'node:path';
 const repoRoot = new URL('..', import.meta.url).pathname;
 
 // Consumer-facing docs — subject to the terminology firewall.
-// The other files in docs/ (terminology.md, decisions.md, backend-changes.md,
-// payload-schema.json) document internals for maintainers and the backend team;
+// The other files in docs/ (decisions.md, backend-changes.md) document internals for maintainers and the backend team;
 // they deliberately reference banned terms and are out of scope for this check.
 const consumerDocs = [
   'docs/quick-start.md',
-  'docs/config-reference.md',
   'docs/backend-integration.md',
-  'docs/privacy.md',
   'CHANGELOG.md',
 ];
 

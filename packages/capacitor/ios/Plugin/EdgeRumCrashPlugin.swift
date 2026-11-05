@@ -77,15 +77,15 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
             let config = self.getConfig()
             self.sender.configure(apiKey: config.getString("apiKey"), url: config.getString("endpoint"))
             let defaults = UserDefaults.standard
-            let ids = DeviceId()
-            self.identity = Self.identityLine(ids.resolve())
+            let deviceId = DeviceId()
+            self.identity = Self.identityLine(deviceId.resolve())
             self.user = User(defaults: defaults)
             // C1 `sampleRate`; a non-number is NaN, which Session treats as keep-all (S1).
             let rate = config.getConfigJSON()["sampleRate"].map { ($0 as? NSNumber)?.doubleValue ?? .nan } ?? 1
             self.session = Session(defaults: defaults, health: self.health, sampleRate: rate,
                                    userId: { [unowned self] in self.user.id })
             self.consent = Consent(defaults: defaults, configEnabled: config.getBoolean("enabled", true),
-                                   session: self.session, user: self.user, outbox: self.outbox, deviceId: ids)
+                                   session: self.session, user: self.user, outbox: self.outbox, deviceId: deviceId)
             // P7: opt-in mode starts nothing until enable().
             if self.consent.enabled { self.append(self.session.begin()) } else { self.clearCrashRecords() }
             self.sender.trigger()
@@ -256,6 +256,7 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("events missing")
             return
         }
+        // Filtered here, not in the gate, so a non-JSON event isn't counted into the session.
         let received = events.compactMap { $0 as? [String: Any] }.filter(JSONSerialization.isValidJSONObject)
         let drops = call.getObject("drops") ?? [:]
         worker.async {
@@ -334,10 +335,21 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// Worker only. S1: every event goes through the session gate on its way into the outbox.
     private func admit(_ events: [[String: Any]]) -> Bool {
+        gated { $0.admit(events) }
+    }
+
+    /// Worker only. One session call committed to the outbox (rolled back if the append fails),
+    /// with a `state` push when it rotated the session.
+    @discardableResult
+    private func gated(_ call: (Session) -> [String]) -> Bool {
         let before = session.id
-        let ok = append(session.admit(events))
+        do {
+            try session.commit({ try self.outbox.append(self.identity, $0); self.sender.trigger() }, call)
+        } catch {
+            return false
+        }
         if before != nil && before != session.id { notifyState("session") }
-        return ok
+        return true
     }
 
     @discardableResult
@@ -372,13 +384,7 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc private func willEnterForeground() {
         worker.async {
             // E1: a foreground after the idle timeout starts a new session.
-            if self.consent.enabled {
-                let bookends = self.session.rotateIfIdle()
-                if !bookends.isEmpty {
-                    self.append(bookends)
-                    self.notifyState("session")
-                }
-            }
+            if self.consent.enabled { self.gated { $0.rotateIfIdle() } }
             self.sender.trigger()
         }
     }

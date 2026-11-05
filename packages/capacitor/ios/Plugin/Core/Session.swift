@@ -39,6 +39,8 @@ final class Session {
     private var screenCount = 0
     private var screens: [String] = []
     private var caps: [String: Int] = [:]
+    /// `sdk.health` keys counted by the current `commit`, subtracted again if it rolls back.
+    private var drops: [String: Int] = [:]
 
     /// `roll` defaults to `SystemRandomNumberGenerator`, cryptographically secure on Apple platforms.
     init(defaults: UserDefaults, health: Health, clock: @escaping () -> Int64 = Outbox.now, sampleRate: Double,
@@ -89,6 +91,26 @@ final class Session {
         defaults.removeObject(forKey: Self.recordKey)
     }
 
+    /// Runs one gate call and appends its lines. If `append` throws, the session, the session total
+    /// and the cap drops counted are as before, so a resend (A4) isn't counted twice and lost
+    /// bookends are emitted again. The record is persisted after every call, so it is the snapshot.
+    func commit(_ append: ([String]) throws -> Void, _ call: (Session) -> [String]) throws {
+        let record = defaults.dictionary(forKey: Self.recordKey)
+        let total = defaults.object(forKey: Self.totalKey)
+        drops = [:]
+        let lines = call(self)
+        do {
+            if !lines.isEmpty { try append(lines) }
+        } catch {
+            defaults.set(record, forKey: Self.recordKey)
+            defaults.set(total, forKey: Self.totalKey)
+            health.subtract(drops)
+            id = nil
+            load()
+            throw error
+        }
+    }
+
     /// The gate (S1): counts each event (Cordova S6), drops it if sampled out or capped, stamps
     /// `session.id` / `user.id` on what's kept. Returns the lines to append, bookends first.
     func admit(_ events: [[String: Any]]) -> [String] {
@@ -103,6 +125,7 @@ final class Session {
                 guard isSampled else { continue }
                 if let reason = capReason(isMetric, name, attrs) {
                     health.count(reason, 1)
+                    drops["events_dropped." + reason, default: 0] += 1
                     continue
                 }
             }
@@ -202,8 +225,8 @@ final class Session {
     private func bookend(_ name: String, _ at: Int64, _ attrs: [String: Any]) -> String {
         var attrs = attrs
         stamp(&attrs)
-        // ponytail: primitives only, always serializable.
-        return Self.line(["type": "event", "eventName": name, "timestamp": Sender.rfc3339(at), "attributes": attrs]) ?? ""
+        // Force-unwrapped: strings, numbers and bools only, which always serialize.
+        return Self.line(["type": "event", "eventName": name, "timestamp": Sender.rfc3339(at), "attributes": attrs])!
     }
 
     private func persist() {

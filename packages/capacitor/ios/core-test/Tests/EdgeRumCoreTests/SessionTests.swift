@@ -253,6 +253,28 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(names(session(1).begin()), ["session.started"], "ended session not finalized on relaunch")
     }
 
+    func testFailedAppendRollsBackSoAResendCountsOnce() throws {
+        struct DiskFull: Error {}
+        let s = session(1)
+        _ = s.begin()
+        _ = s.admit(Array(repeating: event("ui.interaction"), count: 199))
+        now += Session.idleMs + 1
+        var appended: [String] = []
+        let batch = Array(repeating: event("ui.interaction"), count: 202)
+
+        XCTAssertThrowsError(try s.commit({ _ in throw DiskFull() }) { $0.admit(batch) })
+        XCTAssertEqual(s.id, "session_1", "rotation undone")
+        XCTAssertEqual(health.snapshot(), [:], "cap drops undone")
+        XCTAssertEqual(defaults.dictionary(forKey: Session.recordKey)?["id"] as? String, "session_1", "persisted record undone")
+        XCTAssertEqual(defaults.integer(forKey: Session.totalKey), 1, "session total undone")
+
+        try s.commit({ appended += $0 }) { $0.admit(batch) }
+        XCTAssertEqual(names(appended).prefix(2), ["session.finalized", "session.started"], "bookends emitted again")
+        XCTAssertEqual(attrs(appended[0])["session.event_count"] as? Int, 199, "failed attempt not counted")
+        XCTAssertEqual(attrs(appended[1])["session.total_sessions"] as? Int, 2)
+        XCTAssertEqual(health.snapshot(), ["events_dropped.cap.interaction": 2])
+    }
+
     func testCapDropsReachTheWireAsSdkHealth() throws {
         StubProtocol.reset()
         let s = session(1)

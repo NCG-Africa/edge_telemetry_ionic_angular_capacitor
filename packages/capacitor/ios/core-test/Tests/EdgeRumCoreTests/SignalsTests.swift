@@ -139,13 +139,14 @@ final class SignalsTests: XCTestCase {
 
     func testInferenceFlagsADocumentStartWithoutCleanShutdown() {
         var page = PageWatch()
-        let index = "capacitor://localhost/#/cart"
-        XCTAssertFalse(page.loaded(index), "first document of the process")
+        XCTAssertFalse(page.loaded("capacitor://localhost/"), "first document of the process")
         page.hidden()
-        XCTAssertFalse(page.loaded(index), "reloaded cleanly")
-        XCTAssertTrue(page.loaded("capacitor://localhost/#/home"),
-                      "same document again, no pagehide: the content process died")
-        XCTAssertFalse(page.loaded("capacitor://localhost/other.html"), "another document: a navigation")
+        XCTAssertFalse(page.loaded("capacitor://localhost/"), "reloaded cleanly")
+        // pushState moved the app to /tabs/profile; Capacitor reloads that URL after the death.
+        XCTAssertTrue(page.loaded("capacitor://localhost/tabs/profile"),
+                      "same origin again, no pagehide: the content process died")
+        XCTAssertTrue(page.loaded("capacitor://localhost/#/cart"), "hash routing too")
+        XCTAssertFalse(page.loaded("https://example.com/login"), "another origin: a navigation away")
     }
 
     func testWebViewTerminatedGoldenBatch() throws {

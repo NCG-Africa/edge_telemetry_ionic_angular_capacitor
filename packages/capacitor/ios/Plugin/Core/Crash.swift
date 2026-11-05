@@ -259,24 +259,25 @@ final class Crash {
 
 /// Spec A6 (= Cordova A6 inference path, no swizzle): a document start with no clean shutdown
 /// (`pagehide`) since the previous one means the content process died and Capacitor's
-/// `webViewWebContentProcessDidTerminate` reloaded it. A different document (fragment aside) is a
-/// navigation, not a death. The plugin feeds it from a user script. Worker queue only.
+/// `webViewWebContentProcessDidTerminate` reloaded it. Compared by origin, not URL: Ionic routes
+/// with `pushState`, so the reload lands on a later path than the previous document start saw.
+/// A different origin is a navigation away, not a death. The plugin feeds it from a user script.
+/// Worker queue only.
 // ponytail: a reload whose pagehide message never reached native still reads as a death;
 // inference is the labelled best effort (`webview.detected_by=inference`).
 struct PageWatch {
-    private var page: String?
+    private var origin: String?
     private var clean = false
 
     /// A document started at `url`. - Returns: true when the previous one died uncleanly.
     mutating func loaded(_ url: String) -> Bool {
-        var c = URLComponents(string: url)
-        c?.fragment = nil
-        let doc = c?.string ?? url
+        let c = URLComponents(string: url)
+        let o = c.map { "\($0.scheme ?? "")://\($0.host ?? "")\($0.port.map { ":\($0)" } ?? "")" } ?? url
         defer {
-            page = doc
+            origin = o
             clean = false
         }
-        return page == doc && !clean
+        return origin == o && !clean
     }
 
     mutating func hidden() {

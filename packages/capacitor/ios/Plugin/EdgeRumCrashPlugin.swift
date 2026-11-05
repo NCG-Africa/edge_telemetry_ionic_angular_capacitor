@@ -50,8 +50,8 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Replaced by `reset()`.
     private var identity = ""
     private let processStartedAt = EdgeRumCrashPlugin.processStartMs()
-    /// A5: one per process, so a plugin reloaded in a live process doesn't start a second cold launch.
-    private static var launch: Launch?
+    /// A5: set in `load()` before any worker task is queued, so the worker always sees it.
+    private var launch: Launch!
     /// A6: worker queue only.
     private var pageWatch = PageWatch()
     /// E32: launch-time device context; `app.bundle_id` and `network.type` are added per event.
@@ -83,7 +83,7 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         foreground = UIApplication.shared.applicationState != .background
         let launchedForeground = foreground
         // A5: plugins load once the bridge has created the WebView; close enough to "WebView created".
-        if Self.launch == nil { Self.launch = Launch(processStart: processStartedAt, webViewCreated: Outbox.now()) }
+        launch = Launch(processStart: processStartedAt, webViewCreated: Outbox.now())
         device = Self.deviceContext()
         refreshBasePath()
         // C1: `hang`/`hangTimeoutMs` (true/2000). Started only once armed, after the core exists.
@@ -200,7 +200,7 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         let phase = call.getString("phase") ?? ""
         let ts = call.getDouble("ts").map { Int64($0) } ?? Outbox.now()
         worker.async {
-            if let start = Self.launch?.mark(phase, ts) {
+            if let start = self.launch.mark(phase, ts) {
                 self.record([start])
             } else if phase == Launch.bridgeReady {
                 self.worker.asyncAfter(deadline: .now() + .milliseconds(Int(Launch.readyWindowMs))) { self.finishLaunch() }
@@ -211,7 +211,7 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// Worker only: `app.start` without `markReady`, if still owed.
     private func finishLaunch() {
-        if let start = Self.launch?.finish() { record([start]) }
+        if let start = launch.finish() { record([start]) }
     }
 
     /// A6 / E13: the user script's document start / clean `pagehide`. Main thread (WebKit).
@@ -454,7 +454,10 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         let before = session.id
         let write = write ?? { try self.outbox.append(self.identity, $0) }
         do {
-            try session.commit({ try write($0); self.sampleIfStarted($0); self.sender.trigger() }, call)
+            var written: [String] = []
+            try session.commit({ try write($0); written = $0; self.sender.trigger() }, call)
+            // After the commit, so the bookend sample's own gate pass can't nest inside it.
+            sampleIfStarted(written)
         } catch {
             return false
         }
@@ -533,6 +536,7 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
     private static func deviceContext() -> [String: Any] {
         var u = utsname()
         uname(&u)
+        // `utsname.machine` is a fixed, NUL-terminated C array: its base address is never nil.
         let machine = withUnsafeBytes(of: &u.machine) { String(cString: $0.bindMemory(to: CChar.self).baseAddress!) }
         let screen = UIScreen.main
         #if arch(arm64)

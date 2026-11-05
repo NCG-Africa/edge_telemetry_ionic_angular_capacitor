@@ -1559,8 +1559,9 @@ for `webview.version` and `app.bundle_id` on iOS too.
 **Decision:**
 1. The plugin injects one document-start `WKUserScript` that posts `{t:'load', u:location.href}`
    on every document start and `{t:'hide'}` on `pagehide`, to its own `edgeRumPage` script message
-   handler. `PageWatch` (Cordova's, ported) flags a document start of the same document (fragment
-   aside) with no `hide` since the previous one → `app.crash cause=WebViewTerminated
+   handler. `PageWatch` (Cordova's, ported) flags a document start on the same origin with no
+   `hide` since the previous one (origin, not URL: Ionic routes with `pushState`, so Capacitor's
+   reload lands on a later path than the last document start saw) → `app.crash cause=WebViewTerminated
    webview.detected_by=inference webview.reason=unknown`, live, as a solo segment, with X10 keys.
    No `markPhase('pagehide')`: native owns the signal, so JS issue 16 relays nothing for it.
    iOS never emits `detected_by=callback`.

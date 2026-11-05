@@ -1,70 +1,62 @@
-/**
- * Query parameter names that are stripped from every captured URL by default.
- * Matches the list promised in docs/privacy.md.
- */
-export const DEFAULT_SENSITIVE_PARAMS = [
-  'token',
-  'email',
-  'phone',
-  'key',
-  'secret',
-  'password',
-  'auth',
-] as const;
+// P2: the one templater for `http.url`, resource-timing hosts and (#119) `traceparent` host matching.
 
-/**
- * Strips sensitive query params from a URL. Case-insensitive on param names.
- * Preserves non-sensitive params, hash fragments, and the path.
- * Returns the input unchanged if parsing fails.
- */
-export function defaultSanitizeUrl(url: string): string {
-  if (typeof url !== 'string' || url.length === 0) return url;
-  const queryStart = url.indexOf('?');
-  if (queryStart === -1) return url;
+const PROXY = /\/_capacitor_https?_interceptor_\/?\?(?:[^#]*&)?u=([^&#]*)/;
+const VERSION = /^v\d+$/i;
+const MAX_DEPTH = 6;
 
-  const hashStart = url.indexOf('#', queryStart);
-  const queryEnd = hashStart === -1 ? url.length : hashStart;
-  const base = url.slice(0, queryStart);
-  const query = url.slice(queryStart + 1, queryEnd);
-  const hash = hashStart === -1 ? '' : url.slice(hashStart);
+/** A CapacitorHttp proxy URL (`/_capacitor_http_interceptor_?u=…`), which is the bridge, not the app. */
+export const isProxyUrl = (url: string): boolean => PROXY.test(url);
 
-  if (query.length === 0) return url;
-
-  const sensitive = new Set(DEFAULT_SENSITIVE_PARAMS.map((p) => p.toLowerCase()));
-  const kept: string[] = [];
-  for (const pair of query.split('&')) {
-    if (pair.length === 0) continue;
-    const eq = pair.indexOf('=');
-    const rawKey = eq === -1 ? pair : pair.slice(0, eq);
-    let decoded: string;
-    try {
-      decoded = decodeURIComponent(rawKey);
-    } catch {
-      decoded = rawKey;
-    }
-    if (sensitive.has(decoded.toLowerCase())) continue;
-    kept.push(pair);
+/** CapacitorHttp proxy URLs carry the real one in `u`; anything else is returned as is. */
+export function unwrapProxyUrl(url: string): string {
+  const m = PROXY.exec(url);
+  if (!m?.[1]) return url;
+  try {
+    // Built with `searchParams.append`, so a space arrives as `+`.
+    return decodeURIComponent(m[1].replace(/\+/g, ' '));
+  } catch {
+    return url;
   }
+}
 
-  if (kept.length === 0) return base + hash;
-  return `${base}?${kept.join('&')}${hash}`;
+/** `vN` kept; a segment holding a digit, or ≥ 32 chars, → `{id}` (Android / iOS rule). */
+const segment = (s: string) => (!VERSION.test(s) && (/\d/.test(s) || s.length >= 32) ? '{id}' : s);
+
+/** Templated path: empty → `/`, trailing slash dropped, depth capped at 6 then `/…`. */
+function templatePath(path: string): string {
+  const parts = path.split('/').filter((s) => s !== '');
+  if (parts.length === 0) return '/';
+  return `/${parts.slice(0, MAX_DEPTH).map(segment).join('/')}${parts.length > MAX_DEPTH ? '/…' : ''}`;
+}
+
+/** Parsed against the page, so a relative URL gets the app's own origin. */
+export function parseUrl(url: string): URL | undefined {
+  try {
+    return new URL(url, typeof location !== 'undefined' ? location.href : undefined);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
- * Compose the default sanitizer with an optional user-provided one.
- * The default runs first, then the user's sanitizer gets the pre-cleaned URL.
+ * P2 / Cordova P1: proxy unwrapped, then scheme + host + explicit port + templated path; query,
+ * fragment and userinfo dropped.
  */
-export function composeSanitizeUrl(
-  userSanitizer?: (url: string) => string,
-): (url: string) => string {
-  if (!userSanitizer) return defaultSanitizeUrl;
-  return (url: string) => {
-    try {
-      return userSanitizer(defaultSanitizeUrl(url));
-    } catch {
-      // If the user's sanitizer throws, fall back to the default-cleaned URL
-      // so we never record a dirty URL because of a consumer bug.
-      return defaultSanitizeUrl(url);
-    }
-  };
+export function templateUrl(url: string): string {
+  const raw = unwrapProxyUrl(url);
+  const u = parseUrl(raw);
+  // ponytail: unparseable → cut by hand, as Cordova does.
+  return u ? `${u.protocol}//${u.host}${templatePath(u.pathname)}` : templatePath(raw.split(/[?#]/)[0] ?? '');
+}
+
+/** Templating, then the consumer's remove-only `sanitizeUrl` (throw or non-string → templated URL kept). */
+export function scrubUrl(url: string, sanitizeUrl?: (url: string) => string): string {
+  const templated = templateUrl(url);
+  if (!sanitizeUrl) return templated;
+  try {
+    const out = sanitizeUrl(templated);
+    return typeof out === 'string' ? out : templated;
+  } catch {
+    return templated;
+  }
 }

@@ -1,5 +1,5 @@
 import {
-  call, discard, event, flush, isName, isValue, live, metric, now, outside, route, setEnabled, start, state, whenReady,
+  call, discard, event, flush, isName, isValue, live, metric, now, outside, route, routeListeners, setEnabled, start, state, whenReady,
   type AttributeValue, type EdgeRumOptions, type EventAttributes,
 } from './core';
 import { healthMonitor } from './internal/health';
@@ -232,6 +232,7 @@ export const EdgeRum = {
 export const __recordEvent = (eventName: string, attributes: EventAttributes): void => event(eventName, attributes);
 
 export function __setCurrentRoute(route: string): void {
+  if (route !== state.route) for (const f of routeListeners) f();
   state.route = route;
   call('setLastScreen', { screen: route });
 }

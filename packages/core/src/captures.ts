@@ -1,4 +1,4 @@
-import { event, metric, route, state, type Capture } from './core';
+import { event, metric, route, routeListeners, state, type Capture } from './core';
 import { registerConsoleErrorCapture } from './instrumentation/errors';
 import { registerFrameCapture } from './instrumentation/frames';
 import { registerInteractionCapture } from './instrumentation/interactions';
@@ -32,10 +32,20 @@ export const longTasks = (): Capture => ({
   start: () => registerPerfObserver({ recordMetric: metric, getCurrentRoute: route, resources: false }).dispose,
 });
 
-/** Per-screen resource load timings. Off unless listed. */
+/** Resource load timings, summarised per screen and host. Off unless listed. */
 export const resourceTiming = (): Capture => ({
   name: 'resourceTiming',
-  start: () => registerPerfObserver({ recordMetric: metric, getCurrentRoute: route, longTasks: false }).dispose,
+  start: () => registerPerfObserver({
+    recordMetric: metric,
+    getCurrentRoute: route,
+    longTasks: false,
+    onRouteChange: (f) => {
+      routeListeners.add(f);
+      return () => routeListeners.delete(f);
+    },
+    // E7: the SDK's own endpoint is never counted (same rule as `http.request`).
+    ignoreResourceUrl: (url) => !!state.options.endpoint && url.includes(state.options.endpoint),
+  }).dispose,
 });
 
 /** `console.error` lines, kept as context on the next error report. */

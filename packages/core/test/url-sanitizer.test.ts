@@ -1,125 +1,57 @@
-import { describe, it, expect } from 'vitest';
-import {
-  DEFAULT_SENSITIVE_PARAMS,
-  composeSanitizeUrl,
-  defaultSanitizeUrl,
-} from '../src/instrumentation/url-sanitizer';
+import { describe, expect, it } from 'vitest';
 
-describe('defaultSanitizeUrl', () => {
-  it('returns the URL unchanged when no query string is present', () => {
-    expect(defaultSanitizeUrl('https://api.example.com/users')).toBe(
-      'https://api.example.com/users',
-    );
+import { isProxyUrl, scrubUrl, templateUrl, unwrapProxyUrl } from '../src/instrumentation/url-sanitizer';
+
+describe('templateUrl (P2)', () => {
+  it.each([
+    ['https://api.example.com/users/12345/orders', 'https://api.example.com/users/{id}/orders'],
+    ['https://api.example.com/v2/items/abc1', 'https://api.example.com/v2/items/{id}'],
+    ['https://api.example.com/V10/x', 'https://api.example.com/V10/x'],
+    ['https://api.example.com/f/550e8400-e29b-41d4-a716-446655440000', 'https://api.example.com/f/{id}'],
+    [`https://api.example.com/t/${'a'.repeat(32)}`, 'https://api.example.com/t/{id}'],
+    [`https://api.example.com/t/${'a'.repeat(31)}`, `https://api.example.com/t/${'a'.repeat(31)}`],
+    ['https://api.example.com/a/b/c/d/e/f/g/h', 'https://api.example.com/a/b/c/d/e/f/…'],
+    ['https://api.example.com/a/b/c/d/e/f', 'https://api.example.com/a/b/c/d/e/f'],
+    ['https://api.example.com', 'https://api.example.com/'],
+    ['https://api.example.com/items/', 'https://api.example.com/items'],
+    ['https://api.example.com:8443/x', 'https://api.example.com:8443/x'],
+  ])('%s → %s', (input, out) => {
+    expect(templateUrl(input)).toBe(out);
   });
 
-  it('returns the URL unchanged when the query has no sensitive params', () => {
-    expect(
-      defaultSanitizeUrl('https://api.example.com/search?q=hats&page=2'),
-    ).toBe('https://api.example.com/search?q=hats&page=2');
+  it('drops query, fragment and userinfo', () => {
+    expect(templateUrl('https://me:pw@api.example.com/s?q=hats&token=abc#top')).toBe('https://api.example.com/s');
   });
 
-  it.each(DEFAULT_SENSITIVE_PARAMS.map((p) => [p]))(
-    'strips %s query param',
-    (param) => {
-      const result = defaultSanitizeUrl(`https://api.example.com/resource?${param}=secretvalue`);
-      expect(result).toBe('https://api.example.com/resource');
-      expect(result).not.toContain('secretvalue');
-      expect(result).not.toContain(param);
-    },
-  );
-
-  it('strips sensitive params while preserving non-sensitive ones', () => {
-    expect(
-      defaultSanitizeUrl('https://api.example.com/s?q=hats&token=abc123&page=2'),
-    ).toBe('https://api.example.com/s?q=hats&page=2');
+  it('cuts an unparseable URL by hand', () => {
+    expect(templateUrl('/orders/42?x=1')).toBe('/orders/{id}');
   });
 
-  it('strips multiple sensitive params in a single URL', () => {
-    expect(
-      defaultSanitizeUrl('https://api.example.com/x?token=t&q=hats&secret=s&auth=a'),
-    ).toBe('https://api.example.com/x?q=hats');
-  });
-
-  it('is case-insensitive on param names', () => {
-    expect(defaultSanitizeUrl('https://api.example.com/x?TOKEN=abc')).toBe(
-      'https://api.example.com/x',
-    );
-    expect(defaultSanitizeUrl('https://api.example.com/x?Email=a@b')).toBe(
-      'https://api.example.com/x',
-    );
-  });
-
-  it('preserves the hash fragment', () => {
-    expect(
-      defaultSanitizeUrl('https://api.example.com/x?token=abc&q=hats#section'),
-    ).toBe('https://api.example.com/x?q=hats#section');
-  });
-
-  it('preserves the hash fragment even when all query params are stripped', () => {
-    expect(
-      defaultSanitizeUrl('https://api.example.com/x?token=abc#section'),
-    ).toBe('https://api.example.com/x#section');
-  });
-
-  it('handles an empty query string gracefully', () => {
-    expect(defaultSanitizeUrl('https://api.example.com/x?')).toBe(
-      'https://api.example.com/x?',
-    );
-  });
-
-  it('handles params with no values', () => {
-    expect(defaultSanitizeUrl('https://api.example.com/x?token&q=hats')).toBe(
-      'https://api.example.com/x?q=hats',
-    );
-  });
-
-  it('returns an empty or non-string input unchanged', () => {
-    expect(defaultSanitizeUrl('')).toBe('');
-    expect(defaultSanitizeUrl(null as unknown as string)).toBe(
-      null as unknown as string,
-    );
-  });
-
-  it('handles URL-encoded sensitive param names', () => {
-    // %74%6f%6b%65%6e = "token"
-    expect(
-      defaultSanitizeUrl('https://api.example.com/x?%74%6f%6b%65%6e=abc&q=hats'),
-    ).toBe('https://api.example.com/x?q=hats');
-  });
-
-  it('does not touch the path even if it contains a sensitive word', () => {
-    // "/auth/login" should be preserved — only query params are sanitised
-    expect(defaultSanitizeUrl('https://api.example.com/auth/login?q=hats')).toBe(
-      'https://api.example.com/auth/login?q=hats',
-    );
+  it('unwraps a CapacitorHttp proxy URL before templating', () => {
+    const proxy = `capacitor://localhost/_capacitor_http_interceptor_?u=${encodeURIComponent('https://api.example.com/users/7?token=t')}`;
+    expect(isProxyUrl(proxy)).toBe(true);
+    expect(unwrapProxyUrl(proxy)).toBe('https://api.example.com/users/7?token=t');
+    expect(templateUrl(proxy)).toBe('https://api.example.com/users/{id}');
+    expect(isProxyUrl('https://api.example.com/x?u=1')).toBe(false);
+    const u = new URL('capacitor://localhost/_capacitor_http_interceptor_');
+    u.searchParams.append('u', 'https://api.example.com/a b');
+    expect(unwrapProxyUrl(u.href)).toBe('https://api.example.com/a b');
   });
 });
 
-describe('composeSanitizeUrl', () => {
-  it('returns defaultSanitizeUrl when no user sanitizer is provided', () => {
-    const fn = composeSanitizeUrl();
-    expect(fn('https://api.example.com/x?token=abc&q=hats')).toBe(
-      'https://api.example.com/x?q=hats',
-    );
+describe('scrubUrl', () => {
+  it('runs the consumer sanitizer on the templated URL', () => {
+    const seen: string[] = [];
+    const out = scrubUrl('https://api.example.com/users/42?token=t', (u) => {
+      seen.push(u);
+      return u.replace('/users', '');
+    });
+    expect(seen).toEqual(['https://api.example.com/users/{id}']);
+    expect(out).toBe('https://api.example.com/{id}');
   });
 
-  it('runs the default first, then the user sanitizer', () => {
-    const userSanitizer = (url: string) => url.replace(/\/users\/\d+/, '/users/:id');
-    const fn = composeSanitizeUrl(userSanitizer);
-    // Both transformations should apply
-    expect(fn('https://api.example.com/users/12345?token=abc')).toBe(
-      'https://api.example.com/users/:id',
-    );
-  });
-
-  it('falls back to the default-cleaned URL when the user sanitizer throws', () => {
-    const userSanitizer = () => {
-      throw new Error('bad sanitizer');
-    };
-    const fn = composeSanitizeUrl(userSanitizer);
-    // Consumer bug must not result in a dirty URL being recorded
-    expect(fn('https://api.example.com/x?token=abc&q=hats')).toBe(
-      'https://api.example.com/x?q=hats',
-    );
+  it('keeps the templated URL when the sanitizer throws or returns a non-string', () => {
+    expect(scrubUrl('https://a.example.com/1', () => { throw new Error('x'); })).toBe('https://a.example.com/{id}');
+    expect(scrubUrl('https://a.example.com/1', () => undefined as unknown as string)).toBe('https://a.example.com/{id}');
   });
 });

@@ -118,44 +118,60 @@ describe('registerRequestCapture', () => {
     expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/data');
   });
 
-  it('applies sanitizeUrl to captured URLs', async () => {
+  it('templates the URL, then hands it to sanitizeUrl (P2)', async () => {
+    const seen: string[] = [];
     const handle = registerRequestCapture({
       ...deps,
-      sanitizeUrl: (url) => url.replace(/\/users\/\d+/, '/users/:id'),
+      sanitizeUrl: (url) => {
+        seen.push(url);
+        return url.replace('/users', '/u');
+      },
     });
 
-    await target.fetch('https://api.example.com/users/12345');
+    await target.fetch('https://api.example.com/v2/users/12345?token=abc&q=hats#x');
     handle.dispose();
 
-    expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/users/:id');
+    expect(seen).toEqual(['https://api.example.com/v2/users/{id}']);
+    expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/v2/u/{id}');
   });
 
-  it('strips default sensitive query params even without a user sanitizer', async () => {
+  it('keeps the templated URL when sanitizeUrl throws', async () => {
+    const handle = registerRequestCapture({ ...deps, sanitizeUrl: () => { throw new Error('bad'); } });
+    await target.fetch('https://api.example.com/users/1?token=t');
+    handle.dispose();
+
+    expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/users/{id}');
+  });
+
+  it('unwraps a CapacitorHttp proxy URL and applies ignoreUrls to the real one', async () => {
+    const proxied = (u: string) => `capacitor://localhost/_capacitor_http_interceptor_?u=${encodeURIComponent(u)}`;
+    const handle = registerRequestCapture({ ...deps, ignoreUrls: ['ingest.example.com'] });
+    await target.fetch(proxied('https://api.example.com/orders/9'));
+    await target.fetch(proxied('https://ingest.example.com/collector'));
+    handle.dispose();
+
+    expect(recorded.map((r) => r.attrs['http.url'])).toEqual(['https://api.example.com/orders/{id}']);
+  });
+
+  it('records request and response sizes where available (E6)', async () => {
     const handle = registerRequestCapture(deps);
-
-    await target.fetch('https://api.example.com/s?q=hats&token=abc123&password=x');
+    await target.fetch('https://api.example.com/submit', { method: 'POST', body: '{"name":"é"}' });
+    await target.fetch('https://api.example.com/form', { method: 'POST', body: new FormData() });
     handle.dispose();
 
-    expect(recorded).toHaveLength(1);
-    const url = recorded[0]?.attrs['http.url'] as string;
-    expect(url).toBe('https://api.example.com/s?q=hats');
-    expect(url).not.toContain('token');
-    expect(url).not.toContain('password');
-    expect(url).not.toContain('abc123');
+    expect(recorded[0]?.attrs['http.request_size']).toBe(13);
+    expect(recorded[0]?.attrs['http.response_size']).toBe(1024);
+    expect(recorded[1]?.attrs).not.toHaveProperty('http.request_size');
   });
 
-  it('runs the default sanitizer before a user-provided sanitizer', async () => {
-    const handle = registerRequestCapture({
-      ...deps,
-      sanitizeUrl: (url) => url.replace(/\/users\/\d+/, '/users/:id'),
-    });
-
-    await target.fetch('https://api.example.com/users/12345?token=abc&q=hats');
+  it('omits response size without a numeric Content-Length', async () => {
+    fakeFetch.mockResolvedValueOnce(mockResponse(200));
+    const handle = registerRequestCapture(deps);
+    await target.fetch('https://api.example.com/data');
     handle.dispose();
 
-    expect(recorded[0]?.attrs['http.url']).toBe(
-      'https://api.example.com/users/:id?q=hats',
-    );
+    expect(recorded[0]?.attrs).not.toHaveProperty('http.response_size');
+    expect(recorded[0]?.attrs).not.toHaveProperty('http.request_size');
   });
 
   it('restores original fetch on dispose', async () => {
@@ -227,10 +243,15 @@ describe('registerRequestCapture', () => {
 describe('registerRequestCapture — XMLHttpRequest (#85)', () => {
   class FakeXhr extends EventTarget {
     status = 0;
+    length: string | null = null;
     open(_method: string, _url: string | URL): void {}
     send(_body?: unknown): void {}
-    finish(status: number): void {
+    getResponseHeader(name: string): string | null {
+      return name === 'content-length' ? this.length : null;
+    }
+    finish(status: number, length: string | null = null): void {
       this.status = status;
+      this.length = length;
       this.dispatchEvent(new Event('loadend'));
     }
   }
@@ -267,6 +288,47 @@ describe('registerRequestCapture — XMLHttpRequest (#85)', () => {
     expect(recorded[0]?.['http.method']).toBe('POST');
     expect(recorded[0]?.['http.status_code']).toBe(201);
     expect(recorded[0]?.['http.success']).toBe(true);
+    expect(recorded[0]?.['http.request_size']).toBe(2);
+  });
+
+  it('templates the URL and reads Content-Length for the response size', () => {
+    const handle = capture();
+    const xhr = new FakeXhr();
+    xhr.open('GET', 'https://api.example.com/users/42?token=t');
+    xhr.send();
+    xhr.finish(200, '512');
+    handle.dispose();
+
+    expect(recorded[0]?.['http.url']).toBe('https://api.example.com/users/{id}');
+    expect(recorded[0]?.['http.response_size']).toBe(512);
+  });
+
+  it('reports each send of a reused instance once', () => {
+    const handle = capture();
+    const xhr = new FakeXhr();
+    xhr.open('GET', 'https://api.example.com/a');
+    xhr.send();
+    xhr.finish(200);
+    xhr.open('GET', 'https://api.example.com/b');
+    xhr.send();
+    xhr.finish(200);
+    handle.dispose();
+
+    expect(recorded.map((r) => r['http.url'])).toEqual(['https://api.example.com/a', 'https://api.example.com/b']);
+  });
+
+  it('drops the listener of a send that a reopen abandoned', () => {
+    const handle = capture();
+    const xhr = new FakeXhr();
+    xhr.open('GET', 'https://api.example.com/a');
+    xhr.send();
+    // Reopened in flight: the browser aborts without a loadend for /a.
+    xhr.open('GET', 'https://api.example.com/b');
+    xhr.send();
+    xhr.finish(200);
+    handle.dispose();
+
+    expect(recorded.map((r) => r['http.url'])).toEqual(['https://api.example.com/b']);
   });
 
   it('records status 0 and success false on network error', () => {

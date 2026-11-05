@@ -149,7 +149,5 @@ Restart the app. The next batch should contain an `app.crash` event with `cause:
 ## Next steps
 
 - [TECHNICAL_GUIDE.md](./TECHNICAL_GUIDE.md) — the full technical reference
-- [config-reference.md](./config-reference.md) — every option on `EdgeRumConfig`
 - [backend-integration.md](./backend-integration.md) — endpoint, auth, CORS, wire contract
-- [privacy.md](./privacy.md) — what is collected, what isn't, how to control it
 - [decisions.md](./decisions.md) — architecture decisions (ADR log)

@@ -1,10 +1,12 @@
 import Foundation
 import Capacitor
+import Network
 import UIKit
 import WebKit
 
 /// Capacitor plugin bridge. Hosts the 5.0 native core (`Core/`: identity, session, consent, user,
 /// outbox, sender, crash) and arms native crash (`CrashReporter`, PLCrashReporter) and hang (`Watchdog`) capture itself (E12, E15).
+/// WebView death, `app.start`, lifecycle, memory and network are native signals (A5, A6, E2, E3, E13, E22–E26).
 ///
 /// Uses the `CAPBridgedPlugin` protocol (Capacitor 6+) for Swift-only method
 /// registration. The legacy `.m` file with the `CAP_PLUGIN` macro that lived
@@ -19,10 +21,7 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "setLastScreen", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setRoot", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "startPerfSampling", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "stopPerfSampling", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "fetchFrameSamples", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "fetchMemorySamples", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "markPhase", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getState", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "configure", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "enqueue", returnType: CAPPluginReturnPromise),
@@ -51,10 +50,28 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Replaced by `reset()`.
     private var identity = ""
     private let processStartedAt = EdgeRumCrashPlugin.processStartMs()
+    /// A5: set in `load()` before any worker task is queued, so the worker always sees it.
+    private var launch: Launch!
+    /// A6: worker queue only.
+    private var pageWatch = PageWatch()
+    /// E32: launch-time device context; `app.bundle_id` and `network.type` are added per event.
+    private var device: [String: Any] = [:]
+    /// E26: last path transport; nil until the first reading.
+    private var networkType: String?
+    private let networkLock = NSLock()
+    private var pathMonitor: NWPathMonitor?
+    /// E32: `getServerBasePath()` read on main (UIKit), cached for the worker. Guarded by `networkLock`.
+    private var serverBasePath: String?
     /// W3: 4.x ids lived in localStorage; deleted, never carried over.
     private static let legacyCleanup =
         "['edge_rum_device_id','edge_rum_anon_uid','edge_rum_total_sessions','edge_rum_q','edge_rum_location']"
         + ".forEach(function(k){try{localStorage.removeItem(k)}catch(e){}})"
+    /// A6: every document start and clean `pagehide` reach `PageWatch` (the JS-reload heuristic).
+    private static let pageHandler = "edgeRumPage"
+    private static let pageScript =
+        "(function(h){if(!h)return;h.postMessage({t:'load',u:location.href});"
+        + "addEventListener('pagehide',function(){h.postMessage({t:'hide'})})})"
+        + "(window.webkit&&webkit.messageHandlers&&webkit.messageHandlers.\(pageHandler))"
 
     /// Called once by Capacitor when the plugin is discovered and linked,
     /// before any JS runs. Set a breakpoint here (or grep the device console
@@ -64,6 +81,11 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
     public override func load() {
         super.load()
         foreground = UIApplication.shared.applicationState != .background
+        let launchedForeground = foreground
+        // A5: plugins load once the bridge has created the WebView; close enough to "WebView created".
+        launch = Launch(processStart: processStartedAt, webViewCreated: Outbox.now())
+        device = Self.deviceContext()
+        refreshBasePath()
         // C1: `hang`/`hangTimeoutMs` (true/2000). Started only once armed, after the core exists.
         let hangMs = getConfig().getBoolean("hang", true) ? Int64(getConfig().getInt("hangTimeoutMs", 2000)) : 0
         watchdog = Watchdog(hangMs: hangMs) { [weak self] ms in
@@ -73,8 +95,12 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
             self.worker.async { self.solo(record) }
         }
         // Plugins load before the start page, so the script runs ahead of any app JS.
-        bridge?.webView?.configuration.userContentController.addUserScript(
+        let content = bridge?.webView?.configuration.userContentController
+        content?.addUserScript(
             WKUserScript(source: Self.legacyCleanup, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        content?.add(PageMessages(self), name: Self.pageHandler)
+        content?.addUserScript(
+            WKUserScript(source: Self.pageScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         // Off the main thread: outbox caps and the Keychain touch disk.
         worker.async {
             let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -96,6 +122,7 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
             self.consent = Consent(defaults: defaults, configEnabled: config.getBoolean("enabled", true),
                                    session: self.session, user: self.user, outbox: self.outbox, deviceId: deviceId)
             self.crash = Crash(dir: dir)
+            self.session.context = { [unowned self] in self.context() }
             // T4: last launch's crash, under the identity it crashed with. Purged either way.
             if let report = CrashReporter.takePending(), self.consent.enabled, let p = self.crash.replay(report) {
                 self.writeSolo(p.identity, p.event)
@@ -103,6 +130,7 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
             // P7: opt-in mode starts nothing until enable().
             if self.consent.enabled {
                 self.append(self.session.begin())
+                if launchedForeground { self.record([Signals.lifecycle("foregrounded", at: Outbox.now())]) } // E2
                 // Armed after the context exists, so a crash always has one to replay under.
                 self.saveCrashContext()
                 self.arm()
@@ -110,6 +138,9 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.crash.clear()
             }
             self.sender.trigger()
+            // C1 / E23: opt-in periodic memory, foreground only, on the 1 s tick.
+            let memoryEvery = config.getBoolean("memorySampling", false)
+                ? max(1, config.getInt("memorySamplingIntervalMs", 30_000) / 1000) : 0
             // T3: 30 s after the first event, within a second. T6: 30 s retry tick for parked segments.
             var ticks = 0
             let timer = DispatchSource.makeTimerSource(queue: self.worker)
@@ -119,6 +150,11 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.outbox.sealIfDue()
                 ticks += 1
                 if ticks % 30 == 0 { self.sender.trigger() }
+                if memoryEvery > 0 && ticks % memoryEvery == 0 {
+                    DispatchQueue.main.async {
+                        if self.foreground { self.worker.async { self.sampleMemory("periodic") } }
+                    }
+                }
             }
             timer.resume()
             self.ticker = timer
@@ -128,6 +164,9 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
                        name: UIApplication.didEnterBackgroundNotification, object: nil)
         nc.addObserver(self, selector: #selector(willEnterForeground),
                        name: UIApplication.willEnterForegroundNotification, object: nil)
+        nc.addObserver(self, selector: #selector(didReceiveMemoryWarning),
+                       name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        watchNetwork()
         #if DEBUG
         print("[edge-rum] EdgeRumCrashPlugin loaded (SPM/CocoaPods linkage OK; awaiting JS install)")
         #endif
@@ -135,8 +174,6 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func setLastScreen(_ call: CAPPluginCall) {
         let screen = call.getString("screen") ?? ""
-        // ponytail: only FrameSampler reads this (ADR-030 window close); delete with it (K3).
-        UserDefaults.standard.set(screen, forKey: "edgerum.lastScreen")
         worker.async {
             if self.consent.enabled {
                 self.crash.setScreen(screen)
@@ -158,45 +195,101 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    @objc func startPerfSampling(_ call: CAPPluginCall) {
+    /// A2 / A5: JS phase marks; `bridgeReady` opens the `markReady` window (ADR-044 §1).
+    @objc func markPhase(_ call: CAPPluginCall) {
+        let phase = call.getString("phase") ?? ""
+        let ts = call.getDouble("ts").map { Int64($0) } ?? Outbox.now()
         worker.async {
-            if self.consent.enabled { self.startSampling(call) } else { call.resolve(["started": false]) }
-        }
-    }
-
-    private func startSampling(_ call: CAPPluginCall) {
-        let captureFrames = call.getBool("captureFrames") ?? true
-        let captureMemory = call.getBool("captureMemory") ?? true
-        let memoryIntervalMs = call.getInt("memoryIntervalMs") ?? 10_000
-        let slowThresholdMs = call.getDouble("frameSlowThresholdMs") ?? 16.67
-        let captureAllFrames = call.getBool("captureAllFrames") ?? false
-
-        if captureMemory {
-            MemorySampler.shared.start(intervalMs: memoryIntervalMs)
-        }
-        if captureFrames {
-            FrameSampler.shared.start(slowThresholdMs: slowThresholdMs, captureAllFrames: captureAllFrames)
-        }
-        call.resolve(["started": true])
-    }
-
-    @objc func stopPerfSampling(_ call: CAPPluginCall) {
-        // On the worker so it can't overtake a queued start.
-        worker.async {
-            MemorySampler.shared.stop()
-            FrameSampler.shared.stop()
+            if let start = self.launch.mark(phase, ts) {
+                self.record([start])
+            } else if phase == Launch.bridgeReady {
+                self.worker.asyncAfter(deadline: .now() + .milliseconds(Int(Launch.readyWindowMs))) { self.finishLaunch() }
+            }
             call.resolve()
         }
     }
 
-    @objc func fetchFrameSamples(_ call: CAPPluginCall) {
-        let frames = FrameSampler.shared.fetchPending()
-        call.resolve(["frames": frames])
+    /// Worker only: `app.start` without `markReady`, if still owed.
+    private func finishLaunch() {
+        if let start = launch.finish() { record([start]) }
     }
 
-    @objc func fetchMemorySamples(_ call: CAPPluginCall) {
-        let samples = MemorySampler.shared.fetchPending()
-        call.resolve(["samples": samples])
+    /// A6 / E13: the user script's document start / clean `pagehide`. Main thread (WebKit).
+    fileprivate func page(_ body: Any) {
+        guard let m = body as? [String: Any] else { return }
+        let url = m["u"] as? String
+        if url != nil { refreshBasePath() } // a live update (`setServerBasePath`) reloads the page
+        worker.async {
+            if m["t"] as? String == "hide" { return self.pageWatch.hidden() }
+            guard let url, self.pageWatch.loaded(url) else { return }
+            self.solo(self.crash.webViewTerminated())
+        }
+    }
+
+    /// E26: path transport changes → `network_change`; the first reading only seeds `network.type`.
+    private func watchNetwork() {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard path.status == .satisfied else { self?.networkChanged("none"); return }
+            self?.networkChanged(path.usesInterfaceType(.wifi) ? "wifi" : path.usesInterfaceType(.cellular) ? "cellular"
+                          : path.usesInterfaceType(.wiredEthernet) ? "ethernet" : "other")
+        }
+        monitor.start(queue: DispatchQueue(label: "com.nathanclaire.rum.network"))
+        pathMonitor = monitor
+    }
+
+    private func networkChanged(_ type: String) {
+        networkLock.lock()
+        let previous = networkType
+        networkType = type
+        networkLock.unlock()
+        guard let previous, previous != type else { return }
+        let at = Outbox.now()
+        worker.async {
+            self.recordPassive([Signals.network(previous: previous, current: type, at: at)])
+            // T6: connectivity regained retries parked segments.
+            if previous == "none" { self.sender.trigger() }
+        }
+    }
+
+    /// Main thread (UIKit).
+    private func refreshBasePath() {
+        let path = (bridge?.viewController as? CAPBridgeViewController)?.getServerBasePath()
+        networkLock.lock()
+        serverBasePath = path
+        networkLock.unlock()
+    }
+
+    /// E32: device context plus the live `app.bundle_id` and `network.type`, stamped by the session gate.
+    private func context() -> [String: Any] {
+        networkLock.lock(); defer { networkLock.unlock() }
+        var c = device
+        c["app.bundle_id"] = Signals.bundleId(serverBasePath: serverBasePath, appBundlePath: Bundle.main.bundlePath)
+        c["network.type"] = networkType
+        return c
+    }
+
+    /// E24: memory warning → `memory_pressure`.
+    @objc private func didReceiveMemoryWarning() {
+        let at = Outbox.now()
+        let footprint = Signals.footprintBytes()
+        worker.async { self.recordPassive([Signals.pressure(footprint: footprint, at: at)]) }
+    }
+
+    /// Worker only: consent (P7), then the session gate.
+    private func record(_ events: [[String: Any]]) {
+        if !events.isEmpty && consent.enabled { _ = admit(events) }
+    }
+
+    /// Worker only: background-capable signals (network, memory) through the gate that isn't activity.
+    private func recordPassive(_ events: [[String: Any]]) {
+        if !events.isEmpty && consent.enabled { append(session.admitPassive(events)) }
+    }
+
+    /// E22 / E23: footprint + RSS. Worker only.
+    private func sampleMemory(_ source: String) {
+        recordPassive(Signals.memory(footprint: Signals.footprintBytes(), resident: Signals.residentBytes(),
+                                     source: source, at: Outbox.now()))
     }
 
     @objc func getState(_ call: CAPPluginCall) {
@@ -317,14 +410,12 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    /// P7 `disable()`: stops the watchdog and samplers, forgets crumbs, root and saved context.
+    /// P7 `disable()`: stops the watchdog, forgets crumbs, root and saved context.
     private func disarm() {
         DispatchQueue.main.async {
             self.hangArmed = false
             self.watchdog.stop()
         }
-        MemorySampler.shared.stop()
-        FrameSampler.shared.stop()
         crash.clear()
     }
 
@@ -363,7 +454,10 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         let before = session.id
         let write = write ?? { try self.outbox.append(self.identity, $0) }
         do {
-            try session.commit({ try write($0); self.sender.trigger() }, call)
+            var written: [String] = []
+            try session.commit({ try write($0); written = $0; self.sender.trigger() }, call)
+            // After the commit, so the bookend sample's own gate pass can't nest inside it.
+            sampleIfStarted(written)
         } catch {
             return false
         }
@@ -380,12 +474,21 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         } catch {
             return false
         }
+        sampleIfStarted(lines)
         sender.trigger()
         return true
     }
 
+    /// E22: a new session gets its memory bookend, in the same segment. Worker only.
+    // ponytail: substring check on serialized lines; Session returns strings, not events.
+    private func sampleIfStarted(_ lines: [String]) {
+        if lines.contains(where: { $0.contains(#""eventName":"session.started""#) }) { sampleMemory("session_start") }
+    }
+
     /// T3: background seals the open segment and sends, inside a background task.
+    /// E2 background; E22 end bookend (every background may be the session's last); A5: an owed `app.start` goes now.
     @objc private func didEnterBackground() {
+        let at = Outbox.now()
         foreground = false
         watchdog.stop()
         let app = UIApplication.shared
@@ -398,17 +501,22 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         task = app.beginBackgroundTask(withName: "EdgeRum flush", expirationHandler: end)
         worker.async {
+            self.record([Signals.lifecycle("backgrounded", at: at)])
+            self.finishLaunch()
+            self.sampleMemory("session_end")
             self.outbox.seal()
             self.sender.trigger { DispatchQueue.main.async(execute: end) }
         }
     }
 
     @objc private func willEnterForeground() {
+        let at = Outbox.now()
         foreground = true
         if hangArmed { watchdog.start() }
         worker.async {
             // E1: a foreground after the idle timeout starts a new session.
             if self.consent.enabled { self.gated { $0.rotateIfIdle() } }
+            self.record([Signals.lifecycle("foregrounded", at: at)]) // E2
             self.sender.trigger()
         }
     }
@@ -424,6 +532,40 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
             deviceId: deviceId)
     }
 
+    /// E32 (= Cordova iOS device context) plus always-on `webview.version` (P5). Main thread (UIKit).
+    private static func deviceContext() -> [String: Any] {
+        var u = utsname()
+        uname(&u)
+        // `utsname.machine` is a fixed, NUL-terminated C array: its base address is never nil.
+        let machine = withUnsafeBytes(of: &u.machine) { String(cString: $0.bindMemory(to: CChar.self).baseAddress!) }
+        let screen = UIScreen.main
+        #if arch(arm64)
+        let abi = "arm64"
+        #else
+        let abi = "x86_64"
+        #endif
+        var c: [String: Any] = [
+            "device.platform": "ios",
+            "device.platform_version": UIDevice.current.systemVersion,
+            // The simulator reports the host's arch; it names the device it plays.
+            "device.model": ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ?? machine,
+            "device.manufacturer": "Apple",
+            "device.brand": "Apple",
+            "device.locale": Locale.current.identifier.replacingOccurrences(of: "_", with: "-"),
+            "device.timezone": TimeZone.current.identifier,
+            "device.dark_mode": UITraitCollection.current.userInterfaceStyle == .dark,
+            "device.cpu_abi": abi,
+            "device.cpu_cores": ProcessInfo.processInfo.activeProcessorCount,
+            "device.screen_density": Int(screen.scale * 160), // dpi, as Android densityDpi (1x = 160)
+            "device.screen_width_px": Int(screen.nativeBounds.width),
+            "device.screen_height_px": Int(screen.nativeBounds.height),
+            "display.refresh_rate": screen.maximumFramesPerSecond,
+        ]
+        // WebKit ships with the OS; its framework version is the engine build (e.g. 20621.2.5).
+        c["webview.version"] = Bundle(for: WKWebView.self).infoDictionary?["CFBundleVersion"] as? String
+        return c
+    }
+
     /// Process start, epoch ms (`kinfo_proc.p_starttime`); now if sysctl fails.
     private static func processStartMs() -> Int64 {
         var info = kinfo_proc()
@@ -432,5 +574,18 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return Outbox.now() }
         let t = info.kp_proc.p_un.__p_starttime
         return Int64(t.tv_sec) * 1000 + Int64(t.tv_usec) / 1000
+    }
+}
+
+/// A6: `WKUserContentController` retains its handlers; this one holds the plugin weakly.
+private final class PageMessages: NSObject, WKScriptMessageHandler {
+    private weak var plugin: EdgeRumCrashPlugin?
+
+    init(_ plugin: EdgeRumCrashPlugin) {
+        self.plugin = plugin
+    }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        plugin?.page(message.body)
     }
 }

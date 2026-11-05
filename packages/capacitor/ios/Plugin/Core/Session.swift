@@ -41,6 +41,8 @@ final class Session {
     private var caps: [String: Int] = [:]
     /// `sdk.health` keys counted by the current `commit`, subtracted again if it rolls back.
     private var drops: [String: Int] = [:]
+    /// E32: device / app / network context stamped on every event; an event's own key wins.
+    var context: () -> [String: Any] = { [:] }
 
     /// `roll` defaults to `SystemRandomNumberGenerator`, cryptographically secure on Apple platforms.
     init(defaults: UserDefaults, health: Health, clock: @escaping () -> Int64 = Outbox.now, sampleRate: Double,
@@ -116,6 +118,23 @@ final class Session {
     func admit(_ events: [[String: Any]]) -> [String] {
         guard id != nil else { return [] }
         var out = rotateIfIdle()
+        gate(events, &out)
+        lastActivityAt = clock()
+        persist()
+        return out
+    }
+
+    /// The gate for background signals (network, memory): no idle rotation and no activity, so a
+    /// backgrounded app's session still ends after the idle timeout (= Cordova `admitPassive`).
+    func admitPassive(_ events: [[String: Any]]) -> [String] {
+        guard id != nil else { return [] }
+        var out: [String] = []
+        gate(events, &out)
+        persist()
+        return out
+    }
+
+    private func gate(_ events: [[String: Any]], _ out: inout [String]) {
         for var e in events {
             var attrs = e["attributes"] as? [String: Any] ?? [:]
             let isMetric = e["type"] as? String == "metric"
@@ -133,9 +152,6 @@ final class Session {
             e["attributes"] = attrs
             if let line = Self.line(e) { out.append(line) }
         }
-        lastActivityAt = clock()
-        persist()
-        return out
     }
 
     /// Compact JSON, slashes unescaped; nil for a non-JSON value.
@@ -178,6 +194,7 @@ final class Session {
     }
 
     private func stamp(_ attrs: inout [String: Any]) {
+        attrs.merge(context()) { own, _ in own }
         attrs["session.id"] = id
         if let u = userId() { attrs["user.id"] = u }
     }

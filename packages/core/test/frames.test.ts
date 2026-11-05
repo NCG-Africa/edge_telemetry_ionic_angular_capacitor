@@ -130,6 +130,7 @@ describe('registerFrameCapture (windowed aggregation, ADR-030)', () => {
   });
 
   it('force-closes the window at MAX_WINDOW_MS (30000ms)', () => {
+    const input = new EventTarget();
     const recorded: Recorded[] = [];
     const raf = makeRaf();
     const handle = registerFrameCapture({
@@ -137,10 +138,12 @@ describe('registerFrameCapture (windowed aggregation, ADR-030)', () => {
       getCurrentRoute: () => '/feed',
       rafScheduler: raf.schedule,
       rafCanceller: raf.cancel,
+      activityTarget: input,
     });
 
     raf.tick(0);
     raf.tick(20); // 20ms slow — window opens at 0
+    input.dispatchEvent(new Event('pointerdown')); // keeps the loop awake across the long frame
     raf.tick(30020); // 30020 - 0 >= 30000 → flush prior window, open new
     expect(recorded).toHaveLength(1);
     expect(recorded[0]!.attrs.frames_total).toBe(1);
@@ -244,5 +247,31 @@ describe('registerFrameCapture (windowed aggregation, ADR-030)', () => {
     expect(json).not.toMatch(/traceId/i);
     expect(json).not.toMatch(/spanId/i);
     expect(json).not.toMatch(/opentelemetry/i);
+  });
+
+  it('pauses after 2 s without input and resumes on the next input (E20)', () => {
+    const recorded: Recorded[] = [];
+    const raf = makeRaf();
+    const input = new EventTarget();
+    const handle = registerFrameCapture({
+      recordMetric: (metricName, value, attrs) => recorded.push({ metricName, value, attrs }),
+      getCurrentRoute: () => '/',
+      rafScheduler: raf.schedule,
+      rafCanceller: raf.cancel,
+      activityTarget: input,
+    });
+
+    raf.tick(0);
+    raf.tick(40); // slow
+    raf.tick(2000); // idle: window closes, no further frame requested
+    expect(raf.pending).toHaveLength(0);
+    expect(recorded).toHaveLength(1);
+
+    input.dispatchEvent(new Event('ionViewWillEnter'));
+    expect(raf.pending).toHaveLength(1);
+    raf.tick(5000);
+    raf.tick(5016);
+    expect(raf.pending).toHaveLength(1);
+    handle.dispose();
   });
 });

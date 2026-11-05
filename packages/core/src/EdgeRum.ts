@@ -1,556 +1,263 @@
-import type { EdgeRumConfig, EventAttributes, UserContext } from './index';
-import { SessionManager } from './session/SessionManager';
-import { detectPlatformSync, getOrCreateAnonymousUserId } from './session/SessionIdGenerator';
-import { healthMonitor } from './internal/health';
+import {
+  call, discard, event, flush, isName, isValue, live, metric, now, outside, route, setEnabled, start, state, whenReady,
+  type AttributeValue, type EdgeRumOptions, type EventAttributes,
+} from './core';
 import { breadcrumbs } from './internal/breadcrumbs';
-import { ContextManager } from './internal/context';
-import { Collector } from './internal/collector';
-import { Pipeline } from './internal/pipeline';
-import { resolveLocation, DEFAULT_LOCATION_PROVIDER_URL } from './internal/locationResolver';
-import { RetryTransport, type FetchLike } from './transport/RetryTransport';
-import { OfflineQueue } from './queue/OfflineQueue';
-import { registerConsoleErrorCapture, registerErrorCapture } from './instrumentation/errors';
-import type { ConsoleErrorHandle, ErrorsHandle } from './instrumentation/errors';
-import { registerVitalsCapture } from './instrumentation/vitals';
-import { registerPageLoadCapture } from './instrumentation/pageload';
+import { healthMonitor } from './internal/health';
+import { registerErrorCapture } from './instrumentation/errors';
 import { registerRequestCapture } from './instrumentation/requests';
-import type { RequestsHandle } from './instrumentation/requests';
-import { registerInteractionCapture } from './instrumentation/interactions';
-import type { InteractionsHandle } from './instrumentation/interactions';
-import { registerPerfObserver } from './instrumentation/perf-observer';
-import type { PerfObserverHandle } from './instrumentation/perf-observer';
-import { registerFrameCapture } from './instrumentation/frames';
-import type { FramesHandle } from './instrumentation/frames';
-import { registerMemoryWebCapture } from './instrumentation/memory-web';
-import type { MemoryWebHandle } from './instrumentation/memory-web';
 
+/** Traits passed to `identify()`. */
+export interface UserTraits {
+  id?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+}
+
+/** Handle returned by `time()`. */
 export interface RumTimer {
-  end: (attributes?: EventAttributes) => void;
+  /** Stop the timer and record the elapsed milliseconds under the timer's name. */
+  end(attributes?: EventAttributes): void;
 }
 
-export interface EdgeRumRuntime {
-  init: (config: EdgeRumConfig) => void;
-  identify: (user: UserContext) => void;
-  track: (name: string, attributes?: EventAttributes) => void;
-  trackScreen: (name: string, attributes?: EventAttributes) => void;
-  time: (name: string) => RumTimer;
-  captureError: (error: Error, context?: Record<string, unknown>) => void;
-  disable: () => void;
-  enable: () => void;
-  getSessionId: () => string;
-}
-
-const DEFAULT_BATCH_SIZE = 30;
-const DEFAULT_FLUSH_INTERVAL_MS = 5000;
-const DEFAULT_MAX_QUEUE_SIZE = 200;
-
-interface InternalState {
-  config: EdgeRumConfig | null;
-  session: SessionManager | null;
-  context: ContextManager | null;
-  collector: Collector | null;
-  pipeline: Pipeline | null;
-  transport: RetryTransport | null;
-  queue: OfflineQueue | null;
-  errorsHandle: ErrorsHandle | null;
-  consoleHandle: ConsoleErrorHandle | null;
-  requestsHandle: RequestsHandle | null;
-  interactionsHandle: InteractionsHandle | null;
-  perfObserverHandle: PerfObserverHandle | null;
-  framesHandle: FramesHandle | null;
-  memoryWebHandle: MemoryWebHandle | null;
-  enabled: boolean;
-  initialized: boolean;
-  currentRoute: string;
-  lastNavigationMethod: string;
-  activeScreen: { name: string; enteredAt: number } | null;
-}
-
-const state: InternalState = {
-  config: null,
-  session: null,
-  context: null,
-  collector: null,
-  pipeline: null,
-  transport: null,
-  queue: null,
-  errorsHandle: null,
-  consoleHandle: null,
-  requestsHandle: null,
-  interactionsHandle: null,
-  perfObserverHandle: null,
-  framesHandle: null,
-  memoryWebHandle: null,
-  enabled: true,
-  initialized: false,
-  currentRoute: '/',
-  lastNavigationMethod: 'navigate',
-  activeScreen: null,
+const warn = (msg: string) => {
+  if (state.options.debug) console.warn(`[edge-rum] ${msg}`);
 };
 
-function debug(event: string, payload: Record<string, unknown>): void {
-  if (state.config?.debug) {
-    // eslint-disable-next-line no-console
-    console.warn(`[edge-rum] ${event}`, payload);
-  }
+// E29, copied from Cordova: a start costs nothing on the wire; one `task.complete` at the
+// terminal. Restarting an open name restarts its clock.
+const tasks = new Map<string, { start: number; attrs: EventAttributes }>();
+
+type TaskOutcome = 'completed' | 'failed' | 'abandoned';
+
+function endTask(name: string, outcome: TaskOutcome, extra: EventAttributes = {}) {
+  const t = tasks.get(name);
+  if (!t) return;
+  tasks.delete(name);
+  event('task.complete', {
+    ...t.attrs,
+    ...extra,
+    'task.name': name,
+    'task.outcome': outcome,
+    'span.duration_ms': Math.round(performance.now() - t.start),
+  });
 }
 
-function assertInitialized(method: string): void {
-  if (!state.initialized) {
-    throw new Error(`edge-rum: init() must be called before ${method}()`);
-  }
+
+let screen: { name: string; enteredAt: number } | null = null;
+let lastNavigationMethod = 'navigate';
+
+function leaveScreen(method: string) {
+  if (!screen) return;
+  event('screen.duration', {
+    'screen.name': screen.name,
+    'screen.duration_ms': Math.max(0, Date.now() - screen.enteredAt),
+    'screen.exit_method': method,
+    'screen.timestamp': now(),
+  });
+  screen = null;
 }
 
-function validateConfig(config: EdgeRumConfig): void {
-  if (!config || typeof config.apiKey !== 'string' || config.apiKey.length === 0) {
-    throw new Error('edge-rum: apiKey is required');
+function flat(attrs?: Record<string, unknown>): EventAttributes {
+  const out: EventAttributes = {};
+  for (const [k, v] of Object.entries(attrs ?? {})) {
+    if (isValue(v)) out[k] = v;
   }
-  if (!config.apiKey.startsWith('edge_')) {
-    throw new Error('edge-rum: apiKey must start with "edge_"');
-  }
-  if (!config.endpoint || typeof config.endpoint !== 'string' || config.endpoint.length === 0) {
-    throw new Error('edge-rum: endpoint is required');
-  }
+  return out;
 }
 
-export const EdgeRum: EdgeRumRuntime = {
-  init(config: EdgeRumConfig): void {
-    validateConfig(config);
-    state.config = config;
-    healthMonitor.setDebug(config.debug === true);
-    // #58: fresh per-session tallies for this session. No-op on a first-process
-    // init (singleton starts at 0); matters on an in-process re-init.
-    healthMonitor.resetSessionTallies();
-
-    const session = new SessionManager({
-      platform: detectPlatformSync(),
-      sampleRate: config.sampleRate,
-    });
-    state.session = session;
-
-    const context = new ContextManager(session);
-    context.setAppAttributes(config);
-    context.setAnonymousUserId(getOrCreateAnonymousUserId());
-    state.context = context;
-
-    const queue = new OfflineQueue({
-      maxQueueSize: config.maxQueueSize ?? DEFAULT_MAX_QUEUE_SIZE,
-      debug: config.debug,
-    });
-    state.queue = queue;
-
-    const transport = new RetryTransport({
-      endpoint: config.endpoint,
-      apiKey: config.apiKey,
-      debug: config.debug,
-    });
-    state.transport = transport;
-
-    const pipeline = new Pipeline({
-      transport,
-      queue,
-      session,
-      context,
-      batchSize: config.batchSize ?? DEFAULT_BATCH_SIZE,
-      flushIntervalMs: config.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS,
-      location: config.location,
-      deferReady: config.deferFlush,
-      debug: config.debug,
-    });
-    state.pipeline = pipeline;
-
-    const collector = new Collector({
-      context,
-      pipeline,
-      session,
-      debug: config.debug,
-    });
-    state.collector = collector;
-
-    collector.recordEvent('session.started', { 'session.start_reason': 'init' });
-
-    state.errorsHandle = registerErrorCapture({
-      recordEvent: (eventName, attributes) => collector.recordEvent(eventName, attributes),
-      flushPipeline: () => collector.flushPipeline(),
-      getCurrentRoute: () => state.currentRoute,
-    });
-    healthMonitor.registerCapture('errors', () => state.errorsHandle?.dispose());
-
-    if (config.captureConsoleErrors !== false) {
-      try {
-        state.consoleHandle = registerConsoleErrorCapture({});
-        healthMonitor.registerCapture('console', () => state.consoleHandle?.dispose());
-      } catch (err) {
-        healthMonitor.reportError('console.register', err);
-      }
-    }
-
-    try {
-      registerVitalsCapture({
-        recordMetric: (metricName, value, attributes) =>
-          collector.recordMetric(metricName, value, attributes),
-        getCurrentRoute: () => state.currentRoute,
-      });
-    } catch {
-      // web-vitals requires a browser environment; skip in Node/SSR.
-    }
-
-    registerPageLoadCapture({
-      recordEvent: (eventName, attributes) => collector.recordEvent(eventName, attributes),
-      getRoute: () => state.currentRoute,
-    });
-
-    // Always exclude the SDK's own telemetry endpoint so request capture
-    // never records its own POSTs — prevents an infinite self-capture loop
-    // and removes a quiet footgun for consumers.
-    const shouldResolveLocation =
-      config.resolveLocation === true &&
-      (typeof config.location !== 'string' || config.location.length === 0);
-    const locationProviderUrl = config.locationProviderUrl ?? DEFAULT_LOCATION_PROVIDER_URL;
-    const effectiveIgnoreUrls = [
-      config.endpoint,
-      ...(shouldResolveLocation ? [locationProviderUrl] : []),
-      ...(config.ignoreUrls ?? []),
-    ];
-
-    if (shouldResolveLocation) {
-      void resolveLocation({ url: locationProviderUrl, debug: config.debug }).then((value) => {
-        if (value !== null) pipeline.setLocation(value);
-      });
-    }
-
-    // ADR-031: not registered with the breaker on purpose — request capture
-    // swallows its own errors (requests.ts bare-catches, never reportError), so
-    // it doesn't feed the reportError seam the breaker trips on. Registering it
-    // would be dead code. Wiring it in is a separate change to requests.ts.
-    state.requestsHandle = registerRequestCapture({
-      recordEvent: (eventName, attributes) => collector.recordEvent(eventName, attributes),
-      ignoreUrls: effectiveIgnoreUrls,
-      sanitizeUrl: config.sanitizeUrl,
-    });
-
-    try {
-      state.interactionsHandle = registerInteractionCapture({
-        recordEvent: (eventName, attributes) => collector.recordEvent(eventName, attributes),
-        getCurrentRoute: () => state.currentRoute,
-      });
-      healthMonitor.registerCapture('interactions', () => state.interactionsHandle?.dispose());
-    } catch (err) {
-      healthMonitor.reportError('interactions.register', err);
-    }
-
-    try {
-      state.perfObserverHandle = registerPerfObserver({
-        recordMetric: (name, value, attrs) => collector.recordMetric(name, value, attrs),
-        getCurrentRoute: () => state.currentRoute,
-        ignoreResourceUrl: (url) => url === config.endpoint,
-      });
-      healthMonitor.registerCapture('perf-observer', () => state.perfObserverHandle?.dispose());
-    } catch (err) {
-      healthMonitor.reportError('perf-observer.register', err);
-    }
-
-    if (config.captureFrames !== false) {
-      try {
-        state.framesHandle = registerFrameCapture({
-          recordMetric: (name, value, attrs) => collector.recordMetric(name, value, attrs),
-          getCurrentRoute: () => state.currentRoute,
-          slowThresholdMs: config.frameSlowThresholdMs,
-        });
-        healthMonitor.registerCapture('frames', () => state.framesHandle?.dispose());
-      } catch (err) {
-        healthMonitor.reportError('frames.register', err);
-      }
-    }
-
-    if (config.captureMemory !== false) {
-      try {
-        state.memoryWebHandle = registerMemoryWebCapture({
-          recordMetric: (name, value, attrs) => collector.recordMetric(name, value, attrs),
-          intervalMs: config.memorySamplingIntervalMs,
-        });
-        healthMonitor.registerCapture('memory-web', () => state.memoryWebHandle?.dispose());
-      } catch (err) {
-        healthMonitor.reportError('memory-web.register', err);
-      }
-    }
-
-    pipeline.start();
-
-    state.initialized = true;
-    state.enabled = true;
-
-    debug('initialized', { endpoint: config.endpoint });
-  },
-
-  identify(user: UserContext): void {
-    assertInitialized('identify');
-    if (!state.context || !state.collector) return;
-    state.context.setUserAttributes(user);
-    if (!state.enabled) {
-      debug('identify', { name: user.name, email: user.email, phone: user.phone });
+/**
+ * The Edge RUM API. Every method is fire-and-forget, safe to call before the native plugin
+ * is ready, never throws, and is a silent no-op on web.
+ */
+export const EdgeRum = {
+  /** Start capture. Call once, as early as possible; later calls are ignored. */
+  init(opts: EdgeRumOptions = {}): void {
+    if (!live()) {
+      if (opts.debug) console.warn('[edge-rum] no native platform: nothing is captured on web');
       return;
     }
-    const version = state.context.incrementProfileVersion();
-    const attrs: EventAttributes = {
-      'user.profile_version': version,
-      'user.profile_updated_at': new Date().toISOString(),
+    if (state.started) return warn('init() already called; ignored');
+    state.options = opts;
+    // E29: open tasks end with the session native rotates.
+    state.onSessionChange = () => {
+      for (const name of [...tasks.keys()]) endTask(name, 'abandoned', { 'task.abandon_source': 'session_end' });
     };
-    if (typeof user.name === 'string') attrs['user.name'] = user.name;
-    if (typeof user.email === 'string') attrs['user.email'] = user.email;
-    if (typeof user.phone === 'string') attrs['user.phone'] = user.phone;
-    state.collector.recordEvent('user.profile.update', attrs);
-    debug('identify', { name: user.name, email: user.email, phone: user.phone });
-  },
-
-  track(name: string, attributes?: EventAttributes): void {
-    assertInitialized('track');
-    if (!state.enabled || !state.collector) return;
-    state.collector.recordEvent('custom_event', {
-      'event.name': name,
-      ...(attributes ?? {}),
+    healthMonitor.setDebug(opts.debug === true);
+    // C5: fail open; the key may come from capacitor.config.ts.
+    if (typeof opts.apiKey === 'string' && !opts.apiKey.startsWith('edge_')) warn('apiKey should start with "edge_"');
+    if (opts.apiKey || opts.endpoint) call('configure', { apiKey: opts.apiKey, endpoint: opts.endpoint });
+    outside(() => {
+      // L2: errors and requests are always on.
+      registerErrorCapture({ recordEvent: event, flushPipeline: flush, getCurrentRoute: route });
+      registerRequestCapture({
+        recordEvent: event,
+        ignoreUrls: [...(opts.endpoint ? [opts.endpoint] : []), ...(opts.ignoreUrls ?? [])],
+        sanitizeUrl: opts.sanitizeUrl,
+      });
+      for (const c of opts.captures ?? []) {
+        try {
+          const stop = c.start();
+          if (stop) healthMonitor.registerCapture(c.name, stop);
+        } catch (err) {
+          healthMonitor.reportError(`${c.name}.register`, err);
+        }
+      }
     });
-    debug('track', { name, attributes });
+    start();
   },
 
-  trackScreen(name: string, attributes?: EventAttributes): void {
-    assertInitialized('trackScreen');
-    if (!state.enabled || !state.collector || !state.session) return;
-    if (typeof name !== 'string' || name.length === 0) return;
-    const method = typeof attributes?.['navigation.method'] === 'string'
-      ? (attributes['navigation.method'] as string)
-      : 'push';
-    // Close out the previous screen with a screen.duration before the navigation.
-    flushActiveScreenInternal(method, state.collector);
-    const prev = state.session.getLastVisitedScreen();
-    const attrs: EventAttributes = {
-      'navigation.to_screen': name,
-      'navigation.method': 'push',
-      'navigation.has_arguments': false,
-      'navigation.timestamp': new Date().toISOString(),
-      ...(prev !== null ? { 'navigation.from_screen': prev } : {}),
-      ...(attributes ?? {}),
-    };
-    state.collector.recordEvent('navigation', attrs);
-    state.currentRoute = name;
-    state.lastNavigationMethod = method;
-    state.activeScreen = { name, enteredAt: Date.now() };
-    debug('trackScreen', { name, attributes });
+  /** Attach a user to every event from now on (kept across launches until `clearUser()`). */
+  identify(user: UserTraits): void {
+    if (!user || typeof user !== 'object') return;
+    const clean: UserTraits = {};
+    for (const k of ['id', 'name', 'email', 'phone'] as const) if (typeof user[k] === 'string') clean[k] = user[k];
+    call('identify', clean);
   },
 
+  /** Forget the user set by `identify()`. */
+  clearUser(): void {
+    call('clearUser');
+  },
+
+  /** Record a named app event. */
+  track(name: string, attributes?: EventAttributes): void {
+    if (isName(name)) event('custom_event', { ...attributes, 'event.name': name });
+  },
+
+  /** Record an app-named number, e.g. `measure('cart.items', 3)`. */
+  measure(name: string, value: number, attributes?: EventAttributes): void {
+    if (isName(name) && typeof value === 'number' && isFinite(value)) metric(name, value, { ...attributes });
+  },
+
+  /** Start a timer; `end()` records the elapsed milliseconds via `measure()`. */
   time(name: string): RumTimer {
-    assertInitialized('time');
-    const startedAt = Date.now();
+    const t0 = performance.now();
+    let ended = false;
     return {
-      end: (attributes?: EventAttributes): void => {
-        if (!state.enabled || !state.collector) return;
-        const durationMs = Date.now() - startedAt;
-        state.collector.recordMetric(name, durationMs, {
-          'metric.unit': 'ms',
-          ...(attributes ?? {}),
-        });
-        debug('time.end', { name, durationMs, attributes });
+      end(attributes) {
+        if (ended) return;
+        ended = true;
+        EdgeRum.measure(name, performance.now() - t0, attributes);
       },
     };
   },
 
-  captureError(error: Error, context?: Record<string, unknown>): void {
-    assertInitialized('captureError');
-    if (!state.enabled || !state.collector) return;
+  /** Report a screen change by name (for apps without the Angular router). */
+  trackScreen(name: string, attributes?: EventAttributes): void {
+    if (!isName(name)) return;
+    leaveScreen('push');
+    event('navigation', {
+      'navigation.to_screen': name,
+      'navigation.method': 'push',
+      'navigation.has_arguments': false,
+      'navigation.timestamp': now(),
+      ...(state.route !== '/' && { 'navigation.from_screen': state.route }),
+      ...attributes,
+    });
+    __setCurrentRoute(name);
+    screen = { name, enteredAt: Date.now() };
+  },
 
-    const flatContext: EventAttributes = {};
-    if (context) {
-      for (const [key, value] of Object.entries(context)) {
-        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-          flatContext[key] = value;
-        }
-      }
-    }
-
+  /** Report an error the app caught. */
+  captureError(error: unknown, attributes?: Record<string, unknown>): void {
+    const err = (error ?? {}) as { name?: unknown; message?: unknown; stack?: unknown };
     const crumbs = breadcrumbs.snapshot();
-    state.collector.recordEvent('app.crash', {
-      exception_type: error.name || 'Error',
-      message: error.message || '',
-      stacktrace: error.stack || '',
+    event('app.crash', {
+      ...flat(attributes), // first: the host can't rewrite handled / cause / runtime
+      exception_type: typeof err.name === 'string' && err.name ? err.name : 'Error',
+      message: typeof err.message === 'string' ? err.message : String(error),
+      stacktrace: typeof err.stack === 'string' ? err.stack : '',
       is_fatal: false,
       handled: true,
-      error_context: `screen:${state.currentRoute}`,
+      error_context: `screen:${state.route}`,
       cause: 'ManualCapture',
       runtime: 'webview',
       'crash.breadcrumbs': JSON.stringify(crumbs),
       'crash.breadcrumb_count': crumbs.length,
-      ...flatContext,
     });
-    debug('captureError', { message: error.message, context });
   },
 
-  disable(): void {
-    state.enabled = false;
-    state.collector?.setEnabled(false);
-    state.pipeline?.stop();
-    // Stop the rAF/longtask loop and the heap poller so a disabled SDK has
-    // zero ongoing cost beyond the public-API stubs.
-    state.framesHandle?.dispose();
-    state.framesHandle = null;
-    state.memoryWebHandle?.dispose();
-    state.memoryWebHandle = null;
-    if (state.queue) {
-      void state.queue.clear();
-    }
+  /** Start a named user journey (e.g. `checkout`); close it with `completeTask` or `failTask`. */
+  startTask(name: string, attributes?: EventAttributes): void {
+    if (live() && isName(name)) tasks.set(name, { start: performance.now(), attrs: { ...attributes } });
   },
 
+  /** Close an open journey as completed. Unknown names are ignored. */
+  completeTask(name: string): void {
+    endTask(name, 'completed');
+  },
+
+  /** Close an open journey as failed, with an optional reason. Unknown names are ignored. */
+  failTask(name: string, reason?: string): void {
+    endTask(name, 'failed', typeof reason === 'string' ? { 'task.failure_reason': reason } : {});
+  },
+
+  /** Mark the app as ready for the user; launch time ends here if called within 30 s of startup. */
+  markReady(): void {
+    call('markPhase', { phase: 'markReady', ts: Date.now() });
+  },
+
+  /** Add an attribute to every JS event captured from now on. */
+  setAttribute(key: string, value: AttributeValue): void {
+    if (isName(key) && isValue(value)) state.globals[key] = value;
+  },
+
+  /** Stop adding an attribute set by `setAttribute()`. */
+  removeAttribute(key: string): void {
+    delete state.globals[key];
+  },
+
+  /** Turn capture on (remembered across launches). */
   enable(): void {
-    state.enabled = true;
-    state.collector?.setEnabled(true);
-    state.pipeline?.start();
-    const collector = state.collector;
-    const config = state.config;
-    if (collector && config) {
-      if (config.captureFrames !== false && !state.framesHandle) {
-        try {
-          state.framesHandle = registerFrameCapture({
-            recordMetric: (name, value, attrs) => collector.recordMetric(name, value, attrs),
-            getCurrentRoute: () => state.currentRoute,
-            slowThresholdMs: config.frameSlowThresholdMs,
-          });
-        } catch (err) {
-          healthMonitor.reportError('frames.register', err);
-        }
-      }
-      if (config.captureMemory !== false && !state.memoryWebHandle) {
-        try {
-          state.memoryWebHandle = registerMemoryWebCapture({
-            recordMetric: (name, value, attrs) => collector.recordMetric(name, value, attrs),
-            intervalMs: config.memorySamplingIntervalMs,
-          });
-        } catch (err) {
-          healthMonitor.reportError('memory-web.register', err);
-        }
-      }
-    }
-    if (state.pipeline) {
-      void state.pipeline.flushOfflineQueue();
-    }
+    if (!live()) return;
+    setEnabled(true);
+    call('enable');
   },
 
-  getSessionId(): string {
-    return state.session?.getSessionId() ?? '';
+  /** Turn capture off (remembered across launches) and delete anything not yet sent. */
+  disable(): void {
+    if (!live()) return;
+    setEnabled(false);
+    call('disable');
+  },
+
+  /** Start over as a new device: new session, user cleared, unsent data deleted. */
+  reset(): void {
+    if (!live()) return;
+    discard();
+    call('reset');
+  },
+
+  /** The current session id once the native plugin is ready; empty string when there is none (e.g. on web). */
+  getSessionId(): Promise<string> {
+    if (!live()) return Promise.resolve('');
+    return new Promise((resolve) => whenReady(() => resolve(state.sessionId ?? '')));
   },
 };
 
-export function __recordEvent(eventName: string, attributes: EventAttributes): void {
-  if (!state.enabled || !state.collector) return;
-  state.collector.recordEvent(eventName, attributes);
-}
+// ── Internal hooks for @nathanclaire/rum-angular / -capacitor. Not public API. ──
 
-const currentRouteListeners: Array<(route: string) => void> = [];
+export const __recordEvent = (eventName: string, attributes: EventAttributes): void => event(eventName, attributes);
 
 export function __setCurrentRoute(route: string): void {
-  state.currentRoute = route;
-  for (const listener of currentRouteListeners) {
-    try {
-      listener(route);
-    } catch (err) {
-      // Listener errors must not break navigation — route via health monitor.
-      healthMonitor.reportError('currentRoute.listener', err);
-    }
-  }
+  state.route = route;
+  call('setLastScreen', { screen: route });
 }
 
-export function __getCurrentRoute(): string {
-  return state.currentRoute;
-}
-
-export function __subscribeToCurrentRoute(cb: (route: string) => void): () => void {
-  currentRouteListeners.push(cb);
-  return () => {
-    const idx = currentRouteListeners.indexOf(cb);
-    if (idx >= 0) currentRouteListeners.splice(idx, 1);
-  };
-}
+export const __getCurrentRoute = route;
 
 export function __setLastNavigationMethod(method: string): void {
-  state.lastNavigationMethod = method;
+  lastNavigationMethod = method;
 }
 
-export function __getLastNavigationMethod(): string {
-  return state.lastNavigationMethod;
-}
-
-function flushActiveScreenInternal(method: string, collector: Collector | null): void {
-  const screen = state.activeScreen;
-  if (!screen || !collector) return;
-  const durationMs = Math.max(0, Date.now() - screen.enteredAt);
-  const timestamp = new Date().toISOString();
-  collector.recordEvent('screen.duration', {
-    'screen.name': screen.name,
-    'screen.duration_ms': durationMs,
-    'screen.exit_method': method,
-    'screen.timestamp': timestamp,
-  });
-  state.activeScreen = null;
-}
+export const __getLastNavigationMethod = (): string => lastNavigationMethod;
 
 export function __beginScreen(name: string): void {
-  if (!state.enabled) return;
-  if (typeof name !== 'string' || name.length === 0) return;
-  state.activeScreen = { name, enteredAt: Date.now() };
+  if (isName(name)) screen = { name, enteredAt: Date.now() };
 }
 
 export function __flushActiveScreen(method = 'finalize'): void {
-  if (!state.enabled) return;
-  flushActiveScreenInternal(method, state.collector);
-}
-
-export function __getCollector(): Collector | null {
-  return state.collector;
-}
-
-export function __getSession(): SessionManager | null {
-  return state.session;
-}
-
-export function __getContext(): ContextManager | null {
-  return state.context;
-}
-
-export function __getPipeline(): Pipeline | null {
-  return state.pipeline;
-}
-
-export function __setTransportFetch(fetchFn: FetchLike): void {
-  state.transport?.setFetchFn(fetchFn);
-}
-
-export function __resetEdgeRumForTests(): void {
-  state.pipeline?.stop();
-  state.errorsHandle?.dispose();
-  state.consoleHandle?.dispose();
-  state.requestsHandle?.dispose();
-  state.interactionsHandle?.dispose();
-  state.perfObserverHandle?.dispose();
-  state.framesHandle?.dispose();
-  state.memoryWebHandle?.dispose();
-  state.config = null;
-  state.session = null;
-  state.context = null;
-  state.collector = null;
-  state.pipeline = null;
-  state.transport = null;
-  state.queue = null;
-  state.errorsHandle = null;
-  state.consoleHandle = null;
-  state.requestsHandle = null;
-  state.interactionsHandle = null;
-  state.perfObserverHandle = null;
-  state.framesHandle = null;
-  state.memoryWebHandle = null;
-  state.enabled = true;
-  state.initialized = false;
-  state.currentRoute = '/';
-  state.lastNavigationMethod = 'navigate';
-  state.activeScreen = null;
-  healthMonitor.reset();
-  breadcrumbs.reset();
-  currentRouteListeners.length = 0;
+  leaveScreen(method);
 }

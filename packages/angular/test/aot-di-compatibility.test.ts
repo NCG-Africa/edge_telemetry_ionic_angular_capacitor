@@ -1,9 +1,8 @@
 import { InjectionToken } from '@angular/core';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { EdgeRum, type EdgeRumConfig } from '@nathanclaire/rum';
-import * as rumInternals from '@nathanclaire/rum';
-import { __resetEdgeRumForTests } from '../../core/src/EdgeRum';
+import { EdgeRum } from '@nathanclaire/rum';
+import { fakeNative } from './fake-native';
 
 import { EdgeRumErrorCapture, ERROR_ROUTE_PROVIDER } from '../src/ErrorCapture';
 import {
@@ -12,17 +11,7 @@ import {
 } from '../src/IonicLifecycleCapture';
 import { RouterCapture } from '../src/RouterCapture';
 
-const VALID_CONFIG: EdgeRumConfig = {
-  apiKey: 'edge_test_key',
-  endpoint: 'https://example.com/collector/telemetry',
-  appName: 'TestApp',
-  appVersion: '1.0.0',
-};
-
-beforeEach(() => {
-  __resetEdgeRumForTests();
-  EdgeRum.init(VALID_CONFIG);
-});
+const native = fakeNative();
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -139,25 +128,23 @@ describe('IonicLifecycleCapture DI constructor', () => {
     expect(() => capture.ngOnDestroy()).not.toThrow();
   });
 
-  it('uses injected EventTarget when provided', () => {
-    const collector = rumInternals.__getCollector()!;
-    const spy = vi.spyOn(collector, 'recordEvent');
+  it('uses injected EventTarget when provided', async () => {
+    await native.handedOff();
     const bus = new EventTarget();
     const capture = new IonicLifecycleCapture(bus);
 
     dispatch(bus, 'ionViewDidEnter', 'APP-INJECTED');
     dispatch(bus, 'ionViewDidLeave', 'APP-INJECTED');
 
-    const screenCalls = spy.mock.calls.filter((c) => c[0] === 'screen.duration');
+    const screenCalls = (await native.handedOff()).filter((r) => r.eventName === 'screen.duration').map((r) => [r.eventName, r.attributes]);
     expect(screenCalls).toHaveLength(1);
     const attrs = screenCalls[0]![1] as Record<string, unknown>;
     expect(attrs['screen.name']).toBe('app-injected');
     capture.ngOnDestroy();
   });
 
-  it('stops listening on injected source after ngOnDestroy', () => {
-    const collector = rumInternals.__getCollector()!;
-    const spy = vi.spyOn(collector, 'recordEvent');
+  it('stops listening on injected source after ngOnDestroy', async () => {
+    await native.handedOff();
     const bus = new EventTarget();
     const capture = new IonicLifecycleCapture(bus);
 
@@ -166,7 +153,7 @@ describe('IonicLifecycleCapture DI constructor', () => {
     dispatch(bus, 'ionViewDidEnter', 'APP-GONE');
     dispatch(bus, 'ionViewDidLeave', 'APP-GONE');
 
-    const screenCalls = spy.mock.calls.filter((c) => c[0] === 'screen.duration');
+    const screenCalls = (await native.handedOff()).filter((r) => r.eventName === 'screen.duration').map((r) => [r.eventName, r.attributes]);
     expect(screenCalls).toHaveLength(0);
   });
 

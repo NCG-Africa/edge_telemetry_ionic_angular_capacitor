@@ -1158,9 +1158,8 @@ native and left two questions here: gzip, and where session + sampling live.
 3. **JS size budgets (gzip, size-limit, CI-fail):** core 14 KB, capacitor own 7 KB, angular own
    4 KB, full stack deduped 24 KB, **minimal** (`init` + errors + requests) 8 KB. Raising a
    ceiling needs an ADR line.
-   - *Temporary (#107):* core and minimal ceilings sit at 17 KB while the 4.x JS transport and
-     session code still ship (core 16.1 KB gzip at 5.0 impl 01). #116 deletes them (spec K4) and
-     drops both to 14 KB / 8 KB.
+   - *Temporary (#107):* core and minimal ceilings sat at 17 KB while the 4.x JS transport and
+     session code still shipped. #116 deleted them (spec K4) and set 14 KB / 8 KB.
 4. **Tree-shakeable imported captures.** `EdgeRum.init({ captures: [vitals(), frames(), …] })`.
    Always in core: errors, fetch/XHR requests + traces, session/native relay (the minimal build).
    Opt-in exports: `vitals`, `interactions`, `frames`, `memory`, `resourceTiming`, `longTasks`,
@@ -1580,3 +1579,46 @@ for `webview.version` and `app.bundle_id` on iOS too.
 - (+) No private API, no swizzle; survives Capacitor delegate changes.
 - (−) A reload whose `pagehide` message is lost reads as a death; labelled `inference`.
 - (−) A death while the app is killed before the reload is not seen (no next-launch marker).
+
+## ADR-046 — JS core shape for 5.0: plugin via the Capacitor global, default captures (#116)
+
+**Date:** 2026-11
+
+**Context:** Spec C2 says `init()`'s `captures` defaults to `defaultCaptures()`, while L1/L2 cap the
+minimal build (`init` + errors + requests) at 8 KB and ADR-036 §4 says `forRoot()` supplies the
+default list. A default inside `init()` would import every default capture into the minimal build.
+C3 puts `defaultCaptures()` in core but `bridge()` in `-capacitor`, which core cannot import.
+`-capacitor` must be the sole sink (K1), yet `sideEffects: false` rules out registering it on import.
+
+**Decision:**
+1. Core reaches the native `EdgeRum` plugin through the `Capacitor` runtime global
+   (`Capacitor.registerPlugin('EdgeRum')`), with no `@capacitor/core` import. The sink is still the
+   `-capacitor` package: it carries the native plugin, without which `isNativePlatform()` is false or
+   the plugin is absent, and core is a no-op (A7).
+2. `EdgeRum.init()` with no `captures` runs errors + requests only (the L1 minimal build).
+   `provideEdgeRum()` / `forRoot()` default to `defaultCaptures()`. Non-Angular apps pass
+   `captures: defaultCaptures()` explicitly.
+3. Core `defaultCaptures()` = `vitals`, `interactions`, `frames`, `longTasks`, `consoleErrors`.
+   `-capacitor` exports `defaultCaptures()` = core's list + `bridge()`; that is the one Angular uses
+   and the README points to.
+4. Before `init()`, API calls are held (events buffered under the A4 cap) and released once
+   `init()` connects and `getState` answers. A second `init()` is ignored (debug warning).
+5. A8: core runs `init()`'s listener setup and every hand-off timer through `Zone.root.run` when
+   Zone.js is present; `provideEdgeRum()` also calls `init()` inside `runOutsideAngular`.
+
+6. `EdgeRumEvent` (the `beforeSend` argument) keeps the wire field names `type: 'event' | 'metric'`
+   and `metricName`: the hook edits what is sent, so it sees the contract's shape. This is the one
+   place "metric" appears in a public type (N3 exception, same as Cordova).
+7. Open journeys are abandoned on native session rotation; the hook is wired in `init()`, since no
+   session exists before it.
+8. Pulled forward so #116 can enforce L3 (idle ≤ 1 ms / 10 s): `frames()` idle-pause (E20, 2 s with
+   no input / scroll / `ionViewWillEnter`; #122 refines resume on route change), and the
+   `markPhase('bridgeReady')` mark sent once `getState` answers (native's `markReady` window needs it).
+9. The `appStateChange → inactive` hand-off (T1) needs `@capacitor/app` (optional peer of `-capacitor`);
+   without it `visibilitychange → hidden` still hands off.
+
+**Consequences:**
+- (+) Minimal build 4.6 KB; nothing pulls a capture the app didn't list.
+- (−) Two `defaultCaptures` exports; the core one lacks `bridge()`.
+- (−) Plain `EdgeRum.init()` differs from `provideEdgeRum()` defaults (documented in the README, issue 18).
+

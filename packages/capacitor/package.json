@@ -1,7 +1,7 @@
 {
   "name": "@nathanclaire/rum-capacitor",
   "version": "5.0.0-alpha",
-  "description": "Capacitor integration for edge-rum — JS bridge + native iOS/Android crash capture",
+  "description": "Capacitor integration for edge-rum \u2014 JS bridge + native iOS/Android crash capture",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -48,12 +48,15 @@
   },
   "peerDependencies": {
     "@capacitor/core": ">=5.0.0",
-    "@capacitor/device": ">=5.0.0",
-    "@capacitor/network": ">=5.0.0",
     "@capacitor/app": ">=5.0.0"
   },
   "devDependencies": {
     "tsup": "^8.3.0",
     "typescript": "^5.5.4"
+  },
+  "peerDependenciesMeta": {
+    "@capacitor/app": {
+      "optional": true
+    }
   }
 }

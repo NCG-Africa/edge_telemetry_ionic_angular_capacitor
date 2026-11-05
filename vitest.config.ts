@@ -5,6 +5,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   resolve: {
     alias: {
+      '@nathanclaire/rum-capacitor': fileURLToPath(new URL('./packages/capacitor/src/index.ts', import.meta.url)),
       '@nathanclaire/rum': fileURLToPath(new URL('./packages/core/src/index.ts', import.meta.url)),
     },
   },

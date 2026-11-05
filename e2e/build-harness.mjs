@@ -3,16 +3,17 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-
-await build({
+const common = {
   entryPoints: [resolve(here, 'harness.ts')],
-  outfile: resolve(here, 'dist/harness.js'),
   bundle: true,
   format: 'iife',
+  globalName: 'Rum',
   target: 'es2020',
   platform: 'browser',
-  sourcemap: 'inline',
   logLevel: 'info',
-  // @capacitor/* are native-only peer deps — exclude so the bundle runs in a plain browser.
-  external: ['@capacitor/preferences', '@capacitor/core', '@capacitor/device', '@capacitor/network', '@capacitor/app'],
-});
+};
+
+// Specs: readable, with source maps.
+await build({ ...common, outfile: resolve(here, 'dist/harness.js'), sourcemap: 'inline' });
+// L3 bench: minified like a production bundle, so eval cost is what ships.
+await build({ ...common, outfile: resolve(here, 'dist/bench.js'), minify: true });

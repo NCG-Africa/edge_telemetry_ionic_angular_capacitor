@@ -1,47 +1,8 @@
-export { SDK_PLATFORM, SDK_VERSION } from '@nathanclaire/rum';
-export type { EdgeRumConfig, EventAttributes, UserContext } from '@nathanclaire/rum';
+import { defaultCaptures as coreDefaults, type Capture } from '@nathanclaire/rum';
 
-export { getDeviceContext } from './DeviceContext';
-export type {
-  DeviceContextAttributes,
-  DeviceContextDeps,
-  DevicePlatform,
-} from './DeviceContext';
+/** Native plugin call timings. */
+// ponytail: stub until 5.0 impl 16 (#122) wraps Capacitor.nativePromise (E18).
+export const bridge = (): Capture => ({ name: 'bridge', start: () => {} });
 
-export { getInitialNetworkContext, startNetworkCapture } from './NetworkCapture';
-export type {
-  NetworkAttributes,
-  NetworkCaptureCallbacks,
-  NetworkCaptureDeps,
-  NetworkCaptureHandle,
-  NetworkConnectionType,
-  NetworkModuleLike,
-  NetworkStatusLike,
-} from './NetworkCapture';
-
-export { startCapacitorCapture, type CapacitorCaptureHandle } from './bootstrap';
-export {
-  startPerfSamplerCapture,
-  type PerfSamplerCaptureDeps,
-  type PerfSamplerCaptureHandle,
-  type PerfSamplerCaptureOptions,
-} from './PerfSamplerCapture';
-export { createCapacitorHttpFetch } from './capacitor-http-fetch';
-export type {
-  CapacitorHttpFetchDeps,
-  CapacitorHttpLike,
-  CapacitorHttpRequestOptions,
-  CapacitorHttpResponseLike,
-} from './capacitor-http-fetch';
-export type { FetchLike } from '@nathanclaire/rum';
-export { startLifecycleCapture } from './LifecycleCapture';
-export type {
-  AppModuleLike,
-  AppStateLike,
-  LifecycleAttributes,
-  LifecycleCaptureCallbacks,
-  LifecycleCaptureDeps,
-  LifecycleCaptureHandle,
-  LifecycleEvent,
-  LifecycleSessionManagerLike,
-} from './LifecycleCapture';
+/** The standard set: vitals, interactions, frames, long tasks, console errors, native plugin calls. */
+export const defaultCaptures = (): Capture[] => [...coreDefaults(), bridge()];

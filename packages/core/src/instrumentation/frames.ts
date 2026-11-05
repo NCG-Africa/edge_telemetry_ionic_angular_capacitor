@@ -8,6 +8,8 @@ export interface FramesDeps {
   // Test seams
   rafScheduler?: (cb: (timestamp: number) => void) => number;
   rafCanceller?: (handle: number) => void;
+  // Where input / Ionic transitions are heard (E20 idle-pause); defaults to `window`.
+  activityTarget?: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
 }
 
 export interface FramesHandle {
@@ -22,6 +24,11 @@ const DROP_MULTIPLIER = 2;
 // produces several summaries rather than one coarse blob. Internal constant
 // (ADR-030) — no config knob.
 const MAX_WINDOW_MS = 30000;
+// E20: the loop pauses after this long with no input, scroll or Ionic transition, so a
+// static screen costs nothing, and restarts on the next one.
+const IDLE_MS = 2000;
+const ACTIVITY = ['pointerdown', 'keydown', 'wheel', 'scroll', 'touchmove', 'ionViewWillEnter'];
+const LISTEN = { capture: true, passive: true };
 
 function defaultRafScheduler(cb: (timestamp: number) => void): number {
   const g = globalThis as unknown as { requestAnimationFrame?: (cb: (ts: number) => void) => number };
@@ -70,6 +77,12 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
   let prevTimestamp = -1;
   let rafHandle: number | null = null;
   let disposed = false;
+  let lastActivity = -1;
+  const target = deps.activityTarget ?? (typeof window !== 'undefined' ? window : undefined);
+  const onActivity = (): void => {
+    lastActivity = -1; // stamped by the next frame, on the rAF clock
+    if (rafHandle === null && !disposed) rafHandle = raf(tick);
+  };
 
   function resetWindow(): void {
     durations = [];
@@ -116,8 +129,16 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
     resetWindow();
   }
 
-  const tick = (timestamp: number): void => {
+  function tick(timestamp: number): void {
     if (disposed) return;
+    if (lastActivity < 0) lastActivity = timestamp;
+    if (timestamp - lastActivity >= IDLE_MS) {
+      // Idle: close the window and stop asking for frames until something happens.
+      flushWindow(prevTimestamp);
+      prevTimestamp = -1;
+      rafHandle = null;
+      return;
+    }
     if (prevTimestamp >= 0) {
       const total = Math.max(0, timestamp - prevTimestamp);
       const route = deps.getCurrentRoute();
@@ -134,8 +155,9 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
     }
     prevTimestamp = timestamp;
     rafHandle = raf(tick);
-  };
+  }
 
+  for (const type of ACTIVITY) target?.addEventListener(type, onActivity, LISTEN);
   rafHandle = raf(tick);
 
   return {
@@ -144,6 +166,7 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
       // (disable / session end). Route changes already flush mid-loop.
       flushWindow(prevTimestamp);
       disposed = true;
+      for (const type of ACTIVITY) target?.removeEventListener(type, onActivity, LISTEN);
       if (rafHandle !== null) {
         try {
           cancelRaf(rafHandle);

@@ -1,12 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EdgeRum } from '@nathanclaire/rum';
-import { __resetEdgeRumForTests } from '../../core/src/EdgeRum';
 
 import { EdgeRumService } from '../src/EdgeRumService';
 
 beforeEach(() => {
-  __resetEdgeRumForTests();
   EdgeRum.init({ apiKey: 'edge_test_key', endpoint: 'https://example.com/collector/telemetry' });
 });
 
@@ -75,18 +73,17 @@ describe('EdgeRumService', () => {
     expect(enableSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('delegates getSessionId() to EdgeRum.getSessionId', () => {
-    const spy = vi.spyOn(EdgeRum, 'getSessionId').mockReturnValue('session_1_abcd1234_web');
+  it('delegates getSessionId() to EdgeRum.getSessionId', async () => {
+    const spy = vi.spyOn(EdgeRum, 'getSessionId').mockResolvedValue('s1');
     const svc = new EdgeRumService();
 
-    expect(svc.getSessionId()).toBe('session_1_abcd1234_web');
+    await expect(svc.getSessionId()).resolves.toBe('s1');
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it('propagates errors from EdgeRum (error path)', () => {
-    __resetEdgeRumForTests();
-    const svc = new EdgeRumService();
-
-    expect(() => svc.identify({ name: 'Alice' })).toThrowError(/init\(\) must be called before identify/);
+  it('mirrors every EdgeRum method (C6)', () => {
+    const methods = Object.keys(EdgeRum).sort();
+    const mirrored = Object.getOwnPropertyNames(EdgeRumService.prototype).filter((m) => m !== 'constructor').sort();
+    expect(mirrored).toEqual(methods);
   });
 });

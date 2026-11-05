@@ -8,10 +8,5 @@ export default defineConfig({
   treeshake: true,
   clean: true,
   sourcemap: true,
-  external: [
-    '@capacitor/core',
-    '@capacitor/device',
-    '@capacitor/network',
-    '@capacitor/app',
-  ],
+  external: ['@capacitor/core', '@nathanclaire/rum'],
 });

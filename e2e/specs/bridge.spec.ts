@@ -93,6 +93,26 @@ test('a thrown error reaches mock-ingest at once as app.crash', async ({ page, r
     .toMatchObject({ attributes: { exception_type: 'TypeError', message: expect.stringContaining('harness boom'), runtime: 'webview' } });
 });
 
+test('fetch and XHR reach mock-ingest as http.request with templated URLs (E6, P2)', async ({ page, request }) => {
+  await page.evaluate(async () => {
+    window.Rum.EdgeRum.init({ captures: [] });
+    await fetch('/harness.html?token=secret');
+    // XHR is what Angular HttpClient uses by default.
+    await new Promise((done) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/missing/v2/12345');
+      xhr.addEventListener('loadend', done);
+      xhr.send('{"a":1}');
+    });
+  });
+  const origin = new URL(page.url()).origin;
+  await expect.poll(async () => (await ingested(request)).filter((e) => e.eventName === 'http.request').map((e) => e.attributes), { timeout: 10_000 })
+    .toEqual([
+      expect.objectContaining({ 'http.url': `${origin}/harness.html`, 'http.method': 'GET', 'http.status_code': 200, 'http.success': true }),
+      expect.objectContaining({ 'http.url': `${origin}/missing/v2/{id}`, 'http.method': 'POST', 'http.success': false, 'http.request_size': 7 }),
+    ]);
+});
+
 test('session rotation abandons open tasks', async ({ page, request }) => {
   await page.evaluate(async () => {
     const { EdgeRum } = window.Rum;

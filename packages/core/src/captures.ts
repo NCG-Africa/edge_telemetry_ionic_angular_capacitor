@@ -32,10 +32,16 @@ export const longTasks = (): Capture => ({
   start: () => registerPerfObserver({ recordMetric: metric, getCurrentRoute: route, resources: false }).dispose,
 });
 
-/** Per-screen resource load timings. Off unless listed. */
+/** Resource load timings, summarised per screen and host. Off unless listed. */
 export const resourceTiming = (): Capture => ({
   name: 'resourceTiming',
-  start: () => registerPerfObserver({ recordMetric: metric, getCurrentRoute: route, longTasks: false }).dispose,
+  start: () => registerPerfObserver({
+    recordMetric: metric,
+    getCurrentRoute: route,
+    longTasks: false,
+    // E7: the SDK's own endpoint is never counted.
+    ignoreResourceUrl: (url) => !!state.options.endpoint && url.startsWith(state.options.endpoint),
+  }).dispose,
 });
 
 /** `console.error` lines, kept as context on the next error report. */

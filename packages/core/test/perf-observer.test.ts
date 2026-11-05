@@ -112,81 +112,63 @@ describe('registerPerfObserver', () => {
     expect(recorded[1]!.attrs['metric.name']).toBe('cross-origin-descendant');
   });
 
-  it('emits resource_timing metric for each resource entry', () => {
+  function resources(route = { current: '/home' }) {
     const { ctor, instances } = makeObserverFactory(['resource']);
     g.PerformanceObserver = ctor;
-
     const recorded: Array<{ name: string; value: number; attrs: Record<string, unknown> }> = [];
-    registerPerfObserver({
+    const handle = registerPerfObserver({
       recordMetric: (name, value, attrs) => recorded.push({ name, value, attrs }),
-      getCurrentRoute: () => '/home',
+      getCurrentRoute: () => route.current,
+      ignoreResourceUrl: (url) => url.startsWith('https://ingest.example.com'),
     });
+    return { emit: (e: unknown[]) => instances[0]!.emit(e), recorded, handle, route };
+  }
 
-    instances[0]!.emit([
-      { duration: 234, name: 'https://cdn.example.com/img.png', initiatorType: 'img', transferSize: 41023 },
-      { duration: 67, name: 'https://api.example.com/data', initiatorType: 'fetch', transferSize: 1024 },
+  it('aggregates resource_timing per screen window by host and initiator type (E7)', () => {
+    const r = resources();
+    r.emit([
+      { duration: 100, name: 'https://cdn.example.com/img/1.png', initiatorType: 'img', transferSize: 2048 },
+      { duration: 300, name: 'https://cdn.example.com/img/2.png?sig=x', initiatorType: 'img', transferSize: 1024 },
+      { duration: 50, name: 'https://api.example.com/users/42', initiatorType: 'fetch', transferSize: 512 },
     ]);
+    expect(r.recorded).toHaveLength(0);
+    r.route.current = '/cart';
+    r.emit([{ duration: 10, name: 'https://cdn.example.com/a.js', initiatorType: 'script' }]);
 
-    expect(recorded).toHaveLength(2);
-    expect(recorded[0]!.name).toBe('resource_timing');
-    expect(recorded[0]!.value).toBe(234);
-    expect(recorded[0]!.attrs['metric.unit']).toBe('ms');
-    expect(recorded[0]!.attrs['metric.resource_name']).toBe('https://cdn.example.com/img.png');
-    expect(recorded[0]!.attrs['metric.resource_type']).toBe('img');
-    expect(recorded[0]!.attrs['metric.transfer_size']).toBe(41023);
-    expect(recorded[0]!.attrs['metric.screen']).toBe('/home');
-    expect(recorded[1]!.attrs['metric.resource_type']).toBe('fetch');
+    expect(r.recorded).toEqual([
+      { name: 'resource_timing', value: 300, attrs: {
+        'metric.unit': 'ms', 'metric.screen': '/home', 'resource.host': 'cdn.example.com',
+        'resource.initiator_type': 'img', 'resource.count': 2, 'resource.p95_ms': 300, 'resource.transfer_kb': 3,
+      } },
+      { name: 'resource_timing', value: 50, attrs: {
+        'metric.unit': 'ms', 'metric.screen': '/home', 'resource.host': 'api.example.com',
+        'resource.initiator_type': 'fetch', 'resource.count': 1, 'resource.p95_ms': 50, 'resource.transfer_kb': 0.5,
+      } },
+    ]);
+    expect(JSON.stringify(r.recorded)).not.toContain('png');
+
+    r.handle.dispose();
+    expect(r.recorded).toHaveLength(3);
+    expect(r.recorded[2]!.attrs).toMatchObject({ 'metric.screen': '/cart', 'resource.initiator_type': 'script', 'resource.transfer_kb': 0 });
   });
 
-  it('skips resource entries whose URL matches ignoreResourceUrl', () => {
-    const { ctor, instances } = makeObserverFactory(['resource']);
-    g.PerformanceObserver = ctor;
-
-    const recorded: Array<{ name: string; value: number }> = [];
-    registerPerfObserver({
-      recordMetric: (name, value) => recorded.push({ name, value }),
-      getCurrentRoute: () => '/',
-      ignoreResourceUrl: (url) => url.includes('/collector/telemetry'),
-    });
-
-    instances[0]!.emit([
-      { duration: 50, name: 'https://my-collector.com/collector/telemetry', initiatorType: 'fetch' },
-      { duration: 80, name: 'https://api.example.com/users', initiatorType: 'fetch' },
+  it('excludes CapacitorHttp proxy loads and ignored URLs (the SDK endpoint)', () => {
+    const r = resources();
+    r.emit([
+      { duration: 50, name: `capacitor://localhost/_capacitor_http_interceptor_?u=${encodeURIComponent('https://api.example.com/x')}`, initiatorType: 'fetch' },
+      { duration: 60, name: 'https://ingest.example.com/collector', initiatorType: 'fetch' },
     ]);
+    r.handle.dispose();
 
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]!.value).toBe(80);
-  });
-
-  it('omits metric.transfer_size when the resource entry has no transferSize', () => {
-    const { ctor, instances } = makeObserverFactory(['resource']);
-    g.PerformanceObserver = ctor;
-
-    const recorded: Array<{ attrs: Record<string, unknown> }> = [];
-    registerPerfObserver({
-      recordMetric: (_name, _value, attrs) => recorded.push({ attrs }),
-      getCurrentRoute: () => '/',
-    });
-
-    instances[0]!.emit([{ duration: 12, name: 'about:blank', initiatorType: 'navigation' }]);
-
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]!.attrs).not.toHaveProperty('metric.transfer_size');
+    expect(r.recorded).toHaveLength(0);
   });
 
   it('falls back to "unknown" initiatorType when missing', () => {
-    const { ctor, instances } = makeObserverFactory(['resource']);
-    g.PerformanceObserver = ctor;
+    const r = resources();
+    r.emit([{ duration: 10, name: 'https://a.example.com/x' }]);
+    r.handle.dispose();
 
-    const recorded: Array<{ attrs: Record<string, unknown> }> = [];
-    registerPerfObserver({
-      recordMetric: (_name, _value, attrs) => recorded.push({ attrs }),
-      getCurrentRoute: () => '/',
-    });
-
-    instances[0]!.emit([{ duration: 10, name: 'x' }]);
-
-    expect(recorded[0]!.attrs['metric.resource_type']).toBe('unknown');
+    expect(r.recorded[0]!.attrs['resource.initiator_type']).toBe('unknown');
   });
 
   it('only subscribes to types listed in supportedEntryTypes', () => {

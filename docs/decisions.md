@@ -1242,7 +1242,7 @@ and the resource-timing volume/URL leak.
    skipped_no_session` — an eighth value beside ADR-035's `skipped_no_cors`. The row still gets
    `trace.id`/`span.id` once the session lands.
 5. **Resource timing:** `resourceTiming()` stays opt-in. Emits an aggregate `resource_timing`
-   per screen window grouped by templated host: `resource.{initiator_type,count,p95_ms,transfer_kb}`.
+   per screen window grouped by templated host: `resource.{host,initiator_type,count,p95_ms,transfer_kb}`.
    No per-resource URLs; CapacitorHttp proxy URLs (`/_capacitor_http_interceptor_`) and the SDK
    endpoint are excluded.
 

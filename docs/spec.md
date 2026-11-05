@@ -94,7 +94,7 @@ Wire byte-identical to Android trace v3 (`edge_telemetry_android/docs/specs/back
 | E4 | E4 `navigation` | Source = Angular Router (normalised route template, never raw URL); `trackScreen()` for non-Angular apps. Plus E19 phase keys. |
 | E5 | E5 `screen.duration` | Ionic page lifecycle via **capture-phase** listener (4.x bubbling bug fixed). Tier-2 keys. |
 | E6 | E6 `http.request` | fetch + XHR (incl. `HttpClient`, 4.x XHR gap fixed); URL per P2; `http.{request_size,response_size}` where available; `success` = 200–399; X7/X8 keys. |
-| E7 | E7 `resource_timing` | `resourceTiming()` opt-in; **aggregate** per screen window grouped by templated host: `resource.{initiator_type,count,p95_ms,transfer_kb}`. No per-resource URLs; CapacitorHttp proxy + SDK endpoint excluded. |
+| E7 | E7 `resource_timing` | `resourceTiming()` opt-in; **aggregate** per screen window grouped by templated host: `resource.{host,initiator_type,count,p95_ms,transfer_kb}`, value = p95. No per-resource URLs; CapacitorHttp proxy + SDK endpoint excluded. |
 | E8 | E8 `traceparent` | §5. |
 | E9–E11 | `app.crash` JS | Same; `consoleErrors()` **in** `defaultCaptures()` (Cordova default off). `release` per Y2. |
 | E12 | E12 native crash | Same (PLCrashReporter iOS, JVM + NDK Android). X10 keys. |

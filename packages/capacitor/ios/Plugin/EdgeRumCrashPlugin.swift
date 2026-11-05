@@ -3,8 +3,8 @@ import Capacitor
 import UIKit
 import WebKit
 
-/// Capacitor plugin bridge. Hosts the 5.0 native core (`Core/`: identity, outbox, sender) and
-/// delegates crash work to `CrashReporter` (PLCrashReporter wrapper) and `HangDetector`.
+/// Capacitor plugin bridge. Hosts the 5.0 native core (`Core/`: identity, session, consent, user,
+/// outbox, sender) and delegates crash work to `CrashReporter` (PLCrashReporter wrapper) and `HangDetector`.
 ///
 /// Uses the `CAPBridgedPlugin` protocol (Capacitor 6+) for Swift-only method
 /// registration. The legacy `.m` file with the `CAP_PLUGIN` macro that lived
@@ -27,7 +27,12 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "fetchMemorySamples", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getState", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "configure", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "enqueue", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "enqueue", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "identify", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "clearUser", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "enable", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "disable", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "reset", returnType: CAPPluginReturnPromise)
     ]
 
     private static var installed = false
@@ -37,9 +42,13 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
     private var health: Health!
     private var outbox: Outbox!
     private var sender: Sender!
+    private var user: User!
+    private var session: Session!
+    private var consent: Consent!
     private var ticker: DispatchSourceTimer?
     /// Serial: core init and every plugin method, so nothing runs before init or interleaves a hand-off.
     private let worker = DispatchQueue(label: "com.nathanclaire.rum.worker")
+    /// Replaced by `reset()`.
     private var identity = ""
     private let processStartedAt = EdgeRumCrashPlugin.processStartMs()
     /// W3: 4.x ids lived in localStorage; deleted, never carried over.
@@ -67,7 +76,18 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
             // C1: `plugins.EdgeRum` in capacitor.config; missing key/endpoint → capture to disk until `configure`.
             let config = self.getConfig()
             self.sender.configure(apiKey: config.getString("apiKey"), url: config.getString("endpoint"))
-            self.identity = Self.identityLine(DeviceId().resolve())
+            let defaults = UserDefaults.standard
+            let ids = DeviceId()
+            self.identity = Self.identityLine(ids.resolve())
+            self.user = User(defaults: defaults)
+            // C1 `sampleRate`; a non-number is NaN, which Session treats as keep-all (S1).
+            let rate = config.getConfigJSON()["sampleRate"].map { ($0 as? NSNumber)?.doubleValue ?? .nan } ?? 1
+            self.session = Session(defaults: defaults, health: self.health, sampleRate: rate,
+                                   userId: { [unowned self] in self.user.id })
+            self.consent = Consent(defaults: defaults, configEnabled: config.getBoolean("enabled", true),
+                                   session: self.session, user: self.user, outbox: self.outbox, deviceId: ids)
+            // P7: opt-in mode starts nothing until enable().
+            if self.consent.enabled { self.append(self.session.begin()) }
             self.sender.trigger()
             // T3: 30 s after the first event, within a second. T6: 30 s retry tick for parked segments.
             var ticks = 0
@@ -93,6 +113,13 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func install(_ call: CAPPluginCall) {
+        worker.async {
+            // P7: opt-in mode / disabled arms no native handlers.
+            if self.consent.enabled { self.arm(call) } else { call.resolve(["installed": false]) }
+        }
+    }
+
+    private func arm(_ call: CAPPluginCall) {
         EdgeRumCrashPlugin.installLock.lock()
         defer { EdgeRumCrashPlugin.installLock.unlock() }
 
@@ -122,8 +149,15 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func fetchPending(_ call: CAPPluginCall) {
-        let crashes = CrashReporter.shared.fetchPending()
-        call.resolve(["crashes": crashes])
+        worker.async {
+            // P7: a crash recorded while disabled (handlers can't be uninstalled) is never sent.
+            guard self.consent.enabled else {
+                self.clearCrashRecords()
+                call.resolve(["crashes": []])
+                return
+            }
+            call.resolve(["crashes": CrashReporter.shared.fetchPending()])
+        }
     }
 
     @objc func markHandled(_ call: CAPPluginCall) {
@@ -142,6 +176,12 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func startPerfSampling(_ call: CAPPluginCall) {
+        worker.async {
+            if self.consent.enabled { self.startSampling(call) } else { call.resolve(["started": false]) }
+        }
+    }
+
+    private func startSampling(_ call: CAPPluginCall) {
         let captureFrames = call.getBool("captureFrames") ?? true
         let captureMemory = call.getBool("captureMemory") ?? true
         let memoryIntervalMs = call.getInt("memoryIntervalMs") ?? 10_000
@@ -158,9 +198,12 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func stopPerfSampling(_ call: CAPPluginCall) {
-        MemorySampler.shared.stop()
-        FrameSampler.shared.stop()
-        call.resolve()
+        // On the worker so it can't overtake a queued start.
+        worker.async {
+            MemorySampler.shared.stop()
+            FrameSampler.shared.stop()
+            call.resolve()
+        }
     }
 
     @objc func fetchFrameSamples(_ call: CAPPluginCall) {
@@ -174,15 +217,28 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func getState(_ call: CAPPluginCall) {
-        // ponytail: session, sampling and consent fields arrive with the session store (#113).
-        worker.async {
-            call.resolve([
-                "enabled": true,
-                "configured": self.sender.configured,
-                "sdkVersion": Sender.packageVersion,
-                "deviceStartedAt": self.processStartedAt,
-            ])
-        }
+        worker.async { call.resolve(self.state()) }
+    }
+
+    /// Worker only. Nil ids are omitted (Capacitor's JS bridge has no null for them).
+    private func state() -> [String: Any] {
+        var s: [String: Any] = [
+            "enabled": consent.enabled,
+            "sampled": session.sampled,
+            "configured": sender.configured,
+            "sdkVersion": Sender.packageVersion,
+            "deviceStartedAt": processStartedAt,
+        ]
+        s["sessionId"] = session.id
+        s["userId"] = user.id
+        return s
+    }
+
+    /// A2 `addListener('state')`: `{ type, …state }` on session rotation / enabled change.
+    private func notifyState(_ type: String) {
+        var s = state()
+        s["type"] = type
+        notifyListeners("state", data: s)
     }
 
     @objc func configure(_ call: CAPPluginCall) {
@@ -201,25 +257,99 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("events missing")
             return
         }
-        let lines = events.compactMap { e -> String? in
-            guard let obj = e as? [String: Any], JSONSerialization.isValidJSONObject(obj),
-                  let data = try? JSONSerialization.data(withJSONObject: obj, options: [.withoutEscapingSlashes]) else { return nil }
-            return String(decoding: data, as: UTF8.self)
-        }
+        let received = events.compactMap { $0 as? [String: Any] }.filter(JSONSerialization.isValidJSONObject)
         let drops = call.getObject("drops") ?? [:]
         worker.async {
-            do {
-                if !lines.isEmpty { try self.outbox.append(self.identity, lines) }
-            } catch {
-                // Not counted: JS counts a failed hand-off as a drop and resends (A4, T8).
-                call.reject("append failed")
-                return
-            }
+            // P7: opt-in mode / disabled → nothing captured or buffered.
+            guard self.consent.enabled else { return call.resolve() }
+            // Not counted on failure: JS counts a failed hand-off as a drop and resends (A4, T8).
+            guard self.admit(received) else { return call.reject("append failed") }
             // T8: JS-side drops, counted only once the append lands so a resend can't double them.
             for (reason, n) in drops { self.health.count(reason, (n as? NSNumber)?.intValue ?? 0) }
-            self.sender.trigger()
             call.resolve()
         }
+    }
+
+    /// P7: persisted traits; a trait change becomes one `user.profile.update`.
+    @objc func identify(_ call: CAPPluginCall) {
+        let traits = call.options as? [String: Any] ?? [:]
+        worker.async {
+            if self.consent.enabled, let update = self.user.identify(traits) { _ = self.admit([update]) }
+            call.resolve()
+        }
+    }
+
+    @objc func clearUser(_ call: CAPPluginCall) {
+        worker.async {
+            self.user.clear()
+            call.resolve()
+        }
+    }
+
+    @objc func enable(_ call: CAPPluginCall) {
+        worker.async { self.setEnabled(true, call) }
+    }
+
+    @objc func disable(_ call: CAPPluginCall) {
+        worker.async { self.setEnabled(false, call) }
+    }
+
+    /// P7: new device_id and session, user and outbox cleared; enabled state untouched.
+    @objc func reset(_ call: CAPPluginCall) {
+        worker.async {
+            self.identity = Self.identityLine(self.consent.reset())
+            self.clearCrashRecords()
+            if self.consent.enabled {
+                self.append(self.session.restart())
+                self.notifyState("session")
+            }
+            call.resolve()
+        }
+    }
+
+    private func setEnabled(_ on: Bool, _ call: CAPPluginCall) {
+        let was = consent.enabled
+        append(consent.setEnabled(on))
+        // ponytail: PLCrashReporter's handlers can't be uninstalled; they stay but record nothing JS
+        // will send (records cleared here, fetchPending empty while disabled). enable() re-arms via JS `install`.
+        if !on { disarm() }
+        if was != on { notifyState("enabled") }
+        call.resolve()
+    }
+
+    /// P7 `disable()`: stops the hang detector and samplers, deletes unsent crash records.
+    private func disarm() {
+        HangDetector.shared.stop()
+        MemorySampler.shared.stop()
+        FrameSampler.shared.stop()
+        Self.installLock.lock()
+        Self.installed = false
+        Self.installLock.unlock()
+        clearCrashRecords()
+    }
+
+    private func clearCrashRecords() {
+        CrashReporter.shared.markHandled(ids: CrashReporter.shared.fetchPending().compactMap { $0["id"] as? String })
+    }
+
+    /// Worker only. S1: every event goes through the session gate on its way into the outbox.
+    private func admit(_ events: [[String: Any]]) -> Bool {
+        let before = session.id
+        let ok = append(session.admit(events))
+        if before != nil && before != session.id { notifyState("session") }
+        return ok
+    }
+
+    @discardableResult
+    private func append(_ lines: [String]) -> Bool {
+        guard !lines.isEmpty else { return true }
+        do {
+            try outbox.append(identity, lines)
+        } catch {
+            return false
+        }
+        sender.trigger()
+        return true
     }
 
     /// T3: background seals the open segment and sends, inside a background task.
@@ -240,7 +370,17 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc private func willEnterForeground() {
-        worker.async { self.sender.trigger() }
+        worker.async {
+            // E1: a foreground after the idle timeout starts a new session.
+            if self.consent.enabled {
+                let bookends = self.session.rotateIfIdle()
+                if !bookends.isEmpty {
+                    self.append(bookends)
+                    self.notifyState("session")
+                }
+            }
+            self.sender.trigger()
+        }
     }
 
     /// W2: app identity from Bundle.main, no override; nil → omitted (R15).

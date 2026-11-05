@@ -2,9 +2,8 @@ import {
   call, discard, event, flush, isName, isValue, live, metric, now, outside, route, setEnabled, start, state, whenReady,
   type AttributeValue, type EdgeRumOptions, type EventAttributes,
 } from './core';
-import { breadcrumbs } from './internal/breadcrumbs';
 import { healthMonitor } from './internal/health';
-import { registerErrorCapture } from './instrumentation/errors';
+import { crashAttributes, registerErrorCapture } from './instrumentation/errors';
 import { registerRequestCapture } from './instrumentation/requests';
 
 /** Traits passed to `identify()`. */
@@ -162,21 +161,12 @@ export const EdgeRum = {
 
   /** Report an error the app caught. */
   captureError(error: unknown, attributes?: Record<string, unknown>): void {
-    const err = (error ?? {}) as { name?: unknown; message?: unknown; stack?: unknown };
-    const crumbs = breadcrumbs.snapshot();
-    event('app.crash', {
-      ...flat(attributes), // first: the host can't rewrite handled / cause / runtime
-      exception_type: typeof err.name === 'string' && err.name ? err.name : 'Error',
-      message: typeof err.message === 'string' ? err.message : String(error),
-      stacktrace: typeof err.stack === 'string' ? err.stack : '',
-      is_fatal: false,
-      handled: true,
-      error_context: `screen:${state.route}`,
-      cause: 'ManualCapture',
-      runtime: 'webview',
-      'crash.breadcrumbs': JSON.stringify(crumbs),
-      'crash.breadcrumb_count': crumbs.length,
-    });
+    // E10. Host attrs first: they can't rewrite handled / cause / runtime.
+    try {
+      event('app.crash', { ...flat(attributes), ...crashAttributes(error, true, 'ManualCapture', state.route) });
+    } catch (err) {
+      healthMonitor.reportError('errors.capture', err); // a host error with throwing getters
+    }
   },
 
   /** Start a named user journey (e.g. `checkout`); close it with `completeTask` or `failTask`. */

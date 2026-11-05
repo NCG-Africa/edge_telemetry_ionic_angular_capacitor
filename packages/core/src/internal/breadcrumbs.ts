@@ -5,10 +5,12 @@ export interface Breadcrumb {
   count?: number;
 }
 
-const MAX_BREADCRUMBS = 20;
+const MAX_BREADCRUMBS = 50; // A3 (= Cordova A3; native mirrors the same 50)
 
 export class Breadcrumbs {
   private buffer: Breadcrumb[] = [];
+  // Crumbs in an `enqueue` not yet failed or confirmed; a failure un-marks exactly its own.
+  private shipped = new WeakSet<Breadcrumb>();
 
   push(crumb: Breadcrumb): void {
     this.buffer.push(crumb);
@@ -22,7 +24,8 @@ export class Breadcrumbs {
   // console.error is captured — console.warn was dropped in ADR-029.
   pushConsole(message: string): void {
     const last = this.buffer[this.buffer.length - 1];
-    if (last && last.type === 'console.error' && last.name === message) {
+    // A crumb native already has would never see its new count: start a fresh one instead.
+    if (last && last.type === 'console.error' && last.name === message && !this.shipped.has(last)) {
       last.count = (last.count ?? 1) + 1;
       return;
     }
@@ -33,12 +36,25 @@ export class Breadcrumbs {
     return [...this.buffer];
   }
 
+  /** A3: crumbs native hasn't been handed yet, now marked as handed. */
+  take(): Breadcrumb[] {
+    const fresh = this.buffer.filter((b) => !this.shipped.has(b));
+    for (const b of fresh) this.shipped.add(b);
+    return fresh;
+  }
+
+  /** A failed hand-off: hand these over again next time. */
+  markUnsent(crumbs: Breadcrumb[]): void {
+    for (const b of crumbs) this.shipped.delete(b);
+  }
+
   size(): number {
     return this.buffer.length;
   }
 
   reset(): void {
     this.buffer = [];
+    this.shipped = new WeakSet();
   }
 }
 

@@ -71,3 +71,12 @@ jobs:
 
       - name: Android core tests
         run: gradle -p packages/capacitor/android/core-test test
+
+  # Spec Q2: native core XCTest suite (outbox, sender, goldens) on the macOS host, no iOS host app.
+  ios-core:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: iOS core tests
+        run: swift test --package-path packages/capacitor/ios/core-test

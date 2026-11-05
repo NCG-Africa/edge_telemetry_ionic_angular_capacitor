@@ -375,3 +375,13 @@ describe('zones (A8)', () => {
     expect(run).toHaveBeenCalledOnce();
   });
 });
+
+describe('captureError never throws (C5)', () => {
+  it('swallows a host error whose getters throw', async () => {
+    fakeBridge();
+    const EdgeRum = await load();
+    EdgeRum.init();
+    const evil = { get message(): string { throw new Error('getter'); } };
+    expect(() => EdgeRum.captureError(evil)).not.toThrow();
+  });
+});

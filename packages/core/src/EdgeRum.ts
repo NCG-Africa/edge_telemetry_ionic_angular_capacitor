@@ -162,7 +162,11 @@ export const EdgeRum = {
   /** Report an error the app caught. */
   captureError(error: unknown, attributes?: Record<string, unknown>): void {
     // E10. Host attrs first: they can't rewrite handled / cause / runtime.
-    event('app.crash', { ...flat(attributes), ...crashAttributes(error, true, 'ManualCapture', state.route) });
+    try {
+      event('app.crash', { ...flat(attributes), ...crashAttributes(error, true, 'ManualCapture', state.route) });
+    } catch (err) {
+      healthMonitor.reportError('errors.capture', err); // a host error with throwing getters
+    }
   },
 
   /** Start a named user journey (e.g. `checkout`); close it with `completeTask` or `failTask`. */

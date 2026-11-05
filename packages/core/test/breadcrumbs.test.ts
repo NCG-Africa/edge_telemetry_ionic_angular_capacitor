@@ -33,6 +33,14 @@ describe('Breadcrumbs', () => {
     expect(breadcrumbs.snapshot()).toHaveLength(1);
   });
 
+  it('a repeat console line after a hand-off starts a new crumb, so native sees it (A3)', () => {
+    breadcrumbs.pushConsole('boom');
+    expect(breadcrumbs.take()).toHaveLength(1);
+    breadcrumbs.pushConsole('boom');
+    expect(breadcrumbs.take().map((c) => c.count)).toEqual([1]);
+    expect(breadcrumbs.size()).toBe(2);
+  });
+
   it('reset() clears the buffer', () => {
     breadcrumbs.push({ ts: 't', type: 'a', name: 'A' });
     breadcrumbs.reset();

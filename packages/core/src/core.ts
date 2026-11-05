@@ -89,7 +89,7 @@ export const state = {
   options: {} as EdgeRumOptions,
   globals: {} as EventAttributes,
   route: '/',
-  /** X8 Tier-2 keys (`trace.id`, `rum.action.id`, `trace.root_type`) of the live trace root, if any. */
+  /** X8 Tier-2 keys (`trace.id`, `rum.action.id`, `trace.root_type`) of the live trace root, if any. Set by traces (#119). */
   root: undefined as EventAttributes | undefined,
   /** Called when native reports a new session (E29 abandons open tasks). */
   onSessionChange: () => {},
@@ -198,7 +198,7 @@ export function flush(): void {
       if (!drops[k]) delete drops[k];
     }
   }, () => {
-    breadcrumbs.untake(crumbs);
+    breadcrumbs.markUnsent(crumbs);
     if (events.length) count('js_exec_failed', events.length); // A4: no JS fallback sender
   });
 }

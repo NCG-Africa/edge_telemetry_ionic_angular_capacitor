@@ -46,7 +46,7 @@ function resolveContext(getCurrentRoute: () => string): string {
 // Y3 (= Cordova Y2): the origins Capacitor serves the app from. Path kept, query/hash dropped,
 // line:col kept. The lazy path stops at the first `:line(:col)` that ends the frame. Ports aren't
 // ours (a live-reload dev server keeps its URL).
-const SAME_ORIGIN = /(?:https?|capacitor|ionic):\/\/localhost\/([^\s()?#]*?)(?:[?#][^\s()]*?)?(?=(?::\d+){1,2}(?![^\s)])|[\s)]|$)/g;
+const SAME_ORIGIN = /(?:https?|capacitor|ionic|app):\/\/localhost\/([^\s()?#]*?)(?:[?#][^\s()]*?)?(?=(?::\d+){1,2}(?![^\s)])|[\s)]|$)/g;
 
 /** Y3: rewrite same-origin frames to `app:///<path>`; other origins untouched. */
 export const normaliseStack = (stack: string): string => stack.replace(SAME_ORIGIN, 'app:///$1');

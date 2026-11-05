@@ -381,6 +381,7 @@ describe('app:/// frame normalisation (Y3)', () => {
     ['https://localhost/main.js:10:5', 'app:///main.js:10:5'],
     ['http://localhost/main.js:10:5', 'app:///main.js:10:5'],
     ['ionic://localhost/main.js:10:5', 'app:///main.js:10:5'],
+    ['app://localhost/main.js:10:5', 'app:///main.js:10:5'],
     ['https://localhost/assets/js/chunk-ABC.js?v=1#x:1:2', 'app:///assets/js/chunk-ABC.js:1:2'],
     ['    at f (capacitor://localhost/main.js:1:2)', '    at f (app:///main.js:1:2)'],
     ['f@capacitor://localhost/main.js:1:2', 'f@app:///main.js:1:2'],

@@ -24,7 +24,8 @@ export class Breadcrumbs {
   // console.error is captured — console.warn was dropped in ADR-029.
   pushConsole(message: string): void {
     const last = this.buffer[this.buffer.length - 1];
-    if (last && last.type === 'console.error' && last.name === message) {
+    // A crumb native already has would never see its new count: start a fresh one instead.
+    if (last && last.type === 'console.error' && last.name === message && !this.shipped.has(last)) {
       last.count = (last.count ?? 1) + 1;
       return;
     }
@@ -43,7 +44,7 @@ export class Breadcrumbs {
   }
 
   /** A failed hand-off: hand these over again next time. */
-  untake(crumbs: Breadcrumb[]): void {
+  markUnsent(crumbs: Breadcrumb[]): void {
     for (const b of crumbs) this.shipped.delete(b);
   }
 

@@ -117,6 +117,14 @@ export function navigationSpan(): EventAttributes {
   return childKeys(r, epoch());
 }
 
+/** X6 / X8: a Capacitor plugin call is a child of the live root; nothing when none is live. */
+export function childSpan(): EventAttributes | undefined {
+  const r = current();
+  if (!r) return undefined;
+  r.touched = mono(); // X1: a child start extends the root
+  return childKeys(r, epoch());
+}
+
 /**
  * X3–X8 for one request at send. `url` resolved, proxy unwrapped; `consumer` = the app's own
  * `traceparent`, if any. Nothing at all for a sampled-out session (X5).

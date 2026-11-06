@@ -11,6 +11,8 @@ export {
   __setCurrentRoute,
   __getCurrentRoute,
   __navigationSpan,
+  __childSpan,
+  __onRouteChange,
   __setLastNavigationMethod,
   __getLastNavigationMethod,
   __beginScreen,

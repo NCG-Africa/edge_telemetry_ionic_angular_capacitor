@@ -107,7 +107,7 @@ describe('registerPerfObserver', () => {
     expect(recorded[0]!.value).toBe(78);
     expect(recorded[0]!.attrs['metric.unit']).toBe('ms');
     expect(recorded[0]!.attrs['metric.name']).toBe('self');
-    expect(recorded[0]!.attrs['metric.screen']).toBe('/products/42');
+    expect(recorded[0]!.attrs['screen.name']).toBe('/products/42');
     expect(recorded[1]!.value).toBe(142);
     expect(recorded[1]!.attrs['metric.name']).toBe('cross-origin-descendant');
   });

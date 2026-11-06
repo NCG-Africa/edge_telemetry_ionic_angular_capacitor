@@ -1,9 +1,10 @@
-import { flush, metric, record, route, routeListeners, state, type Capture } from './core';
+import { event, flush, metric, record, route, state, type Capture } from './core';
 import { registerConsoleErrorCapture } from './instrumentation/errors';
 import { registerFrameCapture } from './instrumentation/frames';
 import { registerInteractionCapture } from './instrumentation/interactions';
 import { registerPerfObserver } from './instrumentation/perf-observer';
 import { registerVitalsCapture } from './instrumentation/vitals';
+import { __onRouteChange } from './EdgeRum';
 import { breadcrumbs } from './internal/breadcrumbs';
 import { interactionRoot } from './traces';
 
@@ -12,7 +13,7 @@ import { interactionRoot } from './traces';
 /** Web Vitals (LCP, INP, CLS, FCP, TTFB). */
 export const vitals = (): Capture => ({
   name: 'vitals',
-  start: () => registerVitalsCapture({ recordMetric: metric, getCurrentRoute: route }),
+  start: () => registerVitalsCapture({ recordMetric: metric, getCurrentRoute: route, flush }),
 });
 
 /** Taps and clicks. */
@@ -29,10 +30,15 @@ export const interactions = (): Capture => ({
   }).dispose,
 });
 
-/** Rendering smoothness. `slowThresholdMs`: a frame slower than this counts as slow. */
+/** Rendering smoothness. `slowThresholdMs` (default 34): a frame at least this long counts as slow. */
 export const frames = (opts: { slowThresholdMs?: number } = {}): Capture => ({
   name: 'frames',
-  start: () => registerFrameCapture({ recordMetric: metric, getCurrentRoute: route, slowThresholdMs: opts.slowThresholdMs }).dispose,
+  start: () => registerFrameCapture({
+    record: (attributes) => event('frame.summary', attributes),
+    getCurrentRoute: route,
+    slowThresholdMs: opts.slowThresholdMs,
+    onRouteChange: __onRouteChange,
+  }).dispose,
 });
 
 /** Main-thread tasks over 50 ms. */
@@ -48,10 +54,7 @@ export const resourceTiming = (): Capture => ({
     recordMetric: metric,
     getCurrentRoute: route,
     longTasks: false,
-    onRouteChange: (f) => {
-      routeListeners.add(f);
-      return () => routeListeners.delete(f);
-    },
+    onRouteChange: __onRouteChange,
     // E7: the SDK's own endpoint is never counted (same rule as `http.request`).
     ignoreResourceUrl: (url) => !!state.options.endpoint && url.includes(state.options.endpoint),
   }).dispose,

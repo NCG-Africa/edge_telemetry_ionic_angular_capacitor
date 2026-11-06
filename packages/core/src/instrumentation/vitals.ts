@@ -5,12 +5,14 @@ import { healthMonitor } from '../internal/health';
 export type VitalsMetricAttributes = {
   'metric.unit': 'ms' | 'score';
   'metric.rating': 'good' | 'needs-improvement' | 'poor';
-  'metric.screen': string;
+  'screen.name': string;
 };
 
 export interface VitalsDeps {
   recordMetric: (metricName: string, value: number, attributes: VitalsMetricAttributes) => void;
   getCurrentRoute: () => string;
+  /** Hand off now: LCP / CLS / INP are final as the page hides, after core's own hidden hand-off. */
+  flush?: () => void;
 }
 
 type Subscriber = (cb: (metric: Metric) => void) => void;
@@ -28,8 +30,9 @@ export function registerVitalsCapture(deps: VitalsDeps): void {
         deps.recordMetric(metric.name, metric.value, {
           'metric.unit': unitFor(metric.name),
           'metric.rating': metric.rating,
-          'metric.screen': deps.getCurrentRoute(),
+          'screen.name': deps.getCurrentRoute(),
         });
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') deps.flush?.();
       } catch (err) {
         healthMonitor.reportError('vitals.recordMetric', err);
       }

@@ -222,6 +222,20 @@ function applyNativeState(s: unknown) {
   if (before && state.sessionId !== before) state.onSessionChange();
 }
 
+// A5: navigation-timing key per phase. Native assembles `app.start` from whatever marks it has.
+const PHASES = [['responseEnd', 'responseEnd'], ['DOMContentLoaded', 'domContentLoadedEventStart'], ['load', 'loadEventStart']] as const;
+const marked = new Set<string>();
+
+/** Each phase once, as epoch ms, as soon as the entry has it (`init()` may run before `load`). */
+function markPhases() {
+  const nav = performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined;
+  for (const [phase, key] of PHASES) {
+    if (!nav?.[key] || marked.has(phase)) continue;
+    marked.add(phase);
+    call('markPhase', { phase, ts: Math.round(performance.timeOrigin + nav[key]) });
+  }
+}
+
 /** Connect to the native plugin once: subscribe, read state, then release everything held (A4). */
 export function start(): void {
   const c = cap();
@@ -236,6 +250,9 @@ export function start(): void {
     flush();
   };
   outside(() => {
+    markPhases();
+    document.addEventListener('DOMContentLoaded', markPhases);
+    if (typeof window !== 'undefined') window.addEventListener('load', markPhases);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') flush();
     });

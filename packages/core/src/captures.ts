@@ -1,10 +1,9 @@
-import { event, flush, metric, record, route, state, type Capture } from './core';
+import { event, flush, metric, onRouteChange, record, route, state, type Capture } from './core';
 import { registerConsoleErrorCapture } from './instrumentation/errors';
 import { registerFrameCapture } from './instrumentation/frames';
 import { registerInteractionCapture } from './instrumentation/interactions';
 import { registerPerfObserver } from './instrumentation/perf-observer';
 import { registerVitalsCapture } from './instrumentation/vitals';
-import { __onRouteChange } from './EdgeRum';
 import { breadcrumbs } from './internal/breadcrumbs';
 import { interactionRoot } from './traces';
 
@@ -37,7 +36,7 @@ export const frames = (opts: { slowThresholdMs?: number } = {}): Capture => ({
     record: (attributes) => event('frame.summary', attributes),
     getCurrentRoute: route,
     slowThresholdMs: opts.slowThresholdMs,
-    onRouteChange: __onRouteChange,
+    onRouteChange,
   }).dispose,
 });
 
@@ -54,7 +53,7 @@ export const resourceTiming = (): Capture => ({
     recordMetric: metric,
     getCurrentRoute: route,
     longTasks: false,
-    onRouteChange: __onRouteChange,
+    onRouteChange,
     // E7: the SDK's own endpoint is never counted (same rule as `http.request`).
     ignoreResourceUrl: (url) => !!state.options.endpoint && url.includes(state.options.endpoint),
   }).dispose,

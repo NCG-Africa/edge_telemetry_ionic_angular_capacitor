@@ -164,6 +164,28 @@ describe('registerFrameCapture (E20 frame.summary, ADR-030 windows)', () => {
     handle.dispose();
   });
 
+  it('closes the window on hide; hidden time is never a frame', () => {
+    const g = globalThis as Record<string, unknown>;
+    const d = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+    g.document = d;
+    try {
+      const { recorded, raf, handle } = setup({ activityTarget: undefined });
+      raf.tick(0);
+      raf.tick(40);
+      d.visibilityState = 'hidden';
+      d.dispatchEvent(new Event('visibilitychange'));
+      expect(recorded).toHaveLength(1);
+      d.visibilityState = 'visible';
+      d.dispatchEvent(new Event('visibilitychange'));
+      raf.tick(1500); // first tick after showing: a fresh gap, not a 1460 ms frame
+      raf.tick(1516);
+      handle.dispose();
+      expect(recorded).toHaveLength(1); // the 16 ms frame is smooth
+    } finally {
+      delete g.document;
+    }
+  });
+
   describe('frame.long_task_count', () => {
     const g = globalThis as Record<string, unknown>;
     afterEach(() => {

@@ -109,9 +109,11 @@ describe('bridge() (E18)', () => {
     const { cap } = await load();
     await callFor(cap, 'Filesystem', 'readFile', 3, true, { data: 'the file body' });
     await callFor(cap, 'Filesystem', 'readFile', 3, false, Object.assign(new Error('/secret/file.txt not found'), { code: 'OS-PLUG-FILE-0008' }));
+    // A free-text `code` is a message, not a code: the class is sent instead.
+    await callFor(cap, 'Filesystem', 'readFile', 3, false, Object.assign(new Error('x'), { code: 'Could not read /secret/file.txt' }));
     const json = JSON.stringify(await handOff());
-    expect(json).not.toMatch(/secret|file body|not found/);
-    expect(json).toContain('OS-PLUG-FILE-0008');
+    expect(json).not.toMatch(/secret|file body|not found|Could not/);
+    expect(json).toContain('"bridge.error_codes":"Error,OS-PLUG-FILE-0008"');
   });
 
   it('excludes the SDK’s own plugin and leaves the caller’s promise untouched', async () => {
@@ -134,6 +136,20 @@ describe('bridge() (E18)', () => {
     await callFor(cap, 'Camera', 'getPhoto', 7);
     const out = await handOff();
     expect(out.map((r) => [r.attributes['screen.name'], r.attributes['bridge.max_ms']])).toEqual([['/a', 5], ['/b', 7]]);
+  });
+
+  it('a call still in flight when its window closes counts in the next one', async () => {
+    const { cap, core } = await load();
+    core.__setCurrentRoute('/a');
+    const p = cap.nativePromise('Geolocation', 'getCurrentPosition').catch(() => undefined);
+    now += 50;
+    core.__setCurrentRoute('/b'); // closes /a: nothing answered yet
+    pending.shift()?.settle(false, Object.assign(new Error('timeout'), { code: 'TIMEOUT' }));
+    await p;
+    const out = await handOff();
+    expect(out.map((r) => r.attributes)).toEqual([expect.objectContaining({
+      'screen.name': '/b', 'bridge.count': 1, 'bridge.error_count': 1, 'bridge.max_ms': 50, 'bridge.error_codes': 'TIMEOUT',
+    })]);
   });
 
   it('a call under a live root is a Tier-1 child span of it (X6, X8)', async () => {

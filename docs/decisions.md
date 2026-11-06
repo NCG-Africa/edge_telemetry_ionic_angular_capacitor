@@ -1622,3 +1622,35 @@ C3 puts `defaultCaptures()` in core but `bridge()` in `-capacitor`, which core c
 - (−) Two `defaultCaptures` exports; the core one lacks `bridge()`.
 - (−) Plain `EdgeRum.init()` differs from `provideEdgeRum()` defaults (documented in the README, issue 18).
 
+
+## ADR-047 — JS performance details for 5.0: frame and bridge windows (#122)
+
+**Date:** 2026-11
+
+**Context:** E18 and E20 say "= Cordova" but leave four things open: whether a smooth frame window
+is sent (Cordova sends every window; ADR-030 §3 suppresses smooth ones), the default slow-frame
+threshold (4.x used 16.67 ms; Cordova uses 34 ms), how X6's "each plugin call is a child span" fits
+an aggregate with no per-call event (`bridge.call` is not emitted), and what happens to a call still
+in flight when its window closes.
+
+**Decision:**
+1. `frame.summary` keeps ADR-030 §3: a window with no slow frame is not sent. The spec cites the
+   ADR-030 shape, and this suppression is where the volume cut lives. `frame.slow_frame_rate` is
+   therefore never 0 on the wire. Windows close on route change, the 30 s cap, 2 s idle, hide and
+   teardown. Hidden time is never counted as a frame.
+2. Default `slowThresholdMs` = 34 (one missed vsync at 60 Hz) and frozen = 700 ms, as in Cordova.
+   At 16.67 ms, ordinary 60 Hz jitter counts as slow, so nearly every window would be sent.
+3. `bridge.summary` rows are grouped by root + plugin + method. A row whose calls ran under a live
+   root carries Tier-1 child keys (X8): one `span.id` covers those calls, and `span.duration_ms` runs
+   from the first call's start to the last call's end. Every call extends the root (X1). Calls made
+   with no live root are grouped without span keys.
+4. A call still in flight when its window closes is counted in the next window.
+5. `bridge.error_codes` takes the sorted, distinct values of each failure's `code` when it is a short
+   token (`[\w.-]{1,64}`); otherwise it uses the error's class name (P5: never a message).
+6. Vitals that report while the page is hidden (final LCP / CLS / INP) are handed off at once, as in
+   Cordova, because they arrive after core's own hidden hand-off.
+
+**Consequences:**
+- (+) Frame and bridge volume stays per screen, not per frame or per call.
+- (−) No positive smooth-screen signal; a backend smoothness denominator needs Cordova-style rows.
+- (−) A bridge child span is an aggregate, not one span per call.

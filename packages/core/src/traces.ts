@@ -110,12 +110,7 @@ export function startTraces(allowlist: unknown): void {
 export const interactionRoot = (): EventAttributes => rootKeys(mint('interaction'));
 
 /** X2 / X8: Router `NavigationStart` mints only when no root is live; otherwise a child of it. */
-export function navigationSpan(): EventAttributes {
-  const r = current();
-  if (!r) return rootKeys(mint('navigation'));
-  r.touched = mono();
-  return childKeys(r, epoch());
-}
+export const navigationSpan = (): EventAttributes => childSpan() ?? rootKeys(mint('navigation'));
 
 /** X6 / X8: a Capacitor plugin call is a child of the live root; nothing when none is live. */
 export function childSpan(): EventAttributes | undefined {

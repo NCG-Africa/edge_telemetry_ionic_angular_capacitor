@@ -146,6 +146,11 @@ export const now = () => new Date().toISOString();
 export const route = () => state.route;
 /** Run just before the screen changes, while `route()` is still the old one (E7 screen windows). */
 export const routeListeners = new Set<() => void>();
+/** Subscribe to `routeListeners`; returns the unsubscribe. */
+export function onRouteChange(f: () => void): () => void {
+  routeListeners.add(f);
+  return () => void routeListeners.delete(f);
+}
 
 /** `crumb: false` when the capture already left its breadcrumb (E25 taps, at tap time). */
 export function record(e: EdgeRumEvent, crumb = true): void {

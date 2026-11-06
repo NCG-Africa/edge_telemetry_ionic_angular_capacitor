@@ -9,15 +9,32 @@ import {
 } from '@nathanclaire/rum';
 
 type NativePromise = (plugin: string, method: string, options?: unknown) => unknown;
-interface Group { service: string; action: string; ms: number[]; errors: number; codes: Set<string>; span?: EventAttributes; start: number; end: number }
+/** The calls to one plugin method under one trace root (or none) in the current window. */
+interface Group {
+  service: string;
+  action: string;
+  /** Answered calls' durations. */
+  ms: number[];
+  errors: number;
+  codes: Set<string>;
+  /** Calls not answered yet; their group outlives the window and counts in the next. */
+  inflight: number;
+  /** X6: child keys of the root the first call ran under. */
+  span?: EventAttributes;
+  start: number;
+  end: number;
+}
 
 // ponytail: nearest-rank, no interpolation; windows hold few calls, so the gap rarely shows.
 const percentile = (sorted: number[], p: number) => sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)] ?? 0;
 
+// A code is a short token (`UNAVAILABLE`, `OS-PLUG-FILE-0008`); anything else may be a message.
+const CODE = /^[\w.-]{1,64}$/;
+
 /** P5: the error's code, else its class. Never its message. */
 function errorCode(e: unknown): string {
   const code = (e as { code?: unknown } | null)?.code;
-  if (typeof code === 'string' && code) return code;
+  if (typeof code === 'string' && CODE.test(code)) return code;
   const name = (e as { name?: unknown } | null)?.name;
   return typeof name === 'string' && name ? name : 'unknown';
 }
@@ -37,6 +54,7 @@ export const bridge = (): Capture => ({
 
     const done = (g: Group, t0: number, ok: boolean, err?: unknown) => {
       const t = performance.now();
+      g.inflight--;
       g.ms.push(t - t0);
       g.end = Math.max(g.end, t);
       if (!ok) {
@@ -56,7 +74,11 @@ export const bridge = (): Capture => ({
         // One row per root: its keys belong to the calls made under it.
         const key = `${String(span?.['parent.span.id'] ?? '')}\n${plugin}\n${method}`;
         g = groups.get(key);
-        if (!g) groups.set(key, (g = { service: String(plugin), action: String(method), ms: [], errors: 0, codes: new Set(), span, start: t0, end: t0 }));
+        if (!g) {
+          g = { service: String(plugin), action: String(method), ms: [], errors: 0, codes: new Set(), inflight: 0, span, start: t0, end: t0 };
+          groups.set(key, g);
+        }
+        g.inflight++;
       } catch {
         // Never break the app's plugin call.
       }
@@ -69,12 +91,10 @@ export const bridge = (): Capture => ({
       return p;
     };
 
-    const endWindow = () => {
-      const screen = __getCurrentRoute();
-      for (const g of groups.values()) {
-        const ms = g.ms.sort((a, b) => a - b);
-        // ponytail: a call still in flight when its window closes is not counted.
-        if (!ms.length) continue;
+    /** One row for the group's answered calls, then the group starts over. */
+    const report = (g: Group, screen: string) => {
+      const ms = g.ms.sort((x, y) => x - y);
+      if (ms.length) {
         __recordEvent('bridge.summary', {
           'screen.name': screen,
           'bridge.service': g.service,
@@ -88,7 +108,22 @@ export const bridge = (): Capture => ({
           ...(g.span && { ...g.span, 'span.duration_ms': Math.round(g.end - g.start) }),
         });
       }
-      groups.clear();
+      g.ms = [];
+      g.errors = 0;
+      g.codes.clear();
+      g.start = g.end = performance.now();
+    };
+    // Runs inside the app's navigation and visibility callbacks: never throws into them.
+    const endWindow = () => {
+      try {
+        const screen = __getCurrentRoute();
+        for (const [key, g] of groups) {
+          report(g, screen);
+          if (!g.inflight) groups.delete(key);
+        }
+      } catch {
+        groups.clear();
+      }
     };
     // Before core's own hidden hand-off (captures start first), so the rows ride it.
     const onHidden = () => {

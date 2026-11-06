@@ -1,5 +1,5 @@
 import {
-  call, discard, event, flush, isName, isValue, live, metric, now, outside, route, routeListeners, setEnabled, start, state, whenReady,
+  call, discard, event, flush, isName, isValue, live, metric, now, onRouteChange, outside, route, routeListeners, setEnabled, start, state, whenReady,
   type AttributeValue, type EdgeRumOptions, type EventAttributes,
 } from './core';
 import { healthMonitor } from './internal/health';
@@ -271,10 +271,7 @@ export function __childSpan(): EventAttributes | undefined {
 }
 
 /** Run `f` just before each screen change (while the old route is current); returns the unsubscribe. */
-export function __onRouteChange(f: () => void): () => void {
-  routeListeners.add(f);
-  return () => void routeListeners.delete(f);
-}
+export const __onRouteChange = onRouteChange;
 
 export function __setLastNavigationMethod(method: string): void {
   lastNavigationMethod = method;

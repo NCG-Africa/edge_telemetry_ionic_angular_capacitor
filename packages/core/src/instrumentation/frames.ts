@@ -66,7 +66,7 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
   let slow = 0;
   let frozen = 0;
   let max = 0;
-  let time = 0;
+  let windowMs = 0;
   let longTasks = 0;
   let windowRoute = '';
   let windowStart = -1;
@@ -82,11 +82,10 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
   };
 
   // Cordova E20: `frame.long_task_count` only where the WebView reports long tasks.
-  const PO = typeof PerformanceObserver === 'undefined' ? undefined : PerformanceObserver;
   let observer: PerformanceObserver | undefined;
-  if (PO?.supportedEntryTypes?.includes('longtask')) {
+  if (typeof PerformanceObserver !== 'undefined' && PerformanceObserver.supportedEntryTypes?.includes('longtask')) {
     try {
-      observer = new PO((list) => {
+      observer = new PerformanceObserver((list) => {
         if (total) longTasks += list.getEntries().length;
       });
       observer.observe({ type: 'longtask' });
@@ -96,8 +95,8 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
   }
 
   // Emit one summary for the closing window, then reset. Suppressed entirely
-  // when no slow frame occurred (a smooth screen sends nothing) or the window
-  // is empty — this is where the volume cut lives (ADR-030).
+  // when no slow frame occurred (a smooth or empty window sends nothing) —
+  // this is where the volume cut lives (ADR-030).
   function flushWindow(): void {
     if (slow) {
       try {
@@ -108,7 +107,7 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
           'frame.frozen_frames': frozen,
           'frame.max_total_duration_ms': Math.round(max),
           'frame.slow_frame_rate': Math.round((slow / total) * 1e4) / 1e4,
-          'frame.window_duration_ms': Math.round(time),
+          'frame.window_duration_ms': Math.round(windowMs),
           'frame.source': 'raf',
           ...(observer && { 'frame.long_task_count': longTasks }),
         });
@@ -117,7 +116,7 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
         healthMonitor.reportError('frames.emit', err);
       }
     }
-    total = slow = frozen = max = time = longTasks = 0;
+    total = slow = frozen = max = windowMs = longTasks = 0;
     windowStart = -1;
   }
 
@@ -142,7 +141,7 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
         windowStart = prevTimestamp;
       }
       total++;
-      time += d;
+      windowMs += d;
       max = Math.max(max, d);
       if (d >= slowThreshold) slow++;
       if (d >= FROZEN_MS) frozen++;
@@ -151,7 +150,18 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
     rafHandle = raf(tick);
   }
 
+  // Cordova E20: frames only while visible. Hide closes the window; the first frame after
+  // showing starts a fresh gap, so hidden time is never a frame.
+  const onVisibility = (): void => {
+    if (document.visibilityState === 'hidden') {
+      flushWindow();
+      prevTimestamp = -1;
+    } else onActivity();
+  };
+  const doc = typeof document !== 'undefined' ? document : undefined;
+
   for (const type of ACTIVITY) target?.addEventListener(type, onActivity, LISTEN);
+  doc?.addEventListener('visibilitychange', onVisibility);
   const offRoute = deps.onRouteChange?.(onActivity);
   rafHandle = raf(tick);
 
@@ -164,6 +174,7 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
       offRoute?.();
       observer?.disconnect();
       for (const type of ACTIVITY) target?.removeEventListener(type, onActivity, LISTEN);
+      doc?.removeEventListener('visibilitychange', onVisibility);
       if (rafHandle !== null) {
         try {
           cancelRaf(rafHandle);

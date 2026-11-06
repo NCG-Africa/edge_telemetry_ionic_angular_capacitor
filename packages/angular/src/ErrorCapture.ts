@@ -38,11 +38,16 @@ function toError(value: unknown): Error {
   return new Error('Unknown error');
 }
 
+const chained = new WeakSet<ErrorHandler>();
+
 /**
  * C7: wraps whatever `ErrorHandler` DI resolved — the host's, or Angular's default — so the host
  * handler keeps running whichever order the providers were listed in. Replacing it (4.x) lost one.
  */
 export function chainErrorHandler(host: ErrorHandler, route: () => string = __getCurrentRoute): void {
+  // provideEdgeRum + forRoot, or two injectors sharing one handler: capture each error once.
+  if (chained.has(host)) return;
+  chained.add(host);
   const next = host.handleError.bind(host);
   host.handleError = (error: unknown): void => {
     try {

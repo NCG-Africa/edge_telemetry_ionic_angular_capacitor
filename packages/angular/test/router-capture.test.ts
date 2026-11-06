@@ -375,7 +375,7 @@ describe('RouterCapture', () => {
     });
   });
 
-  it('omits phase keys a navigation never ran, and ignores phases outside a navigation (preloading)', () => {
+  it('omits phase keys a navigation never ran or never finished, and ignores phases outside a navigation (preloading)', () => {
     const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
@@ -384,7 +384,8 @@ describe('RouterCapture', () => {
     harness.events.next(phase(EVENT_TYPE.RouteConfigLoadEnd));
     harness.setRoute('/home', makeSnapshot({ path: 'home' }));
     harness.events.next(navStart(1, '/home'));
-    harness.events.next(navEnd(1, '/home'));
+    harness.events.next(phase(EVENT_TYPE.GuardsCheckStart));
+    harness.events.next(navCancel(1, '/home'));
 
     const attrs = callsByName(trackSpy, 'navigation')[0]![1]!;
     expect(attrs).not.toHaveProperty('navigation.chunk_load_ms');

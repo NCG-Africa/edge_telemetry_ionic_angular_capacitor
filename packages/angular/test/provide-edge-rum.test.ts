@@ -79,6 +79,13 @@ describe('ErrorHandler chaining (C7)', () => {
     });
   }
 
+  it('captures once when the SDK is provided twice', () => {
+    const capture = vi.spyOn(EdgeRum, 'captureError').mockImplementation(() => undefined);
+    boot([provideEdgeRum(), ...EdgeRumModule.forRoot().providers!, host]).get(ErrorHandler).handleError(new Error('x'));
+    expect(capture).toHaveBeenCalledOnce();
+    expect(hostCalls).toHaveLength(1);
+  });
+
   it('keeps calling the host handler when capture throws', () => {
     vi.spyOn(EdgeRum, 'captureError').mockImplementation(() => {
       throw new Error('internal');

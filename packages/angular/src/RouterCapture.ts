@@ -38,7 +38,7 @@ const PHASES: Readonly<Record<number, readonly [string, 1 | -1]>> = {
 };
 
 /** Wall time a phase was open; nested lazy loads overlap, so it counts open-depth, not pairs. */
-interface Phase { open: number; at: number; ms: number }
+interface Phase { depth: number; openedAt: number; ms: number }
 
 function normaliseRoute(root: ActivatedRouteSnapshot): string {
   const segments: string[] = [];
@@ -143,11 +143,11 @@ export class RouterCapture implements OnDestroy {
 
   private trackPhase(nav: PendingNav, key: string, step: 1 | -1): void {
     const t = performance.now();
-    const p = (nav.phases[key] ??= { open: 0, at: t, ms: 0 });
+    const p = (nav.phases[key] ??= { depth: 0, openedAt: t, ms: 0 });
     if (step === 1) {
-      if (p.open++ === 0) p.at = t;
-    } else if (p.open > 0 && --p.open === 0) {
-      p.ms += t - p.at;
+      if (p.depth++ === 0) p.openedAt = t;
+    } else if (p.depth > 0 && --p.depth === 0) {
+      p.ms += t - p.openedAt;
     }
   }
 
@@ -178,7 +178,8 @@ export class RouterCapture implements OnDestroy {
       'navigation.timestamp': new Date().toISOString(),
     };
     for (const [key, p] of Object.entries(this.pending?.phases ?? {})) {
-      navAttrs[key] = Math.round(p.ms);
+      // Still open (cancelled mid-phase): leave the key out — the backend column is nullable (G4).
+      if (p.depth === 0) navAttrs[key] = Math.round(p.ms);
     }
     if (this.previousRoute !== null) {
       navAttrs['navigation.from_screen'] = this.previousRoute;

@@ -4,6 +4,8 @@ import { healthMonitor } from '../internal/health';
 export interface InteractionsDeps {
   recordEvent: (eventName: 'user.interaction', attributes: EventAttributes) => void;
   getCurrentRoute: () => string;
+  /** X2: mint the `interaction` root (before the app's handler: capture phase); its Tier-1 keys. */
+  mintRoot?: () => EventAttributes;
   target?: Pick<Document, 'addEventListener' | 'removeEventListener'>;
 }
 
@@ -75,6 +77,7 @@ export function registerInteractionCapture(deps: InteractionsDeps): Interactions
         'interaction.screen': deps.getCurrentRoute(),
         'interaction.timestamp': new Date(now).toISOString(),
         ...targetAttrs,
+        ...deps.mintRoot?.(),
       };
 
       deps.recordEvent('user.interaction', attrs);

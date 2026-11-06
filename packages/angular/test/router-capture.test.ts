@@ -122,6 +122,21 @@ describe('RouterCapture', () => {
     expect(String(navCall[1]!['navigation.to_screen'])).not.toContain('9876');
   });
 
+  it('NavigationStart mints (or joins) a navigation root; Tier-1 keys ride the navigation event (X2, X8)', () => {
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
+    const harness = createFakeRouter();
+    new RouterCapture(harness.router);
+
+    harness.setRoute('/home', makeSnapshot({ path: 'home' }));
+    harness.events.next(navStart(1, '/home'));
+    harness.events.next(navEnd(1, '/home'));
+
+    const attrs = callsByName(trackSpy, 'navigation')[0]![1]!;
+    expect(attrs).toMatchObject({ 'trace.id': expect.stringMatching(/^[0-9a-f]{32}$/), 'trace.root_type': 'navigation' });
+    // A root, or a child of one an earlier test left live: either way it hangs off rum.action.id.
+    expect([attrs['span.id'], attrs['parent.span.id']]).toContain(attrs['rum.action.id']);
+  });
+
   it('emits exactly one navigation event per route change and no screen_view', () => {
     const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();

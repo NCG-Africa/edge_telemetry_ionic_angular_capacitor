@@ -10,6 +10,7 @@ export {
   __recordEvent,
   __setCurrentRoute,
   __getCurrentRoute,
+  __navigationSpan,
   __setLastNavigationMethod,
   __getLastNavigationMethod,
   __beginScreen,

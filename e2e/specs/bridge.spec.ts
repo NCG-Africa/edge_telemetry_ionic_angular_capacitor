@@ -51,6 +51,8 @@ test('A2 plugin methods and args', async ({ page }) => {
     { method: 'getState', arg: undefined },
     { method: 'identify', arg: { id: 'u1', email: 'a@b.c' } },
     { method: 'configure', arg: { apiKey: 'edge_k', endpoint: 'https://ingest.example' } },
+    // X10: the launch root, once.
+    { method: 'setRoot', arg: { 'trace.id': expect.stringMatching(/^[0-9a-f]{32}$/), 'rum.action.id': expect.stringMatching(/^[0-9a-f]{16}$/), 'trace.root_type': 'launch' } },
     { method: 'markPhase', arg: { phase: 'markReady', ts: expect.any(Number) } },
     { method: 'markPhase', arg: { phase: 'bridgeReady', ts: expect.any(Number) } },
     // A3: new crumbs ride every hand-off.
@@ -115,6 +117,19 @@ test('fetch and XHR reach mock-ingest as http.request with templated URLs (E6, P
       expect.objectContaining({ 'http.url': `${origin}/harness.html`, 'http.method': 'GET', 'http.status_code': 200, 'http.success': true }),
       expect.objectContaining({ 'http.url': `${origin}/missing/v2/{id}`, 'http.method': 'POST', 'http.success': false, 'http.request_size': 7 }),
     ]);
+});
+
+test('an allowlisted request carries traceparent; its row pins the same ids (X3, X7)', async ({ page, request }) => {
+  const sent = page.waitForRequest('**/harness.html?traced');
+  await page.evaluate(async () => {
+    window.Rum.EdgeRum.init({ captures: [], traceHostAllowlist: ['localhost'] });
+    await window.Rum.EdgeRum.getSessionId(); // past getState, else skipped_no_session (A4)
+    await fetch('/harness.html?traced');
+  });
+  const header = (await sent).headers().traceparent;
+  expect(header).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/);
+  await expect.poll(async () => (await ingested(request)).find((e) => e.eventName === 'http.request')?.attributes, { timeout: 10_000 })
+    .toMatchObject({ 'traceparent.outcome': 'injected_attributed', 'trace.id': header?.slice(3, 35), 'span.id': header?.slice(36, 52) });
 });
 
 test('session rotation abandons open tasks', async ({ page, request }) => {

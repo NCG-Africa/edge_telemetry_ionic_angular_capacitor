@@ -8,7 +8,7 @@ import type {
   NavigationStart,
 } from '@angular/router';
 import type { Subscription } from 'rxjs';
-import { __recordEvent, __setCurrentRoute, __setLastNavigationMethod, type EventAttributes } from '@nathanclaire/rum';
+import { __navigationSpan, __recordEvent, __setCurrentRoute, __setLastNavigationMethod, type EventAttributes } from '@nathanclaire/rum';
 
 type NavigationMethod = 'push' | 'pop' | 'replace' | 'initial' | 'cancel';
 
@@ -66,6 +66,8 @@ interface PendingNav {
   readonly id: number;
   readonly trigger: NavigationStart['navigationTrigger'];
   readonly replaceUrl: boolean;
+  /** X2 / X8: minted (or joined) at NavigationStart, stamped on the `navigation` event. */
+  readonly span: EventAttributes;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -93,6 +95,7 @@ export class RouterCapture implements OnDestroy {
           id: start.id,
           trigger: start.navigationTrigger,
           replaceUrl: this.router.getCurrentNavigation()?.extras?.replaceUrl === true,
+          span: __navigationSpan(),
         };
         return;
       }
@@ -132,6 +135,7 @@ export class RouterCapture implements OnDestroy {
     const url = this.router.routerState.snapshot.url;
 
     const navAttrs: EventAttributes = {
+      ...this.pending?.span,
       'navigation.to_screen': toRoute,
       'navigation.method': method,
       'navigation.route_type': classifyRoute(toRoute),

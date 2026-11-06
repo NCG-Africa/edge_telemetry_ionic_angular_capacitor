@@ -91,6 +91,19 @@ describe('buffer and hand-off (A4, T1)', () => {
     expect(fake.calls).toContainEqual(['markPhase', expect.objectContaining({ phase: 'bridgeReady' })]);
   });
 
+  it('hands off when App.addListener returns a bare handle or throws (Capacitor 8, found by device e2e)', async () => {
+    for (const addListener of [() => ({ remove: () => {} }), () => { throw new Error('no App'); }]) {
+      const fake = fakeBridge();
+      ((globalThis as Record<string, unknown>).Capacitor as Record<string, unknown>).Plugins = { App: { addListener } };
+      const EdgeRum = await load();
+      EdgeRum.init();
+      EdgeRum.track('a');
+      fake.ready();
+      await tick();
+      expect(fake.enqueued()).toHaveLength(1);
+    }
+  });
+
   it('marks each navigation-timing phase once, as epoch ms, as soon as it is known (A5)', async () => {
     const fake = fakeBridge();
     const nav = { responseEnd: 120.4, domContentLoadedEventStart: 0, loadEventStart: 0 };

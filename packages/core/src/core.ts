@@ -261,10 +261,13 @@ export function start(): void {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') flush();
     });
-    c.Plugins?.App?.addListener?.('appStateChange', (s: { isActive?: boolean }) => {
-      state.onAppState(!!s.isActive);
-      if (!s.isActive) flush();
-    })?.catch(() => {});
+    // A handle, a promise of one, or a throw (Capacitor 8 returns a bare handle): none stops start.
+    Promise.resolve()
+      .then(() => c.Plugins?.App?.addListener?.('appStateChange', (s: { isActive?: boolean }) => {
+        state.onAppState(!!s.isActive);
+        if (!s.isActive) flush();
+      }))
+      .catch(() => {});
     invoke('addListener', 'state', applyNativeState).catch(() => {});
     // Never blocks startup: a failed read still releases the buffer; native gates what it keeps.
     invoke('getState').then((s) => {

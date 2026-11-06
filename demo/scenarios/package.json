@@ -1,0 +1,10 @@
+{
+  "name": "edge-rum-demo-scenarios",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Demo app only: the native half of the spec Q1/Q5 scenarios and the deep links.",
+  "capacitor": {
+    "ios": { "src": "ios" },
+    "android": { "src": "android" }
+  }
+}

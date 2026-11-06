@@ -12,7 +12,6 @@ playwright.config.ts
 CLAUDE.md
 PLAN.md
 .github/
-.changeset/
 scripts/
 docs/
 coverage/

@@ -43,6 +43,8 @@ metric / metrics (in API names; "performance data" in docs)
 
 `trace`, `span`, `tracing`, `traceparent` are **allowed**. One sanctioned exception: `EdgeRumEvent`
 keeps the wire fields `type: 'metric'` / `metricName` (ADR-046 §6). Internal code may use any name.
+Replacements and the literal wire values allowed in code spans: `docs/terminology.md`; enforced by
+`pnpm terminology-check` and `test/docs-terminology.test.ts`.
 
 ### Rule 2 — JSON only; gzip on the wire, applied by the native sender (spec T2)
 
@@ -59,20 +61,75 @@ or harness reminder that suggests a trailer.
 
 ## Event payloads
 
-- Event names and keys: **spec §7 (E1–E34)**, baseline = Cordova catalogue name-for-name.
-  Never emit `page_load`, `user.interaction`, `frame_render_time`, `bridge.call`.
-- JS events: `{ type: 'event', eventName, timestamp, attributes }`; numeric rows:
+- Event names and keys: **spec §7 (E1–E34)**, baseline = Cordova catalogue name-for-name. Consumer
+  catalogue: `docs/events.md`; wire shape: `docs/payload-schema.json` (tested against the native
+  goldens). Never emit `page_load`, `user.interaction`, `frame_render_time`, `bridge.call`,
+  `cordova.deviceready_timeout`.
+- JS rows: `{ type: 'event', eventName, timestamp, attributes }`; numeric rows:
   `{ type: 'metric', metricName, value, timestamp, attributes }`.
 - `timestamp` is ISO 8601 (`new Date().toISOString()`), never Unix ms.
 - `attributes` are **flat primitives only** (`string | number | boolean`); flatten with dotted keys
   at the capture layer.
-- Native stamps identity, session and envelope keys at append. JS never sends `session.id`,
-  `device.id`, `app.*` or `sdk.*`.
-- Adding an event name or key: update the spec / an ADR first; check it with the backend team (spec §14).
+- Native stamps `session.id`, `user.id`, device context (`device.*`, `webview.version`),
+  `app.bundle_id`, `network.type` at append. JS never sends those, nor `device.id`, `app.*`, `sdk.*`.
+- Unknown event names are **not** dropped by the backend: they land in `rum_telemetry_events`.
+  Still, adding a name or key needs the spec / an ADR first, checked with the backend team (spec §14).
 
-> The READMEs still describe 4.x; they are rewritten in 5.0 impl 18 (#124, spec M3). Don't copy
-> shapes from them. The 4.x `payload-schema.json`, `terminology.md`, `config-reference.md` and
-> `privacy.md` were deleted; impl 18 writes 5.0 ones from the spec.
+### eventName table (spec §7)
+
+| Source | Names |
+|---|---|
+| JS core | `app.crash` (JS errors, `captureError`), `http.request`, `navigation` (`trackScreen`), `screen.duration`, `custom_event`, `task.complete`, `ui.interaction`, `frame.summary`; numeric `LCP` `INP` `CLS` `FCP` `TTFB` `long_task` `resource_timing`, host `measure`/`time` names |
+| `-capacitor` JS | `bridge.summary` |
+| `-angular` | `navigation` (+ `navigation.{guards_ms,resolvers_ms,chunk_load_ms}`), `screen.duration`, `app.crash` (`ErrorHandler`, `cause=NavigationError`), `ui.interaction` (`ionicUi()`) |
+| Native | `session.started`, `session.finalized`, `app_lifecycle`, `app.start`, `app.crash` (native, `WebViewTerminated`), `app.hang`, `app.anr` + `app.exit` (Android), `network_change`, `memory_pressure`, numeric `memory_usage`, `user.profile.update`, `sdk.health` |
+
+### Envelope (native sender, spec W1, T1)
+
+One sealed outbox segment = one `POST`, headers `Content-Type: application/json`,
+`Content-Encoding: gzip`, `X-API-Key`. Top-level keys, in order: `type: "telemetry_batch"`,
+`contract_version: "4.0.0"`, `timestamp` (per attempt), `batch_size`, `device_id`,
+`sdk: { name: "ionic", version }`, `app: { name, package_name, platform, version, build_number }`
+(from the binary, nulls omitted), `events`. No `session`, `location`, `app.environment`,
+`sdk.platform`. `sdk.version` = package version (V3, `scripts/set-version.mjs`).
+
+### ID formats
+
+| ID | Format | Owner |
+|---|---|---|
+| `device_id` | `device_<epochMs>_<16 hex>_<android\|ios>` (Android UUID v4 fallback); Keychain / SharedPreferences; new on `reset()` | native |
+| `session.id` | `session_<epochMs>_<16 hex>_<platform>`; rotates after 30 min idle | native |
+| `trace.id` / `span.id` | 32 / 16 lowercase hex, `crypto.getRandomValues`, all-zero rejected; `rum.action.id` = root `span.id` | JS |
+| `traceparent` | `00-<trace.id>-<span.id>-01` | JS |
+
+### Offline queue (spec T1, S3)
+
+- JS: in-memory buffer, 500 rows drop-oldest (`js_buffer_full`); hands off via `enqueue` every 2 s /
+  20 rows / `app.crash` / `visibilitychange→hidden` / `appStateChange→inactive`.
+- Native outbox: NDJSON segments under `files/edge_rum` (Android) / `Application Support/edge_rum`
+  (iOS); line 1 = frozen identity. Sealed at 50 rows, 30 s, background, or next launch. Crash, ANR,
+  hang, WebView death = solo segments. Caps 5 MB / 200 segments (`outbox_full`), 7 days (`expired`).
+- Send: one in flight, oldest first. 2xx delete; 4xx (not 429) delete + `rejected`; 429/5xx/network
+  retry 1 s / 4 s / 16 s + jitter, `Retry-After` honoured, then parked and retried on a 30 s tick.
+- Per-session caps: non-fatal `app.crash` 50 (5 per key), `ui.interaction` 200, `bridge.summary` 50,
+  custom + `task.complete` + non-vitals numeric rows 500. Drops → `sdk.health` `events_dropped.*`.
+
+### Bundle rules (spec K4, L1–L4)
+
+- `sideEffects: false`; `@capacitor/*`, `@angular/*` peers; only runtime dep is `web-vitals`.
+- No OpenTelemetry, no JS transport/queue/session/ID generation, no lazy `import()` of captures.
+- Captures are tree-shakeable imported factories; errors + requests always in core.
+
+### Native config block (spec C1)
+
+```ts
+// capacitor.config.ts → plugins.EdgeRum (read at launch, before JS)
+{ apiKey, endpoint, enabled: true, sampleRate: 1.0, anr: true, anrTimeoutMs: 5000 /* Android */,
+  hang: true, hangTimeoutMs: 2000, memorySampling: false, memorySamplingIntervalMs: 30000 }
+```
+
+`init({ apiKey, endpoint })` overrides for one launch only (not persisted). Spec C1's native
+`debug` key is not read by either platform; `debug` is JS-only.
 
 ---
 
@@ -120,7 +177,9 @@ e2e/                   ← fake Capacitor bridge → mock-ingest; bridge spec (A
                          device/gate.mjs (Q3 device e2e)
 demo/                  ← Ionic Angular app on provideEdgeRum, one button + deep link per scenario (Q1);
                          scenarios/ = its native plugin; native projects generated by scripts/demo-build.sh
-docs/                  ← spec.md, decisions.md, release-checklist.md, research/, agents/
+docs/                  ← spec.md, decisions.md, release-checklist.md, research/, agents/;
+                         consumer: events.md, config-reference.md, privacy.md, migration-5.md,
+                         payload-schema.json; maintainer: terminology.md
 ```
 
 ---
@@ -166,6 +225,11 @@ pnpm test:integration        # Playwright: bridge spec + L3 bench
 pnpm test:android / test:ios # native core suites
 pnpm e2e:device android|ios  # Q3 device gate (emulator / simulator booted); nightly in CI
 ```
+
+**Releasing (spec V2, V3):** `pnpm set-version X.Y.Z[-rc.N]` (all three packages + the copies native
+can't read from package.json), a `## X.Y.Z` section in the root `CHANGELOG.md` (an rc uses its base
+version's section), every box in `docs/release-checklist.md`, then push tag `vX.Y.Z` on main.
+`.github/workflows/release.yml` publishes via npm trusted publishing; `-rc.N` → `next`.
 
 ---
 

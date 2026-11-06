@@ -1,6 +1,11 @@
 {
   "name": "@nathanclaire/rum",
-  "version": "5.0.0-alpha",
+  "version": "5.0.0-rc.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NCG-Africa/edge_telemetry_ionic_angular_capacitor.git",
+    "directory": "packages/core"
+  },
   "description": "Real User Monitoring SDK core for Ionic Angular Capacitor apps",
   "license": "MIT",
   "type": "module",

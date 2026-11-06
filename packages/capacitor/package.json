@@ -1,7 +1,12 @@
 {
   "name": "@nathanclaire/rum-capacitor",
-  "version": "5.0.0-alpha",
-  "description": "Capacitor integration for edge-rum \u2014 JS bridge + native iOS/Android crash capture",
+  "version": "5.0.0-rc.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NCG-Africa/edge_telemetry_ionic_angular_capacitor.git",
+    "directory": "packages/capacitor"
+  },
+  "description": "Capacitor integration for edge-rum — JS bridge + native iOS/Android crash capture",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.cjs",

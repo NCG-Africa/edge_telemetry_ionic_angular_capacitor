@@ -1,9 +1,10 @@
 name: Release
 
-# Push a `v*.*.*` tag on main to publish all packages whose
-# package.json version is ahead of npm. Tag-driven, no changesets bot,
-# no Version Packages PR — bump versions in your release commit, tag,
-# push.
+# Spec V2 (= Cordova V2, for all three packages). Push a `vX.Y.Z` tag on main whose version
+# equals every package.json (`node scripts/set-version.mjs X.Y.Z` in the release PR). CI, the
+# device e2e gate and both native fixtures re-run on the tag and must pass; then all three
+# packages publish together. `-rc.N` goes to the npm `next` dist-tag. Nothing publishes on a
+# branch push.
 on:
   push:
     tags: ['v*.*.*']
@@ -54,37 +55,65 @@ jobs:
     needs: [ci, device-e2e, fixture-android, fixture-ios]
     runs-on: ubuntu-latest
     permissions:
-      contents: write    # for GitHub Releases (created by changeset publish)
-      id-token: write    # for npm provenance
+      contents: write    # GitHub Release at the end of the job
+      # npm trusted publishing (OIDC): no NPM_TOKEN. Each package must name this repo and this
+      # workflow file as a trusted publisher at npmjs.com > package > Settings.
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0   # the on-main check below needs main's history
 
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'pnpm'
+          # Trusted publishing needs Node >= 22.14 / npm >= 11.5.1. No cache: a release build
+          # must not restore a warm store.
+          node-version: 24
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      - name: Build
-        run: pnpm build
-
-      - name: Verify tag is on main
+      # The tag is the release's only input. A tag that disagrees with package.json would publish
+      # a version nobody asked for. Fail here: a tag is deletable, a published version is not.
+      - name: Verify tag matches every package version and is on main
         run: |
-          git fetch origin main
+          TAG="${GITHUB_REF_NAME#v}"
+          for pkg in core capacitor angular; do
+            V="$(node -p "require('./packages/$pkg/package.json').version")"
+            if [ "$TAG" != "$V" ]; then
+              echo "::error::tag v$TAG does not match packages/$pkg version $V"
+              exit 1
+            fi
+          done
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::Release tags must be on the main branch"
+            echo "::error::tag $GITHUB_REF_NAME is not on main"
             exit 1
           fi
 
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # `pnpm publish` rewrites `workspace:*` to the real version. Prereleases go to `next`, so
+      # `npm install` never picks them up.
       - name: Publish to npm
-        run: pnpm release
+        run: |
+          case "$GITHUB_REF_NAME" in *-*) TAG=next ;; *) TAG=latest ;; esac
+          pnpm -r --filter './packages/*' publish --access public --provenance --no-git-checks --tag "$TAG"
+
+      # The CHANGELOG section *is* the release notes. `5.0.0-rc.N` uses the `## 5.0.0` section.
+      # A missing section gives an empty body rather than failing: npm is already published.
+      - name: Extract release notes from CHANGELOG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node scripts/release-notes.mjs "$VERSION" > RELEASE_NOTES.md
+          if [ ! -s RELEASE_NOTES.md ]; then
+            echo "::warning::no CHANGELOG section for $VERSION — empty release body"
+          fi
+
+      - name: Create GitHub Release
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$GITHUB_REF_NAME" in *-*) PRE=--prerelease ;; *) PRE= ;; esac
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
+            --notes-file RELEASE_NOTES.md --verify-tag $PRE

@@ -91,6 +91,31 @@ describe('buffer and hand-off (A4, T1)', () => {
     expect(fake.calls).toContainEqual(['markPhase', expect.objectContaining({ phase: 'bridgeReady' })]);
   });
 
+  it('marks each navigation-timing phase once, as epoch ms, as soon as it is known (A5)', async () => {
+    const fake = fakeBridge();
+    const nav = { responseEnd: 120.4, domContentLoadedEventStart: 0, loadEventStart: 0 };
+    const spy = vi.spyOn(performance, 'getEntriesByType').mockReturnValue([nav as unknown as PerformanceEntry]);
+    const origin = performance.timeOrigin;
+    const EdgeRum = await load();
+    EdgeRum.init();
+    fake.ready();
+    await tick();
+    const phases = () => fake.calls.filter(([m]) => m === 'markPhase').map(([, a]) => a as { phase: string; ts: number });
+    expect(phases()).toContainEqual({ phase: 'responseEnd', ts: Math.round(origin + 120.4) });
+    expect(phases().map((p) => p.phase)).not.toContain('load');
+    Object.assign(nav, { domContentLoadedEventStart: 300, loadEventStart: 500 });
+    // No `window` in Node: a repeat event re-reads the entry, so `load` lands once known and nothing repeats.
+    doc().dispatchEvent(new Event('DOMContentLoaded'));
+    doc().dispatchEvent(new Event('DOMContentLoaded'));
+    await tick();
+    expect(phases().filter((p) => p.phase !== 'bridgeReady')).toEqual([
+      { phase: 'responseEnd', ts: Math.round(origin + 120.4) },
+      { phase: 'DOMContentLoaded', ts: Math.round(origin + 300) },
+      { phase: 'load', ts: Math.round(origin + 500) },
+    ]);
+    spy.mockRestore();
+  });
+
   it('caps the pre-ready buffer at 500, drop-oldest, and reports the count', async () => {
     const fake = fakeBridge();
     const EdgeRum = await load();

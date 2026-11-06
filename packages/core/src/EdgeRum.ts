@@ -1,11 +1,11 @@
 import {
-  call, discard, event, flush, isName, isValue, live, metric, now, outside, route, routeListeners, setEnabled, start, state, whenReady,
+  call, discard, event, flush, isName, isValue, live, metric, now, onRouteChange, outside, route, routeListeners, setEnabled, start, state, whenReady,
   type AttributeValue, type EdgeRumOptions, type EventAttributes,
 } from './core';
 import { healthMonitor } from './internal/health';
 import { crashAttributes, registerErrorCapture } from './instrumentation/errors';
 import { registerRequestCapture } from './instrumentation/requests';
-import { clearRoot, navigationSpan, startTraces, traceRequest } from './traces';
+import { childSpan, clearRoot, navigationSpan, touchRoot, startTraces, traceRequest } from './traces';
 
 /** Traits passed to `identify()`. */
 export interface UserTraits {
@@ -260,6 +260,27 @@ export function __navigationSpan(): EventAttributes {
     return {}; // never break the app's navigation
   }
 }
+
+/** X6: Tier-1 child keys for a plugin call (`bridge()`), or nothing when no root is live. */
+export function __childSpan(): EventAttributes | undefined {
+  try {
+    return childSpan();
+  } catch {
+    return undefined;
+  }
+}
+
+/** X1: a plugin call started; extends the live root and returns its `span.id`, if any. */
+export function __touchRoot(): string | undefined {
+  try {
+    return touchRoot();
+  } catch {
+    return undefined;
+  }
+}
+
+/** Run `f` just before each screen change (while the old route is current); returns the unsubscribe. */
+export const __onRouteChange = onRouteChange;
 
 export function __setLastNavigationMethod(method: string): void {
   lastNavigationMethod = method;

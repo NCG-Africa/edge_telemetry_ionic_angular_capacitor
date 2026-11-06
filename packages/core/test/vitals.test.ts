@@ -90,7 +90,7 @@ describe('registerVitalsCapture', () => {
     expect(m.value).toBe(1240);
     expect(m.attributes['metric.unit']).toBe('ms');
     expect(m.attributes['metric.rating']).toBe('good');
-    expect(m.attributes['metric.screen']).toBe('/home');
+    expect(m.attributes['screen.name']).toBe('/home');
   });
 
   it('does not use the legacy performance.* attribute keys', () => {
@@ -131,14 +131,14 @@ describe('registerVitalsCapture', () => {
     },
   );
 
-  it('metric.screen reflects the current route at emit time', () => {
+  it('screen.name reflects the current route at emit time', () => {
     currentRoute = '/products/42';
     callbacks.INP!({ ...baseMetric('INP'), value: 80 });
-    expect(recorded[0]!.attributes['metric.screen']).toBe('/products/42');
+    expect(recorded[0]!.attributes['screen.name']).toBe('/products/42');
 
     currentRoute = '/cart';
     callbacks.LCP!({ ...baseMetric('LCP'), value: 800 });
-    expect(recorded[1]!.attributes['metric.screen']).toBe('/cart');
+    expect(recorded[1]!.attributes['screen.name']).toBe('/cart');
   });
 
   it('all attribute values are primitives (string | number | boolean)', () => {
@@ -185,5 +185,19 @@ describe('registerVitalsCapture', () => {
     });
 
     expect(() => callbacks.CLS!({ ...baseMetric('CLS'), value: 0.05 })).not.toThrow();
+  });
+
+  it('hands off at once when the vital reports as the page hides (final LCP / CLS / INP)', () => {
+    for (const key of Object.keys(callbacks)) delete callbacks[key];
+    const g = globalThis as Record<string, unknown>;
+    g.document = { visibilityState: 'visible' };
+    const flush = vi.fn();
+    registerVitalsCapture({ recordMetric: () => {}, getCurrentRoute: () => '/', flush });
+    callbacks.FCP!({ ...baseMetric('FCP'), value: 100 });
+    expect(flush).not.toHaveBeenCalled();
+    g.document = { visibilityState: 'hidden' };
+    callbacks.CLS!({ ...baseMetric('CLS'), value: 0.1 });
+    expect(flush).toHaveBeenCalledTimes(1);
+    delete g.document;
   });
 });

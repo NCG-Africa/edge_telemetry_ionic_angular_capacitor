@@ -53,6 +53,10 @@ test('A2 plugin methods and args', async ({ page }) => {
     { method: 'configure', arg: { apiKey: 'edge_k', endpoint: 'https://ingest.example' } },
     // X10: the launch root, once.
     { method: 'setRoot', arg: { 'trace.id': expect.stringMatching(/^[0-9a-f]{32}$/), 'rum.action.id': expect.stringMatching(/^[0-9a-f]{16}$/), 'trace.root_type': 'launch' } },
+    // A5: navigation-timing phases the page already has, marked by init().
+    { method: 'markPhase', arg: { phase: 'responseEnd', ts: expect.any(Number) } },
+    { method: 'markPhase', arg: { phase: 'DOMContentLoaded', ts: expect.any(Number) } },
+    { method: 'markPhase', arg: { phase: 'load', ts: expect.any(Number) } },
     { method: 'markPhase', arg: { phase: 'markReady', ts: expect.any(Number) } },
     { method: 'markPhase', arg: { phase: 'bridgeReady', ts: expect.any(Number) } },
     // A3: new crumbs ride every hand-off.

@@ -12,6 +12,7 @@ export {
   __getCurrentRoute,
   __navigationSpan,
   __childSpan,
+  __touchRoot,
   __onRouteChange,
   __setLastNavigationMethod,
   __getLastNavigationMethod,

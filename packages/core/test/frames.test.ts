@@ -133,7 +133,7 @@ describe('registerFrameCapture (E20 frame.summary, ADR-030 windows)', () => {
 
   it('no-op when requestAnimationFrame is not available', () => {
     const recorded: Attrs[] = [];
-    const handle = registerFrameCapture({ record: (a) => recorded.push(a), getCurrentRoute: () => '/' });
+    const handle = registerFrameCapture({ record: (a) => recorded.push(a), getCurrentRoute: () => '/', onRouteChange: () => () => undefined });
     expect(() => handle.dispose()).not.toThrow();
     expect(recorded).toHaveLength(0);
   });

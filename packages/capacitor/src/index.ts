@@ -3,6 +3,7 @@ import {
   __getCurrentRoute,
   __onRouteChange,
   __recordEvent,
+  __touchRoot,
   defaultCaptures as coreDefaults,
   type Capture,
   type EventAttributes,
@@ -70,11 +71,12 @@ export const bridge = (): Capture => ({
       let t0 = 0;
       try {
         t0 = performance.now();
-        const span = __childSpan();
-        // One row per root: its keys belong to the calls made under it.
-        const key = `${String(span?.['parent.span.id'] ?? '')}\n${plugin}\n${method}`;
+        // One row per root + plugin + method: the root's child keys belong to the calls under it.
+        const root = __touchRoot();
+        const key = [root ?? '', plugin, method].join('\n');
         g = groups.get(key);
         if (!g) {
+          const span = root ? __childSpan() : undefined; // span ids only for a new row
           g = { service: String(plugin), action: String(method), ms: [], errors: 0, codes: new Set(), inflight: 0, span, start: t0, end: t0 };
           groups.set(key, g);
         }

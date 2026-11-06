@@ -7,7 +7,7 @@ export interface FramesDeps {
   getCurrentRoute: () => string;
   slowThresholdMs?: number;
   /** Subscribes to screen changes; a route change wakes an idle loop (E20). Returns the unsubscribe. */
-  onRouteChange?: (f: () => void) => () => void;
+  onRouteChange: (f: () => void) => () => void;
   // Test seams
   rafScheduler?: (cb: (timestamp: number) => void) => number;
   rafCanceller?: (handle: number) => void;
@@ -162,7 +162,7 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
 
   for (const type of ACTIVITY) target?.addEventListener(type, onActivity, LISTEN);
   doc?.addEventListener('visibilitychange', onVisibility);
-  const offRoute = deps.onRouteChange?.(onActivity);
+  const offRoute = deps.onRouteChange(onActivity);
   rafHandle = raf(tick);
 
   return {
@@ -171,7 +171,7 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
       // (disable / session end). Route changes already flush mid-loop.
       flushWindow();
       disposed = true;
-      offRoute?.();
+      offRoute();
       observer?.disconnect();
       for (const type of ACTIVITY) target?.removeEventListener(type, onActivity, LISTEN);
       doc?.removeEventListener('visibilitychange', onVisibility);

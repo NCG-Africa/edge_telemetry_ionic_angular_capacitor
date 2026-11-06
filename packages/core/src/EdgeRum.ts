@@ -5,7 +5,7 @@ import {
 import { healthMonitor } from './internal/health';
 import { crashAttributes, registerErrorCapture } from './instrumentation/errors';
 import { registerRequestCapture } from './instrumentation/requests';
-import { childSpan, clearRoot, navigationSpan, startTraces, traceRequest } from './traces';
+import { childSpan, clearRoot, navigationSpan, touchRoot, startTraces, traceRequest } from './traces';
 
 /** Traits passed to `identify()`. */
 export interface UserTraits {
@@ -265,6 +265,15 @@ export function __navigationSpan(): EventAttributes {
 export function __childSpan(): EventAttributes | undefined {
   try {
     return childSpan();
+  } catch {
+    return undefined;
+  }
+}
+
+/** X1: a plugin call started; extends the live root and returns its `span.id`, if any. */
+export function __touchRoot(): string | undefined {
+  try {
+    return touchRoot();
   } catch {
     return undefined;
   }

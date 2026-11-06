@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EdgeRum } from '@nathanclaire/rum';
 import { fakeNative } from './fake-native';
 
-import { EdgeRumErrorCapture, ERROR_ROUTE_PROVIDER } from '../src/ErrorCapture';
 import {
   IonicLifecycleCapture,
   LIFECYCLE_EVENT_SOURCE,
@@ -22,75 +21,12 @@ afterEach(() => {
 // InjectionToken exports
 // ---------------------------------------------------------------------------
 describe('InjectionToken exports', () => {
-  it('ERROR_ROUTE_PROVIDER is an InjectionToken', () => {
-    expect(ERROR_ROUTE_PROVIDER).toBeInstanceOf(InjectionToken);
-  });
-
-  it('ERROR_ROUTE_PROVIDER has a descriptive toString', () => {
-    expect(String(ERROR_ROUTE_PROVIDER)).toContain('ERROR_ROUTE_PROVIDER');
-  });
-
   it('LIFECYCLE_EVENT_SOURCE is an InjectionToken', () => {
     expect(LIFECYCLE_EVENT_SOURCE).toBeInstanceOf(InjectionToken);
   });
 
   it('LIFECYCLE_EVENT_SOURCE has a descriptive toString', () => {
     expect(String(LIFECYCLE_EVENT_SOURCE)).toContain('LIFECYCLE_EVENT_SOURCE');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// EdgeRumErrorCapture — DI-compatible constructor
-// ---------------------------------------------------------------------------
-describe('EdgeRumErrorCapture DI constructor', () => {
-  it('works with no arguments (simulates Angular DI with @Optional resolving to null)', () => {
-    const capture = new EdgeRumErrorCapture();
-    expect(capture).toBeInstanceOf(EdgeRumErrorCapture);
-  });
-
-  it('works with null argument (simulates Angular @Optional injection)', () => {
-    const capture = new EdgeRumErrorCapture(null);
-    expect(capture).toBeInstanceOf(EdgeRumErrorCapture);
-  });
-
-  it('falls back to window.location route when no provider injected', () => {
-    const spy = vi.spyOn(EdgeRum, 'captureError').mockImplementation(() => undefined);
-    const capture = new EdgeRumErrorCapture(null);
-
-    capture.handleError(new Error('test'));
-
-    const context = spy.mock.calls[0]![1] as Record<string, unknown>;
-    // In node environment window is undefined, so route falls back to ''
-    expect(context['error_context']).toBe('screen:');
-  });
-
-  it('uses injected route provider when given', () => {
-    const spy = vi.spyOn(EdgeRum, 'captureError').mockImplementation(() => undefined);
-    const customRoute = () => '/dashboard/settings';
-    const capture = new EdgeRumErrorCapture(customRoute);
-
-    capture.handleError(new Error('test'));
-
-    const context = spy.mock.calls[0]![1] as Record<string, unknown>;
-    expect(context['error_context']).toBe('screen:/dashboard/settings');
-  });
-
-  it('uses injected route provider over default for each error', () => {
-    const spy = vi.spyOn(EdgeRum, 'captureError').mockImplementation(() => undefined);
-    let currentRoute = '/page-a';
-    const dynamicRoute = () => currentRoute;
-    const capture = new EdgeRumErrorCapture(dynamicRoute);
-
-    capture.handleError(new Error('first'));
-    currentRoute = '/page-b';
-    capture.handleError(new Error('second'));
-
-    expect((spy.mock.calls[0]![1] as Record<string, unknown>)['error_context']).toBe(
-      'screen:/page-a',
-    );
-    expect((spy.mock.calls[1]![1] as Record<string, unknown>)['error_context']).toBe(
-      'screen:/page-b',
-    );
   });
 });
 

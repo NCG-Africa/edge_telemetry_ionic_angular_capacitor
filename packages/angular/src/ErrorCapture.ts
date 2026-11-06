@@ -1,7 +1,5 @@
-import { ErrorHandler, Inject, Injectable, InjectionToken, Optional } from '@angular/core';
-import { EdgeRum } from '@nathanclaire/rum';
-
-export const ERROR_ROUTE_PROVIDER = new InjectionToken<() => string>('ERROR_ROUTE_PROVIDER');
+import type { ErrorHandler } from '@angular/core';
+import { EdgeRum, __getCurrentRoute } from '@nathanclaire/rum';
 
 const TEMPLATE_PATTERN = /([A-Z][A-Za-z0-9_]*)_Template_/;
 const HOST_BINDING_PATTERN = /([A-Z][A-Za-z0-9_]*)_HostBindings/;
@@ -40,32 +38,19 @@ function toError(value: unknown): Error {
   return new Error('Unknown error');
 }
 
-function currentRoute(): string {
-  if (typeof window !== 'undefined' && window.location) {
-    return `${window.location.pathname}${window.location.search}`;
-  }
-  return '';
-}
-
-@Injectable()
-export class EdgeRumErrorCapture extends ErrorHandler {
-  private readonly routeProvider: () => string;
-
-  constructor(
-    @Optional() @Inject(ERROR_ROUTE_PROVIDER) routeProvider?: (() => string) | null,
-  ) {
-    super();
-    this.routeProvider = routeProvider ?? currentRoute;
-  }
-
-  override handleError(error: unknown): void {
+/**
+ * C7: wraps whatever `ErrorHandler` DI resolved — the host's, or Angular's default — so the host
+ * handler keeps running whichever order the providers were listed in. Replacing it (4.x) lost one.
+ */
+export function chainErrorHandler(host: ErrorHandler, route: () => string = __getCurrentRoute): void {
+  const next = host.handleError.bind(host);
+  host.handleError = (error: unknown): void => {
     try {
       const err = toError(error);
       const component = extractComponentName(err.stack);
-      const route = this.routeProvider();
       const context: Record<string, string | number | boolean> = {
         cause: 'AngularError',
-        error_context: `screen:${route}`,
+        error_context: `screen:${route()}`,
         handled: true,
       };
       if (component !== null) {
@@ -75,6 +60,6 @@ export class EdgeRumErrorCapture extends ErrorHandler {
     } catch {
       // Never let capture path break the host app.
     }
-    super.handleError(error);
-  }
+    next(error);
+  };
 }

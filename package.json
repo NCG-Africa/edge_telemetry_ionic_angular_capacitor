@@ -14,6 +14,7 @@
     "test:android": "gradle -p packages/capacitor/android/core-test test",
     "test:ios": "swift test --package-path packages/capacitor/ios/core-test",
     "test:integration": "pnpm build && node e2e/build-harness.mjs && playwright test",
+    "e2e:device": "sh -c 'scripts/demo-build.sh $0 && node e2e/device/gate.mjs $0'",
     "size": "size-limit",
     "terminology-check": "node scripts/terminology-check.mjs",
     "attribute-flatness-check": "node scripts/attribute-flatness-check.mjs",

@@ -90,6 +90,8 @@ export const state = {
   options: {} as EdgeRumOptions,
   globals: {} as EventAttributes,
   route: '/',
+  /** E25 dead taps: bumped by every navigation and request. */
+  activity: 0,
   /** Native S1 decision; `false` = no `traceparent` (X5). */
   sampled: undefined as boolean | undefined,
   /** X8 Tier-2 keys (`trace.id`, `rum.action.id`, `trace.root_type`) of the live trace root, if any. */
@@ -153,7 +155,7 @@ export function record(e: EdgeRumEvent): void {
   if (e.eventName === 'app.crash' && state.options.release) e.attributes.release = state.options.release;
   if (e.eventName && e.eventName !== 'app.crash') {
     const a = e.attributes;
-    const name = a['navigation.to_screen'] ?? a['screen.name'] ?? a['http.url'] ?? a['event.name'] ?? e.eventName;
+    const name = a['navigation.to_screen'] ?? a['screen.name'] ?? a['ui.target'] ?? a['http.url'] ?? a['event.name'] ?? e.eventName;
     breadcrumbs.push({ ts: e.timestamp, type: e.eventName, name: String(name) });
   }
   buffer.push(e);

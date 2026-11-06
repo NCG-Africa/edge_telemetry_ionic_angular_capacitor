@@ -101,7 +101,7 @@ export const EdgeRum = {
         recordEvent: event,
         ignoreUrls: [...(opts.endpoint ? [opts.endpoint] : []), ...(opts.ignoreUrls ?? [])],
         sanitizeUrl: opts.sanitizeUrl,
-        trace: traceRequest,
+        trace: (...a) => (state.activity++, traceRequest(...a)), // E25: a request answers a tap
       });
       for (const c of opts.captures ?? []) {
         try {
@@ -240,6 +240,7 @@ export const EdgeRum = {
 export const __recordEvent = (eventName: string, attributes: EventAttributes): void => event(eventName, attributes);
 
 export function __setCurrentRoute(route: string): void {
+  state.activity++;
   if (route !== state.route) for (const f of routeListeners) f();
   state.route = route;
   call('setLastScreen', { screen: route });
@@ -249,6 +250,7 @@ export const __getCurrentRoute = route;
 
 /** X2 / X8: Router `NavigationStart` — Tier-1 keys for the `navigation` event. */
 export function __navigationSpan(): EventAttributes {
+  state.activity++; // E25: a navigation answers a tap now, not when it is reported
   try {
     return navigationSpan();
   } catch {

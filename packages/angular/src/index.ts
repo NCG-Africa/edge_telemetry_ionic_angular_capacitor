@@ -4,3 +4,4 @@ export type {
 
 export { EdgeRumService } from './EdgeRumService';
 export { EdgeRumModule, provideEdgeRum } from './EdgeRumModule';
+export { ionicUi } from './ionicUi';

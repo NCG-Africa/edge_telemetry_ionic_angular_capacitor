@@ -1,4 +1,4 @@
-import { event, metric, route, routeListeners, state, type Capture } from './core';
+import { flush, metric, record, route, routeListeners, state, type Capture } from './core';
 import { registerConsoleErrorCapture } from './instrumentation/errors';
 import { registerFrameCapture } from './instrumentation/frames';
 import { registerInteractionCapture } from './instrumentation/interactions';
@@ -18,7 +18,13 @@ export const vitals = (): Capture => ({
 /** Taps and clicks. */
 export const interactions = (): Capture => ({
   name: 'interactions',
-  start: () => registerInteractionCapture({ recordEvent: event, getCurrentRoute: route, mintRoot: interactionRoot }).dispose,
+  start: () => registerInteractionCapture({
+    record: (attributes, timestamp) => record({ type: 'event', eventName: 'ui.interaction', timestamp, attributes }),
+    getCurrentRoute: route,
+    mintRoot: interactionRoot,
+    activity: () => state.activity,
+    flush,
+  }).dispose,
 });
 
 /** Rendering smoothness. `slowThresholdMs`: a frame slower than this counts as slow. */

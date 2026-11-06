@@ -36,7 +36,8 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { browserName: 'chromium' },
+      // Local runs use the installed Google Chrome: no browser download. CI keeps Playwright's chromium.
+      use: { browserName: 'chromium', channel: process.env.CI ? undefined : 'chrome' },
     },
   ],
 });

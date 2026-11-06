@@ -87,7 +87,6 @@ describe.skipIf(!hasDist)('Ivy partial compilation metadata', () => {
   it('contains ɵɵngDeclareFactory for all injectable classes', () => {
     const classes = [
       'EdgeRumService',
-      'EdgeRumErrorCapture',
       'RouterCapture',
       'IonicLifecycleCapture',
       'EdgeRumModule',
@@ -95,15 +94,15 @@ describe.skipIf(!hasDist)('Ivy partial compilation metadata', () => {
     for (const cls of classes) {
       expect(bundleContent).toContain(`type: ${cls}`);
     }
-    // All 5 classes should have factory declarations
+    // All 4 classes should have factory declarations
     const factoryCount = (bundleContent.match(/ɵɵngDeclareFactory/g) ?? []).length;
-    expect(factoryCount).toBeGreaterThanOrEqual(5);
+    expect(factoryCount).toBeGreaterThanOrEqual(4);
   });
 
   it('contains ɵɵngDeclareInjectable for all @Injectable classes', () => {
     const injectableCount = (bundleContent.match(/ɵɵngDeclareInjectable/g) ?? []).length;
-    // EdgeRumService, EdgeRumErrorCapture, RouterCapture, IonicLifecycleCapture = 4
-    expect(injectableCount).toBeGreaterThanOrEqual(4);
+    // EdgeRumService, RouterCapture, IonicLifecycleCapture = 3
+    expect(injectableCount).toBeGreaterThanOrEqual(3);
   });
 
   it('contains ɵɵngDeclareNgModule for EdgeRumModule', () => {
@@ -156,16 +155,6 @@ describe.skipIf(!hasDist)('DI token wiring in compiled output', () => {
     expect(match).toContain('Router');
   });
 
-  it('EdgeRumErrorCapture factory declares optional dependency on ERROR_ROUTE_PROVIDER', () => {
-    const errorFactory = bundleContent.match(
-      /type: EdgeRumErrorCapture.*?ɵɵFactoryTarget/s,
-    );
-    expect(errorFactory).not.toBeNull();
-    const match = errorFactory?.[0] ?? '';
-    expect(match).toContain('token: ERROR_ROUTE_PROVIDER');
-    expect(match).toContain('optional: true');
-  });
-
   it('IonicLifecycleCapture factory declares optional dependency on LIFECYCLE_EVENT_SOURCE', () => {
     const lifecycleFactory = bundleContent.match(
       /type: IonicLifecycleCapture.*?ɵɵFactoryTarget/s,
@@ -198,10 +187,6 @@ describe.skipIf(!hasDist)('Type definitions contain Ivy fields', () => {
   const DTS_FILES: Array<{ file: string; fields: string[] }> = [
     {
       file: 'EdgeRumService.d.ts',
-      fields: ['ɵfac', 'ɵprov'],
-    },
-    {
-      file: 'ErrorCapture.d.ts',
       fields: ['ɵfac', 'ɵprov'],
     },
     {

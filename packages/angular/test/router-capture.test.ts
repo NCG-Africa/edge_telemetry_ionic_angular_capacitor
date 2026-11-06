@@ -17,7 +17,15 @@ const EVENT_TYPE = {
   NavigationEnd: 1,
   NavigationCancel: 2,
   NavigationError: 3,
+  ResolveStart: 5,
+  ResolveEnd: 6,
+  GuardsCheckStart: 7,
+  GuardsCheckEnd: 8,
+  RouteConfigLoadStart: 9,
+  RouteConfigLoadEnd: 10,
 } as const;
+
+const phase = (type: number): RouterEvent => ({ type }) as unknown as RouterEvent;
 
 interface FakeSnapshotInput {
   readonly path?: string;
@@ -338,6 +346,51 @@ describe('RouterCapture', () => {
     expect(serialised).not.toContain('resourceSpans');
     expect(serialised).not.toContain('instrumentationScope');
     expect(serialised).not.toContain('opentelemetry');
+  });
+
+  it('stamps navigation.{guards_ms,resolvers_ms,chunk_load_ms} from router phases (E19)', () => {
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
+    let t = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => t);
+    const harness = createFakeRouter();
+    new RouterCapture(harness.router);
+
+    harness.setRoute('/shop', makeSnapshot({ path: 'shop' }));
+    harness.events.next(navStart(1, '/shop'));
+    // Two nested lazy loads (parent + child module) overlap: 10..40 is 30 ms, not 50.
+    t = 10; harness.events.next(phase(EVENT_TYPE.RouteConfigLoadStart));
+    t = 20; harness.events.next(phase(EVENT_TYPE.RouteConfigLoadStart));
+    t = 30; harness.events.next(phase(EVENT_TYPE.RouteConfigLoadEnd));
+    t = 40; harness.events.next(phase(EVENT_TYPE.RouteConfigLoadEnd));
+    t = 50; harness.events.next(phase(EVENT_TYPE.GuardsCheckStart));
+    t = 62.4; harness.events.next(phase(EVENT_TYPE.GuardsCheckEnd));
+    t = 70; harness.events.next(phase(EVENT_TYPE.ResolveStart));
+    t = 95; harness.events.next(phase(EVENT_TYPE.ResolveEnd));
+    harness.events.next(navEnd(1, '/shop'));
+
+    expect(callsByName(trackSpy, 'navigation')[0]![1]).toMatchObject({
+      'navigation.chunk_load_ms': 30,
+      'navigation.guards_ms': 12,
+      'navigation.resolvers_ms': 25,
+    });
+  });
+
+  it('omits phase keys a navigation never ran or never finished, and ignores phases outside a navigation (preloading)', () => {
+    const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
+    const harness = createFakeRouter();
+    new RouterCapture(harness.router);
+
+    harness.events.next(phase(EVENT_TYPE.RouteConfigLoadStart));
+    harness.events.next(phase(EVENT_TYPE.RouteConfigLoadEnd));
+    harness.setRoute('/home', makeSnapshot({ path: 'home' }));
+    harness.events.next(navStart(1, '/home'));
+    harness.events.next(phase(EVENT_TYPE.GuardsCheckStart));
+    harness.events.next(navCancel(1, '/home'));
+
+    const attrs = callsByName(trackSpy, 'navigation')[0]![1]!;
+    expect(attrs).not.toHaveProperty('navigation.chunk_load_ms');
+    expect(attrs).not.toHaveProperty('navigation.guards_ms');
+    expect(attrs).not.toHaveProperty('navigation.resolvers_ms');
   });
 
   it('unsubscribes on destroy so no further events are processed', () => {

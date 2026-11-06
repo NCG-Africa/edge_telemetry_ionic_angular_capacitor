@@ -1,9 +1,16 @@
 import { ErrorHandler } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { EdgeRum, type EdgeRumOptions } from '@nathanclaire/rum';
+import { EdgeRum, __setCurrentRoute, type EdgeRumOptions } from '@nathanclaire/rum';
 
-import { EdgeRumErrorCapture } from '../src/ErrorCapture';
+import { chainErrorHandler } from '../src/ErrorCapture';
+
+/** A host handler (Angular's default here) with the SDK chained in front of it. */
+function chained(route: () => string): ErrorHandler {
+  const host = new ErrorHandler();
+  chainErrorHandler(host, route);
+  return host;
+}
 
 const VALID_CONFIG: EdgeRumOptions = {
   apiKey: 'edge_test_key',
@@ -22,15 +29,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('EdgeRumErrorCapture', () => {
-  it('extends Angular ErrorHandler', () => {
-    const capture = new EdgeRumErrorCapture(route(""));
-    expect(capture).toBeInstanceOf(ErrorHandler);
-  });
-
+describe('chainErrorHandler', () => {
   it('calls EdgeRum.captureError with handled:true and AngularError cause', () => {
     const spy = vi.spyOn(EdgeRum, 'captureError').mockImplementation(() => undefined);
-    const capture = new EdgeRumErrorCapture(route('/products/42'));
+    const capture = chained(route('/products/42'));
     const err = new Error('boom');
 
     capture.handleError(err);
@@ -53,7 +55,7 @@ describe('EdgeRumErrorCapture', () => {
       '    at ProductDetailComponent_Template_div_click_0_listener (main.js:42:10)',
       '    at HostListener (core.mjs:1:1)',
     ].join('\n');
-    const capture = new EdgeRumErrorCapture(route(""));
+    const capture = chained(route(""));
 
     capture.handleError(err);
 
@@ -65,7 +67,7 @@ describe('EdgeRumErrorCapture', () => {
     const spy = vi.spyOn(EdgeRum, 'captureError').mockImplementation(() => undefined);
     const err = new Error('plain');
     err.stack = 'Error: plain\n    at anonymous (app.js:1:1)';
-    const capture = new EdgeRumErrorCapture(route(""));
+    const capture = chained(route(""));
 
     capture.handleError(err);
 
@@ -73,22 +75,25 @@ describe('EdgeRumErrorCapture', () => {
     expect(context['component']).toBeUndefined();
   });
 
-  it('uses empty screen route when router is not available', () => {
+  it('uses the normalised current route by default, never the raw URL', () => {
     const spy = vi.spyOn(EdgeRum, 'captureError').mockImplementation(() => undefined);
-    const capture = new EdgeRumErrorCapture(route(""));
+    __setCurrentRoute('/products/:id');
+    const host = new ErrorHandler();
+    chainErrorHandler(host);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-    capture.handleError(new Error('no router'));
+    host.handleError(new Error('default route'));
 
     const context = spy.mock.calls[0]![1] as Record<string, unknown>;
-    expect(context['error_context']).toBe('screen:');
+    expect(context['error_context']).toBe('screen:/products/:id');
   });
 
-  it('forwards to base ErrorHandler so Angular still logs', () => {
+  it('forwards to the host ErrorHandler so it still runs', () => {
     vi.spyOn(EdgeRum, 'captureError').mockImplementation(() => undefined);
     const superSpy = vi
       .spyOn(ErrorHandler.prototype, 'handleError')
       .mockImplementation(() => undefined);
-    const capture = new EdgeRumErrorCapture(route(""));
+    const capture = chained(route(""));
     const err = new Error('boom');
 
     capture.handleError(err);
@@ -97,14 +102,14 @@ describe('EdgeRumErrorCapture', () => {
     expect(superSpy).toHaveBeenCalledWith(err);
   });
 
-  it('still forwards to base handler when captureError throws', () => {
+  it('still forwards to the host handler when captureError throws', () => {
     vi.spyOn(EdgeRum, 'captureError').mockImplementation(() => {
       throw new Error('internal fail');
     });
     const superSpy = vi
       .spyOn(ErrorHandler.prototype, 'handleError')
       .mockImplementation(() => undefined);
-    const capture = new EdgeRumErrorCapture(route(""));
+    const capture = chained(route(""));
     const err = new Error('boom');
 
     expect(() => capture.handleError(err)).not.toThrow();
@@ -113,7 +118,7 @@ describe('EdgeRumErrorCapture', () => {
 
   it('wraps non-Error values into Error instances', () => {
     const spy = vi.spyOn(EdgeRum, 'captureError').mockImplementation(() => undefined);
-    const capture = new EdgeRumErrorCapture(route(""));
+    const capture = chained(route(""));
 
     capture.handleError('something went wrong');
 
@@ -124,7 +129,7 @@ describe('EdgeRumErrorCapture', () => {
 
   it('unwraps error-like objects preserving message and stack', () => {
     const spy = vi.spyOn(EdgeRum, 'captureError').mockImplementation(() => undefined);
-    const capture = new EdgeRumErrorCapture(route(""));
+    const capture = chained(route(""));
     const stack =
       'Error\n    at CheckoutComponent_Template_button_click_1_listener (main.js:99:1)';
 
@@ -138,7 +143,7 @@ describe('EdgeRumErrorCapture', () => {
 
   it('produces a context whose values are only primitives', () => {
     const spy = vi.spyOn(EdgeRum, 'captureError').mockImplementation(() => undefined);
-    const capture = new EdgeRumErrorCapture(route('/home'));
+    const capture = chained(route('/home'));
     const err = new Error('x');
     err.stack = 'Error: x\n    at LoginComponent_Template_ (main.js:1:1)';
 

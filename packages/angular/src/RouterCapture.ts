@@ -19,7 +19,26 @@ const EVENT_TYPE = {
   NavigationEnd: 1,
   NavigationCancel: 2,
   NavigationError: 3,
+  ResolveStart: 5,
+  ResolveEnd: 6,
+  GuardsCheckStart: 7,
+  GuardsCheckEnd: 8,
+  RouteConfigLoadStart: 9,
+  RouteConfigLoadEnd: 10,
 } as const;
+
+/** E19: router event type → phase key and open (+1) / close (-1). */
+const PHASES: Readonly<Record<number, readonly [string, 1 | -1]>> = {
+  [EVENT_TYPE.GuardsCheckStart]: ['navigation.guards_ms', 1],
+  [EVENT_TYPE.GuardsCheckEnd]: ['navigation.guards_ms', -1],
+  [EVENT_TYPE.ResolveStart]: ['navigation.resolvers_ms', 1],
+  [EVENT_TYPE.ResolveEnd]: ['navigation.resolvers_ms', -1],
+  [EVENT_TYPE.RouteConfigLoadStart]: ['navigation.chunk_load_ms', 1],
+  [EVENT_TYPE.RouteConfigLoadEnd]: ['navigation.chunk_load_ms', -1],
+};
+
+/** Wall time a phase was open; nested lazy loads overlap, so it counts open-depth, not pairs. */
+interface Phase { depth: number; openedAt: number; ms: number }
 
 function normaliseRoute(root: ActivatedRouteSnapshot): string {
   const segments: string[] = [];
@@ -68,6 +87,7 @@ interface PendingNav {
   readonly replaceUrl: boolean;
   /** X2 / X8: minted (or joined) at NavigationStart, stamped on the `navigation` event. */
   readonly span: EventAttributes;
+  readonly phases: Record<string, Phase>;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -96,6 +116,7 @@ export class RouterCapture implements OnDestroy {
           trigger: start.navigationTrigger,
           replaceUrl: this.router.getCurrentNavigation()?.extras?.replaceUrl === true,
           span: __navigationSpan(),
+          phases: {},
         };
         return;
       }
@@ -111,8 +132,22 @@ export class RouterCapture implements OnDestroy {
         this.emitNavigationError(event as NavigationError);
         return;
       }
-      default:
+      default: {
+        const phase = PHASES[event.type];
+        // Outside a navigation (preloading) there is nothing to attribute the time to.
+        if (phase && this.pending) this.trackPhase(this.pending, ...phase);
         return;
+      }
+    }
+  }
+
+  private trackPhase(nav: PendingNav, key: string, step: 1 | -1): void {
+    const t = performance.now();
+    const p = (nav.phases[key] ??= { depth: 0, openedAt: t, ms: 0 });
+    if (step === 1) {
+      if (p.depth++ === 0) p.openedAt = t;
+    } else if (p.depth > 0 && --p.depth === 0) {
+      p.ms += t - p.openedAt;
     }
   }
 
@@ -142,6 +177,10 @@ export class RouterCapture implements OnDestroy {
       'navigation.has_arguments': hasArguments(url, root),
       'navigation.timestamp': new Date().toISOString(),
     };
+    for (const [key, p] of Object.entries(this.pending?.phases ?? {})) {
+      // Still open (cancelled mid-phase): leave the key out — the backend column is nullable (G4).
+      if (p.depth === 0) navAttrs[key] = Math.round(p.ms);
+    }
     if (this.previousRoute !== null) {
       navAttrs['navigation.from_screen'] = this.previousRoute;
     }

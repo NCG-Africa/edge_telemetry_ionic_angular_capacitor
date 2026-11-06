@@ -5,13 +5,14 @@ import {
   NgModule,
   NgZone,
   Optional,
+  makeEnvironmentProviders,
+  type EnvironmentProviders,
   type ModuleWithProviders,
-  type Provider,
 } from '@angular/core';
 import { EdgeRum, type EdgeRumOptions } from '@nathanclaire/rum';
 import { defaultCaptures } from '@nathanclaire/rum-capacitor';
 
-import { EdgeRumErrorCapture } from './ErrorCapture';
+import { chainErrorHandler } from './ErrorCapture';
 import { EdgeRumService } from './EdgeRumService';
 import { RouterCapture } from './RouterCapture';
 import { IonicLifecycleCapture } from './IonicLifecycleCapture';
@@ -24,13 +25,18 @@ export function edgeRumInitializerFactory(
   // Injected to force instantiation — constructors subscribe to Router/Ionic events
   _router: RouterCapture, // eslint-disable-line @typescript-eslint/no-unused-vars
   _lifecycle: IonicLifecycleCapture | null, // eslint-disable-line @typescript-eslint/no-unused-vars
+  errorHandler: ErrorHandler | null = null,
 ): () => void {
-  // A8: SDK listeners and timers never trigger change detection.
-  return () => zone.runOutsideAngular(() => EdgeRum.init({ captures: defaultCaptures(), ...config }));
+  return () => {
+    if (errorHandler) chainErrorHandler(errorHandler);
+    // A8: SDK listeners and timers never trigger change detection.
+    zone.runOutsideAngular(() => EdgeRum.init({ captures: defaultCaptures(), ...config }));
+  };
 }
 
-function buildProviders(config: EdgeRumOptions): Provider[] {
-  return [
+/** C7: primary setup. `EdgeRumModule.forRoot` wraps it. */
+export function provideEdgeRum(config: EdgeRumOptions = {}): EnvironmentProviders {
+  return makeEnvironmentProviders([
     { provide: EDGE_RUM_CONFIG, useValue: config },
     EdgeRumService,
     RouterCapture,
@@ -38,11 +44,16 @@ function buildProviders(config: EdgeRumOptions): Provider[] {
     {
       provide: APP_INITIALIZER,
       useFactory: edgeRumInitializerFactory,
-      deps: [EDGE_RUM_CONFIG, NgZone, RouterCapture, [new Optional(), IonicLifecycleCapture]],
+      deps: [
+        EDGE_RUM_CONFIG,
+        NgZone,
+        RouterCapture,
+        [new Optional(), IonicLifecycleCapture],
+        [new Optional(), ErrorHandler],
+      ],
       multi: true,
     },
-    { provide: ErrorHandler, useClass: EdgeRumErrorCapture },
-  ];
+  ]);
 }
 
 @NgModule({})
@@ -50,11 +61,8 @@ export class EdgeRumModule {
   static forRoot(config: EdgeRumOptions = {}): ModuleWithProviders<EdgeRumModule> {
     return {
       ngModule: EdgeRumModule,
-      providers: buildProviders(config),
+      providers: [provideEdgeRum(config)],
     };
   }
 }
 
-export function provideEdgeRum(config: EdgeRumOptions = {}): Provider[] {
-  return buildProviders(config);
-}

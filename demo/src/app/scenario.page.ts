@@ -27,6 +27,7 @@ import { DemoScenarios, later, type Scenario } from './scenarios';
   `,
 })
 export class ScenarioPage implements OnInit {
+  // Every scenario route's path is its scenario (routes.ts).
   readonly name = inject(ActivatedRoute).snapshot.routeConfig?.path as Scenario;
   status = 'running';
   private readonly http = inject(HttpClient);

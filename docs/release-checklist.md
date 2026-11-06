@@ -38,10 +38,10 @@ Every batch must also have: `Content-Encoding: gzip`, `sdk.name = ionic`, `contr
 
 | Scenario | Do | Expect | Android | iOS |
 |---|---|---|---|---|
-| `happy` | Tap it | `session.started`, `app.start` with phase keys incl. `app.start.bridge_ready_ms`, `navigation` to `/happy` with `navigation.{guards_ms,resolvers_ms,chunk_load_ms}`, `http.request` for `ping.json` with `traceparent.outcome = injected_*`, `bridge.summary` with `bridge.service = DemoScenarios` | [ ] | [ ] |
+| `happy` | Tap it | `session.started`, `app.start` with phase keys incl. `app.start.bridge_ready_ms`, `navigation` to `/happy` with `navigation.{guards_ms,resolvers_ms,chunk_load_ms}`, `http.request` for `ping.json` with `traceparent.outcome = injected_*`, `bridge.summary` for `DemoScenarios` / `slow` | [ ] | [ ] |
 | `js-error` | Tap it | `app.crash` with `handled=false`, `is_fatal=true`, `runtime=webview`, frames as `app:///…`, `crash.breadcrumbs` | [ ] | [ ] |
 | `native-crash` | Tap it (the app dies), then open the app again | On relaunch: `app.crash` from the native handler, alone in its batch (no `sdk.health`), with the native breadcrumbs | [ ] | [ ] |
-| `renderer-kill` | Tap it | `app.crash` with `cause=WebViewTerminated`, `screen_name=/renderer-kill`; Android `webview.detected_by=callback`, iOS `detected_by=inference` (if the app shows a blank page, open it again) | [ ] | [ ] |
+| `renderer-kill` | Tap it | `app.crash` with `cause=WebViewTerminated`, `screen_name=/renderer-kill`; Android `webview.detected_by=callback`, iOS `webview.detected_by=inference` (if the app shows a blank page, open it again) | [ ] | [ ] |
 | `hang` | Tap it, keep the app open for 7 s | Android: `app.anr` (≥ 5 s) and `app.hang`; iOS: `app.hang` (≥ 2 s) | [ ] | [ ] |
 | `slow-bridge` | Tap it, then go back | `bridge.summary` for `DemoScenarios` / `slow` with `bridge.max_ms` ≥ 1500. No `bridge.call` (E18) | [ ] | [ ] |
 | `offline` | No toggle in the app: turn on airplane mode, tap it, background the app, turn airplane mode off, open the app | Nothing arrives while offline; afterwards the 30 `custom_event`s (`event.name=offline.burst`) arrive once each (offline replay, R12) | [ ] | [ ] |

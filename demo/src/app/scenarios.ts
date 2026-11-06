@@ -17,3 +17,4 @@ export const SCENARIOS = [
   'offline', 'rage-tap', 'mark-ready', 'task', 'caps',
 ] as const;
 export type Scenario = (typeof SCENARIOS)[number];
+export const isScenario = (s: unknown): s is Scenario => SCENARIOS.includes(s as Scenario);

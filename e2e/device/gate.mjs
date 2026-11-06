@@ -124,12 +124,14 @@ try {
 
   // E6 + X7: the demo fetches ping.json only through HttpClient's XHR backend, to the allowlisted
   // app origin (localhost), so its row proves XHR capture and records the traceparent injection.
-  const ping = named(reqs, 'http.request').find((e) => e.attributes['http.url'].endsWith('/ping.json'));
+  const ping = named(reqs, 'http.request').find((e) => String(e.attributes['http.url']).endsWith('/ping.json'));
   assert.ok(ping, 'no http.request for ping.json');
   assert.match(String(ping.attributes['traceparent.outcome']), /^injected_/, 'ping.json carried no traceparent');
   assert.match(String(ping.attributes['trace.id']), /^[0-9a-f]{32}$/);
 
-  assert.ok(named(reqs, 'bridge.summary').some((e) => e.attributes['bridge.service'] === 'DemoScenarios'), 'no bridge.summary for DemoScenarios');
+  // `slow`, not `listen`: the app calls `listen` on every launch, whatever the scenario.
+  const timed = (e) => e.attributes['bridge.service'] === 'DemoScenarios' && e.attributes['bridge.action'] === 'slow';
+  assert.ok(named(reqs, 'bridge.summary').some(timed), 'no bridge.summary for DemoScenarios.slow');
   console.log(`[gate] ${platform} OK`);
 } catch (e) {
   console.error(`[gate] ${platform} FAILED`, e);

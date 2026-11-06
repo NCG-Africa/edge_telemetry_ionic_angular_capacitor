@@ -87,7 +87,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && url.pathname === '/__status') {
-    state.status = Number(url.searchParams.get('code') ?? 200);
+    state.status = Number(url.searchParams.get('code')) || 200;
     writeJson(res, 200, { ok: true });
     return;
   }

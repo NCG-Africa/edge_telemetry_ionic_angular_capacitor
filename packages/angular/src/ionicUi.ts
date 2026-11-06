@@ -8,8 +8,13 @@ export const ionicUi = (): Capture => ({
   name: 'ionicUi',
   start: () => {
     if (typeof document === 'undefined') return;
-    const emit = (type: string, target: string) =>
-      __recordEvent('ui.interaction', { 'ui.type': type, 'ui.target': target, 'ui.screen': __getCurrentRoute() });
+    const emit = (type: string, target: string) => {
+      try {
+        __recordEvent('ui.interaction', { 'ui.type': type, 'ui.target': target, 'ui.screen': __getCurrentRoute() });
+      } catch {
+        // Never let capture break the app's own handlers.
+      }
+    };
     const tagOf = (t: EventTarget | null) => (t as Element | null)?.tagName?.toLowerCase();
     // Capture phase: `ionTabsDidChange` doesn't bubble.
     const on: [EventTarget, string, (e: Event) => void][] = [

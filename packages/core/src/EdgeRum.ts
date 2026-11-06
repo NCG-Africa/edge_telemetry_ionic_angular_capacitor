@@ -101,7 +101,8 @@ export const EdgeRum = {
         recordEvent: event,
         ignoreUrls: [...(opts.endpoint ? [opts.endpoint] : []), ...(opts.ignoreUrls ?? [])],
         sanitizeUrl: opts.sanitizeUrl,
-        trace: (...a) => (state.activity++, traceRequest(...a)), // E25: a request answers a tap
+        trace: traceRequest,
+        onSend: () => state.activity++,
       });
       for (const c of opts.captures ?? []) {
         try {
@@ -240,8 +241,10 @@ export const EdgeRum = {
 export const __recordEvent = (eventName: string, attributes: EventAttributes): void => event(eventName, attributes);
 
 export function __setCurrentRoute(route: string): void {
-  state.activity++;
-  if (route !== state.route) for (const f of routeListeners) f();
+  if (route !== state.route) {
+    state.activity++; // E25: a navigation answers a tap
+    for (const f of routeListeners) f();
+  }
   state.route = route;
   call('setLastScreen', { screen: route });
 }

@@ -19,7 +19,9 @@ export const vitals = (): Capture => ({
 export const interactions = (): Capture => ({
   name: 'interactions',
   start: () => registerInteractionCapture({
-    record: (attributes, timestamp) => record({ type: 'event', eventName: 'ui.interaction', timestamp, attributes }),
+    record: (attributes, timestamp) => record({ type: 'event', eventName: 'ui.interaction', timestamp, attributes }, false),
+    // P6: the crumb is left at the tap, so an error the tap causes carries it.
+    breadcrumb: (name) => state.enabled && breadcrumbs.push({ ts: new Date().toISOString(), type: 'ui.interaction', name }),
     getCurrentRoute: route,
     mintRoot: interactionRoot,
     activity: () => state.activity,

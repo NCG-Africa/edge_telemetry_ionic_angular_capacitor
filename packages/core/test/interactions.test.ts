@@ -219,3 +219,15 @@ describe('E25 rage / dead', () => {
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
   });
 });
+
+describe('P6 breadcrumb', () => {
+  it('is left at the tap, before its dead window ends', () => {
+    html('<button class="b">Pay 100</button>');
+    dispose();
+    const crumbs: string[] = [];
+    start({ breadcrumb: (n: string) => crumbs.push(n) } as never);
+    tap('.b');
+    expect(crumbs).toEqual(['click Pay ###']);
+    expect(recorded).toHaveLength(0);
+  });
+});

@@ -19,6 +19,8 @@ export interface RequestsDeps {
   sanitizeUrl?: (url: string) => string;
   /** X3: trace decision at send — the `traceparent` to write and the row's trace keys. */
   trace?: (url: string, consumer: string | null | undefined, noCors: boolean) => RequestTrace | undefined;
+  /** E25 dead taps: every send, ignored URLs included, answers a tap. */
+  onSend?: () => void;
   target?: typeof globalThis;
 }
 
@@ -106,6 +108,7 @@ export function registerRequestCapture(deps: RequestsDeps): RequestsHandle {
     const patchedFetch: typeof fetch = async (input, init) => {
       const req = typeof Request !== 'undefined' && input instanceof Request ? input : undefined;
       const url = resolve(req ? req.url : String(input));
+      deps.onSend?.();
 
       if (shouldIgnore(url, ignoreUrls)) {
         return originalFetch(input, init);
@@ -171,6 +174,7 @@ export function registerRequestCapture(deps: RequestsDeps): RequestsHandle {
 
     const patchedSend = function (this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null): void {
       const req = pending.get(this);
+      deps.onSend?.();
       const ignored = !req || shouldIgnore(req.url, ignoreUrls);
       let trace: RequestTrace | undefined;
       try {

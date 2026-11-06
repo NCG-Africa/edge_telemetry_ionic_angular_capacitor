@@ -4,6 +4,8 @@ import { healthMonitor } from '../internal/health';
 export interface InteractionsDeps {
   /** One `ui.interaction`, stamped `at` the tap (not at the end of its dead window). */
   record: (attributes: EventAttributes, at: string) => void;
+  /** P6: `<ui.type> <ui.target>`, left at the tap. */
+  breadcrumb?: (name: string) => void;
   getCurrentRoute: () => string;
   /** X2: mint the `interaction` root (before the app's handler: capture phase); its Tier-1 keys. */
   mintRoot?: () => EventAttributes;
@@ -86,8 +88,10 @@ export function registerInteractionCapture(deps: InteractionsDeps): Interactions
 
       const [label, source] = nameOf(target, el);
       const at = new Date().toISOString();
+      const type = (ev as PointerEvent).pointerType === 'touch' || t - touchedAt < WINDOW_MS ? 'tap' : 'click';
+      deps.breadcrumb?.(`${type} ${label}`);
       const attrs: EventAttributes = {
-        'ui.type': (ev as PointerEvent).pointerType === 'touch' || t - touchedAt < WINDOW_MS ? 'tap' : 'click',
+        'ui.type': type,
         'ui.target': label,
         'ui.name_source': source,
         'ui.x': Math.round(ev.clientX),
@@ -97,19 +101,27 @@ export function registerInteractionCapture(deps: InteractionsDeps): Interactions
         ...deps.mintRoot?.(),
       };
       // Dead is judged on controls only: a tap on whitespace or into a text field rightly does nothing.
-      if (!control) return deps.record(attrs, at);
+      if (!control) {
+        deps.record(attrs, at);
+        return healthMonitor.reportSuccess('interactions.click');
+      }
       const tick = activity();
       const entry = {
         attrs,
         at,
         timer: setTimeout(() => {
-          pending.delete(entry);
-          if (!pending.size) watch(false);
-          deps.record(activity() === tick ? { ...attrs, 'ui.dead': true } : attrs, at);
+          try {
+            pending.delete(entry);
+            if (!pending.size) watch(false);
+            deps.record(activity() === tick ? { ...attrs, 'ui.dead': true } : attrs, at);
+          } catch (err) {
+            healthMonitor.reportError('interactions.dead', err);
+          }
         }, WINDOW_MS),
       };
       pending.add(entry);
       watch(true);
+      healthMonitor.reportSuccess('interactions.click');
     } catch (err) {
       healthMonitor.reportError('interactions.click', err);
     }
@@ -119,14 +131,18 @@ export function registerInteractionCapture(deps: InteractionsDeps): Interactions
 
   /** Emit open taps now, unjudged (absent `ui.dead` never accuses). */
   const drain = () => {
-    if (!pending.size) return;
-    for (const p of pending) {
-      clearTimeout(p.timer);
-      deps.record(p.attrs, p.at);
+    try {
+      if (!pending.size) return;
+      for (const p of pending) {
+        clearTimeout(p.timer);
+        deps.record(p.attrs, p.at);
+      }
+      pending.clear();
+      watch(false);
+      deps.flush?.();
+    } catch (err) {
+      healthMonitor.reportError('interactions.drain', err);
     }
-    pending.clear();
-    watch(false);
-    deps.flush?.();
   };
   const onHidden = () => doc.visibilityState === 'hidden' && drain();
 

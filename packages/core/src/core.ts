@@ -147,15 +147,16 @@ export const route = () => state.route;
 /** Run just before the screen changes, while `route()` is still the old one (E7 screen windows). */
 export const routeListeners = new Set<() => void>();
 
-export function record(e: EdgeRumEvent): void {
+/** `crumb: false` when the capture already left its breadcrumb (E25 taps, at tap time). */
+export function record(e: EdgeRumEvent, crumb = true): void {
   if (!live() || !state.enabled) return;
   e.attributes = { ...state.globals, ...e.attributes };
   // X8 Tier-2 keys; Y2: `release` only on JS-origin crashes (native crashes never pass through here).
   if (e.eventName && TIER2_EVENTS.has(e.eventName)) Object.assign(e.attributes, state.annotate());
   if (e.eventName === 'app.crash' && state.options.release) e.attributes.release = state.options.release;
-  if (e.eventName && e.eventName !== 'app.crash') {
+  if (crumb && e.eventName && e.eventName !== 'app.crash') {
     const a = e.attributes;
-    const name = a['navigation.to_screen'] ?? a['screen.name'] ?? a['ui.target'] ?? a['http.url'] ?? a['event.name'] ?? e.eventName;
+    const name = a['navigation.to_screen'] ?? a['screen.name'] ?? (a['ui.type'] && `${a['ui.type']} ${a['ui.target']}`) ?? a['http.url'] ?? a['event.name'] ?? e.eventName;
     breadcrumbs.push({ ts: e.timestamp, type: e.eventName, name: String(name) });
   }
   buffer.push(e);

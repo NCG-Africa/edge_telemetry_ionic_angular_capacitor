@@ -61,6 +61,7 @@ Each scenario also runs from a deep link with the same name. Check one per platf
 
 ## Cutting the release (spec V2)
 
+- [ ] One-time: a tag ruleset on this repo limits creating `v*` tags to maintainers (Cordova V2).
 - [ ] One-time: each of the three packages on npmjs.com names this repo and
   `.github/workflows/release.yml` as a trusted publisher (no `NPM_TOKEN`).
 - [ ] `pnpm set-version 5.0.0-rc.N` (or `5.0.0` for GA) committed in the release PR; `pnpm test`
@@ -69,7 +70,8 @@ Each scenario also runs from a deep link with the same name. Check one per platf
 - [ ] After merge: `git tag v5.0.0-rc.N origin/main && git push origin v5.0.0-rc.N`. The workflow re-runs
   CI, the device gate and both native fixtures, checks the tag against every package version, then
   publishes all three packages (`-rc.N` → `next`) and creates the GitHub Release.
-- [ ] Release notes: measured native load time, IPA / APK size delta and battery for this release (spec L3).
+- [ ] Measured native load time, IPA / APK size delta and battery (spec L3) added to the `## 5.0.0`
+  CHANGELOG section before tagging, so they land in the release notes.
 
 ## Rollout (spec V3)
 

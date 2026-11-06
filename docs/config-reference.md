@@ -120,7 +120,7 @@ provideEdgeRum({ release });
 
 - **Capgo:** use the version you upload, so errors match the bundle users run:
   `RELEASE=1.4.2 sh scripts/write-release.sh && ng build && npx @capgo/cli bundle upload --bundle 1.4.2`.
-- **Appflow:** set `RELEASE` from the build, e.g. `RELEASE=$CI_GIT_COMMIT` in a `prebuild` script.
+- **Appflow:** set `RELEASE` to the version you deploy as the live update, in a `prebuild` script.
 
 Without `release`, errors still carry `app.bundle_id` (the live-update bundle id, or `builtin`), plus
 the binary's `app.version` and `app.build_number`.

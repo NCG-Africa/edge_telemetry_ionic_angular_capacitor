@@ -19,7 +19,8 @@ describe('releaseNotes', () => {
   });
 
   it('the real CHANGELOG has a section for the current version', () => {
-    const version = JSON.parse(readFileSync('packages/core/package.json', 'utf8')).version;
-    expect(releaseNotes(readFileSync('CHANGELOG.md', 'utf8'), version)).not.toBe('');
+    const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
+    const version = JSON.parse(read('packages/core/package.json')).version;
+    expect(releaseNotes(read('CHANGELOG.md'), version)).not.toBe('');
   });
 });

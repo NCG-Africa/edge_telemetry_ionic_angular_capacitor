@@ -54,7 +54,6 @@ plugins: {
 | `maxQueueSize`, `flushIntervalMs`, `batchSize`, `deferFlush`, `awaitNativeInstall` | Gone: sending is fixed and handled natively |
 | `captureFrames`, `captureAllFrames`, `frameSlowThresholdMs` | `frames({ slowThresholdMs })` capture |
 | `captureConsoleErrors` | `consoleErrors()` capture |
-| any other `captureX: boolean` | The matching capture in `captures` (below) |
 | `ignoreUrls`, `sanitizeUrl`, `debug` | Unchanged, in `init()` |
 | — | New in `init()`: `captures`, `traceHostAllowlist`, `beforeSend`, `release` |
 
@@ -89,11 +88,14 @@ imports: [EdgeRumModule.forRoot()]
 - `provideEdgeRum()` is the primary API; `EdgeRumModule.forRoot()` wraps it.
 - Your own `ErrorHandler` keeps working: edge-rum reports the error, then calls yours.
 - No longer exported: `RouterCapture`, `IonicLifecycleCapture`, `EdgeRumErrorCapture`,
-  `EDGE_RUM_CONFIG`, `edgeRumInitializerFactory`, `ERROR_ROUTE_PROVIDER`, `LIFECYCLE_EVENT_SOURCE`,
-  `SDK_PLATFORM`. They're wired by `provideEdgeRum()`.
+  `EDGE_RUM_CONFIG`, `edgeRumInitializerFactory`, `ERROR_ROUTE_PROVIDER`, `LIFECYCLE_EVENT_SOURCE`.
+  They're wired by `provideEdgeRum()`.
 - From `@nathanclaire/rum-capacitor`: `startCapacitorCapture`, `getDeviceContext`,
-  `startNetworkCapture`, `startLifecycleCapture`, `createCapacitorHttpFetch` are gone. The plugin
-  does this itself.
+  `getInitialNetworkContext`, `startNetworkCapture`, `startLifecycleCapture`,
+  `createCapacitorHttpFetch` are gone. The plugin does this itself.
+- From `@nathanclaire/rum` (and re-exports in `-angular` / `-capacitor`): `SDK_PLATFORM`,
+  `SDK_CONTRACT_VERSION`, `healthMonitor`, and the types `EdgeRumConfig`, `UserContext`,
+  `EdgeRumRuntime`, `FetchLike`.
 
 ## 6. API
 

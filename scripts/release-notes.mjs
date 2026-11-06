@@ -2,6 +2,7 @@
 // Spec V2: prints the root CHANGELOG section for a version (release.yml → GitHub Release body).
 // A prerelease (`5.0.0-rc.1`) falls back to its base version's section (`## 5.0.0`).
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 export function releaseNotes(changelog, version) {
   const section = (v) => {
@@ -14,7 +15,8 @@ export function releaseNotes(changelog, version) {
   return section(version) || section(version.replace(/-.*$/, ''));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const notes = releaseNotes(readFileSync('CHANGELOG.md', 'utf8'), process.argv[2] ?? '');
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const changelog = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
+  const notes = releaseNotes(changelog, process.argv[2] ?? '');
   if (notes) console.log(notes);
 }

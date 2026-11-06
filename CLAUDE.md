@@ -91,7 +91,7 @@ One sealed outbox segment = one `POST`, headers `Content-Type: application/json`
 `contract_version: "4.0.0"`, `timestamp` (per attempt), `batch_size`, `device_id`,
 `sdk: { name: "ionic", version }`, `app: { name, package_name, platform, version, build_number }`
 (from the binary, nulls omitted), `events`. No `session`, `location`, `app.environment`,
-`sdk.platform`. `sdk.version` = package version (V3, `scripts/set-version.mjs`).
+`sdk.platform`. `sdk.version` = package version (V2 / ADR-048, `scripts/set-version.mjs`).
 
 ### ID formats
 

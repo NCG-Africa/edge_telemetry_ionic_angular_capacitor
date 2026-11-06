@@ -1,6 +1,6 @@
 require 'json'
 
-# V3: version from package.json, never hand-edited.
+# Spec V2 (= Cordova V3): version from package.json, never hand-edited.
 package = JSON.parse(File.read(File.join(__dir__, '..', 'package.json')))
 
 Pod::Spec.new do |s|

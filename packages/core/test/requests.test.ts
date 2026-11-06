@@ -104,6 +104,15 @@ describe('registerRequestCapture', () => {
     expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/data');
   });
 
+  it('E25: every send counts as activity, ignored URLs included', async () => {
+    const onSend = vi.fn();
+    const handle = registerRequestCapture({ ...deps, ignoreUrls: ['analytics.example.com'], onSend });
+    await target.fetch('https://analytics.example.com/track');
+    await target.fetch('https://api.example.com/data');
+    handle.dispose();
+    expect(onSend).toHaveBeenCalledTimes(2);
+  });
+
   it('ignores URLs matching RegExp patterns', async () => {
     const handle = registerRequestCapture({
       ...deps,

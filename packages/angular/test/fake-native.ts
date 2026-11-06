@@ -22,10 +22,12 @@ export function fakeNative(): { handedOff: () => Promise<Row[]> } {
   EdgeRum.init({ captures: [] });
   return {
     async handedOff() {
-      const d = g.document as EventTarget & { visibilityState: string };
-      d.visibilityState = 'hidden';
+      const d = g.document as EventTarget;
+      // defineProperty: a real DOM (happy-dom) has a getter-only `visibilityState`.
+      const set = (value: string) => Object.defineProperty(d, 'visibilityState', { value, configurable: true });
+      set('hidden');
       d.dispatchEvent(new Event('visibilitychange'));
-      d.visibilityState = 'visible';
+      set('visible');
       await new Promise((r) => setTimeout(r, 0));
       const out = rows;
       rows = [];

@@ -100,13 +100,13 @@ describe('roots and Tier-2 (X2, X8, X10)', () => {
     EdgeRum.init({ captures: [interactions()], traceHostAllowlist: ['api.example.com'] });
     ready();
     await tick();
-    const button = Object.assign(new EventTarget(), { tagName: 'button', id: 'buy' });
+    const button = Object.assign(new EventTarget(), { tagName: 'DIV', id: 'buy', closest: () => null, getAttribute: () => null });
     const click = new Event('click');
     Object.defineProperty(click, 'target', { value: button });
     (globalThis as unknown as { document: EventTarget }).document.dispatchEvent(click);
     await fetch('https://api.example.com/orders');
     const all = await rows();
-    const tap = all.find((e) => e.eventName === 'user.interaction')?.attributes as Attrs;
+    const tap = all.find((e) => e.eventName === 'ui.interaction')?.attributes as Attrs;
     expect(tap).toMatchObject({ 'trace.root_type': 'interaction', 'span.start_time': expect.stringMatching(ISO) });
     expect(tap['span.id']).toBe(tap['rum.action.id']);
     expect(tap).not.toHaveProperty('parent.span.id');

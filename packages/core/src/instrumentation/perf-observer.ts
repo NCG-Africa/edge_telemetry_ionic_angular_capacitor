@@ -1,6 +1,6 @@
 import type { EventAttributes } from '../index';
 import { healthMonitor } from '../internal/health';
-import { isProxyUrl, parseUrl, templateUrl } from './url-sanitizer';
+import { isProxyUrl, parseUrl } from './url-sanitizer';
 
 export interface PerfObserverDeps {
   recordMetric: (metricName: string, value: number, attributes: EventAttributes) => void;
@@ -106,7 +106,7 @@ export function registerPerfObserver(deps: PerfObserverDeps): PerfObserverHandle
         for (const entry of list.getEntries() as ResourceEntryLike[]) {
           const url = entry.name ?? '';
           if (isProxyUrl(url) || deps.ignoreResourceUrl?.(url)) continue;
-          const u = parseUrl(templateUrl(url));
+          const u = parseUrl(url);
           const host = u?.host || u?.protocol || 'unknown';
           const type = entry.initiatorType || 'unknown';
           const key = `${host} ${type}`;

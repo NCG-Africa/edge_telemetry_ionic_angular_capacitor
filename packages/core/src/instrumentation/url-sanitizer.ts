@@ -1,7 +1,8 @@
-// P2: the one templater for `http.url`, resource-timing hosts and (#119) `traceparent` host matching.
+// P2 / ADR-039 §2: the `http.url` templater, plus the proxy and URL parsing helpers the captures share.
 
 const PROXY = /\/_capacitor_https?_interceptor_\/?\?(?:[^#]*&)?u=([^&#]*)/;
-const VERSION = /^v\d+$/i;
+// No case folding: `V2` → `{id}`, as the processor does.
+const VERSION = /^v\d+$/;
 const MAX_DEPTH = 6;
 
 /** A CapacitorHttp proxy URL (`/_capacitor_http_interceptor_?u=…`), which is the bridge, not the app. */
@@ -19,7 +20,7 @@ export function unwrapProxyUrl(url: string): string {
   }
 }
 
-/** `vN` kept; a segment holding a digit, or ≥ 32 chars, → `{id}` (Android / iOS rule). */
+/** `vN` kept; a segment holding a digit, or ≥ 32 chars, → `{id}` (ADR-039 §2). */
 const segment = (s: string) => (!VERSION.test(s) && (/\d/.test(s) || s.length >= 32) ? '{id}' : s);
 
 /** Templated path: empty → `/`, trailing slash dropped, depth capped at 6 then `/…`. */
@@ -39,14 +40,15 @@ export function parseUrl(url: string): URL | undefined {
 }
 
 /**
- * P2 / Cordova P1: proxy unwrapped, then scheme + host + explicit port + templated path; query,
- * fragment and userinfo dropped.
+ * P2 / ADR-039 §2: proxy unwrapped, then `host[:port]` + templated path; scheme, query,
+ * fragment and userinfo dropped. The shape the processor stores in `rum_http_requests.url`.
  */
 export function templateUrl(url: string): string {
   const raw = unwrapProxyUrl(url);
   const u = parseUrl(raw);
-  // ponytail: unparseable → cut by hand, as Cordova does.
-  return u ? `${u.protocol}//${u.host}${templatePath(u.pathname)}` : templatePath(raw.split(/[?#]/)[0] ?? '');
+  // ponytail: unparseable → cut by hand, as Cordova does. `pathname` is percent-encoded, so a
+  // non-ASCII or spaced segment (`caf%C3%A9`) holds a digit and becomes `{id}`: over-templated, safe.
+  return u ? `${u.host}${templatePath(u.pathname)}` : templatePath(raw.split(/[?#]/)[0] ?? '');
 }
 
 /** Templating, then the consumer's remove-only `sanitizeUrl` (throw or non-string → templated URL kept). */

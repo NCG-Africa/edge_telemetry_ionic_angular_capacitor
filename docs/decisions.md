@@ -1320,6 +1320,10 @@ restated. Supersedes ADR-019 (per-session sampling + allowlist) and ADR-025 (no 
    → templated URL kept). CapacitorHttp proxy URLs (`_capacitor_http_interceptor_?u=`) unwrapped
    before templating. Resource-timing aggregate and `traceparent` host matching use the templated
    URL. `ignoreUrls` kept. Screen names come from Angular route templates — **no `screenName()`**.
+   _Amended (#67):_ the template is the backend's canonical rule (RN wire contract §4.4.1, processor
+   `TemplateURL`, which re-applies it at ingest): `http.url` = `host[:port]` + templated path, no
+   scheme; `vN` case-sensitive (`V2` → `{id}`), so SDK output survives the processor's pass
+   unchanged. Resource-timing hosts and `traceparent` host matching read the host off the raw URL.
 3. **Sampling** = Cordova S1–S8:
    - One native session roll, secure RNG, persisted; rate from native config only, no `init()`
      override. **No separate trace rate** — traces follow the session.

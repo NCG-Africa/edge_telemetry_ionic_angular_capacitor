@@ -54,7 +54,8 @@ plugins: {
 | `maxQueueSize`, `flushIntervalMs`, `batchSize`, `deferFlush`, `awaitNativeInstall` | Gone: sending is fixed and handled natively |
 | `captureFrames`, `captureAllFrames`, `frameSlowThresholdMs` | `frames({ slowThresholdMs })` capture |
 | `captureConsoleErrors` | `consoleErrors()` capture |
-| `ignoreUrls`, `sanitizeUrl`, `debug` | Unchanged, in `init()` |
+| `ignoreUrls`, `debug` | Unchanged, in `init()` |
+| `sanitizeUrl` | In `init()`; now receives the URL without its scheme (`api.example.com/users/{id}`), so a rule matching `https://` no longer fires |
 | — | New in `init()`: `captures`, `traceHostAllowlist`, `beforeSend`, `release` |
 
 ## 4. Choose captures

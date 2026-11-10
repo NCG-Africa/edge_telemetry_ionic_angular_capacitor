@@ -47,7 +47,7 @@ describe('registerRequestCapture', () => {
 
     expect(recorded).toHaveLength(1);
     expect(recorded[0]?.eventName).toBe('http.request');
-    expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/data');
+    expect(recorded[0]?.attrs['http.url']).toBe('api.example.com/data');
     expect(recorded[0]?.attrs['http.method']).toBe('GET');
     expect(recorded[0]?.attrs['http.status_code']).toBe(200);
     expect(recorded[0]?.attrs['http.success']).toBe(true);
@@ -101,7 +101,7 @@ describe('registerRequestCapture', () => {
     handle.dispose();
 
     expect(recorded).toHaveLength(1);
-    expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/data');
+    expect(recorded[0]?.attrs['http.url']).toBe('api.example.com/data');
   });
 
   it('E25: every send counts as activity, ignored URLs included', async () => {
@@ -124,7 +124,7 @@ describe('registerRequestCapture', () => {
     handle.dispose();
 
     expect(recorded).toHaveLength(1);
-    expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/data');
+    expect(recorded[0]?.attrs['http.url']).toBe('api.example.com/data');
   });
 
   it('templates the URL, then hands it to sanitizeUrl (P2)', async () => {
@@ -140,8 +140,8 @@ describe('registerRequestCapture', () => {
     await target.fetch('https://api.example.com/v2/users/12345?token=abc&q=hats#x');
     handle.dispose();
 
-    expect(seen).toEqual(['https://api.example.com/v2/users/{id}']);
-    expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/v2/u/{id}');
+    expect(seen).toEqual(['api.example.com/v2/users/{id}']);
+    expect(recorded[0]?.attrs['http.url']).toBe('api.example.com/v2/u/{id}');
   });
 
   it('keeps the templated URL when sanitizeUrl throws', async () => {
@@ -149,7 +149,7 @@ describe('registerRequestCapture', () => {
     await target.fetch('https://api.example.com/users/1?token=t');
     handle.dispose();
 
-    expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/users/{id}');
+    expect(recorded[0]?.attrs['http.url']).toBe('api.example.com/users/{id}');
   });
 
   it('unwraps a CapacitorHttp proxy URL and applies ignoreUrls to the real one', async () => {
@@ -159,7 +159,7 @@ describe('registerRequestCapture', () => {
     await target.fetch(proxied('https://ingest.example.com/collector'));
     handle.dispose();
 
-    expect(recorded.map((r) => r.attrs['http.url'])).toEqual(['https://api.example.com/orders/{id}']);
+    expect(recorded.map((r) => r.attrs['http.url'])).toEqual(['api.example.com/orders/{id}']);
   });
 
   it('records request and response sizes where available (E6)', async () => {
@@ -245,7 +245,7 @@ describe('registerRequestCapture', () => {
     await target.fetch(new URL('https://api.example.com/url-object'));
     handle.dispose();
 
-    expect(recorded[0]?.attrs['http.url']).toBe('https://api.example.com/url-object');
+    expect(recorded[0]?.attrs['http.url']).toBe('api.example.com/url-object');
   });
 });
 
@@ -293,7 +293,7 @@ describe('registerRequestCapture — XMLHttpRequest (#85)', () => {
     handle.dispose();
 
     expect(recorded).toHaveLength(1);
-    expect(recorded[0]?.['http.url']).toBe('https://api.example.com/items');
+    expect(recorded[0]?.['http.url']).toBe('api.example.com/items');
     expect(recorded[0]?.['http.method']).toBe('POST');
     expect(recorded[0]?.['http.status_code']).toBe(201);
     expect(recorded[0]?.['http.success']).toBe(true);
@@ -308,7 +308,7 @@ describe('registerRequestCapture — XMLHttpRequest (#85)', () => {
     xhr.finish(200, '512');
     handle.dispose();
 
-    expect(recorded[0]?.['http.url']).toBe('https://api.example.com/users/{id}');
+    expect(recorded[0]?.['http.url']).toBe('api.example.com/users/{id}');
     expect(recorded[0]?.['http.response_size']).toBe(512);
   });
 
@@ -323,7 +323,7 @@ describe('registerRequestCapture — XMLHttpRequest (#85)', () => {
     xhr.finish(200);
     handle.dispose();
 
-    expect(recorded.map((r) => r['http.url'])).toEqual(['https://api.example.com/a', 'https://api.example.com/b']);
+    expect(recorded.map((r) => r['http.url'])).toEqual(['api.example.com/a', 'api.example.com/b']);
   });
 
   it('drops the listener of a send that a reopen abandoned', () => {
@@ -337,7 +337,7 @@ describe('registerRequestCapture — XMLHttpRequest (#85)', () => {
     xhr.finish(200);
     handle.dispose();
 
-    expect(recorded.map((r) => r['http.url'])).toEqual(['https://api.example.com/b']);
+    expect(recorded.map((r) => r['http.url'])).toEqual(['api.example.com/b']);
   });
 
   it('records status 0 and success false on network error', () => {

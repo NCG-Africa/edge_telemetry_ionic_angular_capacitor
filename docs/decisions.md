@@ -1654,3 +1654,21 @@ in flight when its window closes.
 - (+) Frame and bridge volume stays per screen, not per frame or per call.
 - (−) No positive smooth-screen signal; a backend smoothness denominator needs Cordova-style rows.
 - (−) A bridge child span is an aggregate, not one span per call.
+
+## ADR-048 — Version sync instead of build-time injection for two copies (#124)
+
+**Date:** 2026-11
+
+**Context:** Spec V2 adopts Cordova V3: `sdk.version` comes from `package.json` at build, never
+hard-coded. Android (`build.gradle` reads `package.json` into `BuildConfig.SDK_VERSION`) and the
+podspec can do that. iOS SPM builds can't read `package.json`, and core's exported `SDK_VERSION`
+would need a bundler `define` duplicated in tsup and Vitest.
+
+**Decision:** `Sender.swift` `packageVersion` and core `SDK_VERSION` stay literals, written by
+`scripts/set-version.mjs` together with the three `package.json` versions. `test/version-sync.test.ts`
+and the iOS `SenderTests` fail if any copy drifts; `release.yml` refuses a tag that differs from any
+package version.
+
+**Consequences:**
+- (+) One command sets the version; drift fails `pnpm test` before a tag can be pushed.
+- (−) Two literals in source, contrary to the letter of Cordova V3.

@@ -1,62 +1,34 @@
 # @nathanclaire/rum-angular
 
-Angular integration for the edge-rum SDK. Provides an Angular module, DI service, and automatic capture of route changes, errors, and Ionic page lifecycle.
+Angular integration for edge-rum: `provideEdgeRum()` starts the SDK and captures Router
+navigations (with guard, resolver and lazy-load timings), Ionic page durations and errors reaching
+`ErrorHandler` (your own handler still runs).
 
-## Install
-
-```bash
-npm install @nathanclaire/rum @nathanclaire/rum-angular @nathanclaire/rum-capacitor
+```sh
+npm install @nathanclaire/rum @nathanclaire/rum-capacitor @nathanclaire/rum-angular
 ```
 
-## Setup
+```ts
+import { provideEdgeRum } from '@nathanclaire/rum-angular';
 
-```typescript
-// app.module.ts
-import { EdgeRumModule } from '@nathanclaire/rum-angular';
-
-@NgModule({
-  imports: [
-    EdgeRumModule.forRoot({
-      apiKey: 'edge_your_api_key_here',
-      endpoint: 'https://your-collector.example.com/collector/telemetry',
-      appName: 'MyApp',
-      appVersion: '1.0.0',
-      appPackage: 'com.yourco.app',
-    }),
-  ],
-})
-export class AppModule {}
+bootstrapApplication(AppComponent, {
+  providers: [provideRouter(routes), provideEdgeRum({ traceHostAllowlist: ['api.example.com'] })],
+});
+// NgModule apps: imports: [EdgeRumModule.forRoot({ … })]
 ```
 
-## What it captures automatically
-
-- Angular route changes as `screen_view` events
-- Unhandled errors and promise rejections as `app.crash` events
-- Ionic page enter/leave timing as `screen_timing` events
-
-## Using the service
-
-```typescript
-import { EdgeRumService } from '@nathanclaire/rum-angular';
-
+```ts
 constructor(private rum: EdgeRumService) {}
-
-onLogin(user: { name?: string; email?: string; phone?: string }) {
-  // user.id is owned by the SDK (auto-generated, persisted across sessions).
-  // identify() attaches user details — pass null to clear a field.
-  this.rum.identify({ name: user.name, email: user.email, phone: user.phone });
-}
-
-onCheckout() {
-  this.rum.track('checkout_started', { value: 49.99 });
-}
+onLogin(u: User) { this.rum.identify({ id: u.id, name: u.name }); }
 ```
 
-## Peer dependencies
+Exports: `provideEdgeRum`, `EdgeRumModule`, `EdgeRumService` (every `EdgeRum` method),
+`ionicUi()` (overlay, tab, back and keyboard taps; off by default), types.
 
-- `@angular/core` >= 16
-- `@angular/router` >= 16
-- `rxjs` >= 7
+**Peers:** Angular ≥ 16 (`core`, `common`, `router`), `rxjs` ≥ 7, `@nathanclaire/rum`,
+`@nathanclaire/rum-capacitor`.
+
+Setup, API and docs: [edge-rum README](https://github.com/NCG-Africa/edge_telemetry_ionic_angular_capacitor/blob/main/README.md).
 
 ## License
 

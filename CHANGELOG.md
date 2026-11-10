@@ -4,6 +4,67 @@ All notable changes to the edge-rum SDK are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/).
 
+## 5.0.0
+
+All three packages move to 5.0.0 together. A clean break from 4.x: read the
+[migration guide](docs/migration-5.md) first.
+
+⚠ **Install the Edge RUM backend release for 5.0 before shipping a build with this SDK.** It sends
+wire contract 4.0.0 with `sdk.name=ionic`; an older backend rejects it.
+
+### Changed
+
+- **The native plugin does the sending.** `@nathanclaire/rum-capacitor` is now required and is
+  registered as `EdgeRum` (was `EdgeRumCapacitor`). It owns the device id, sessions, the on-device
+  store, retries, offline replay and gzip upload. Nothing is sent from JavaScript.
+- **Settings needed at launch move to `capacitor.config.ts`** (`plugins.EdgeRum`): `apiKey`,
+  `endpoint`, `enabled`, `sampleRate`, `anr`, `hang`, `memorySampling` and their thresholds.
+- **Optional captures are imported functions** (`vitals()`, `frames()`, `bridge()`, …) instead of
+  `captureX` booleans. Resource timing is now off by default.
+- `provideEdgeRum()` is the primary Angular API (Angular 16+); `EdgeRumModule.forRoot()` wraps it.
+  Your own `ErrorHandler` is called after ours.
+- `getSessionId()` returns `Promise<string>`. `init()` never throws.
+- Hang threshold is 2 s on both platforms (was 5 s on iOS).
+- New device and user ids on the first 5.0 launch; 4.x ids are not carried over.
+- Renamed: `page_load` → `app.start`, `user.interaction` → `ui.interaction`,
+  `frame_render_time` → `frame.summary`, `app.crash cause=ANR|Hang` → `app.anr` / `app.hang`,
+  `metric.screen` → `screen.name`, `lifecycle.event` → `lifecycle.state`, memory keys → `memory.*`.
+- On web the SDK is a silent no-op.
+
+### Added
+
+- **Trace headers:** `traceHostAllowlist` adds a W3C `traceparent` to requests to your hosts, tied to
+  the tap, navigation or launch that caused them; `traceparent.outcome` on every `http.request`.
+  Native crashes and hangs carry the last user action's trace id.
+- **Launch time:** one `app.start` per cold launch with native and WebView phases, ended by
+  `markReady()`.
+- **Router phases:** guard, resolver and lazy-load timings on `navigation`.
+- **Native plugin call timings:** `bridge.summary` per plugin and method (`bridge()`).
+- **Smoothness:** `frame.summary` from `requestAnimationFrame`, paused when the screen is idle.
+- Android hang detection (`app.hang`) and app exit reasons (`app.exit`); WebView process deaths on both platforms.
+- `ionicUi()`: overlay, tab, back and keyboard taps. Rage and dead taps on `ui.interaction`.
+- API: `measure`, `startTask` / `completeTask` / `failTask`, `markReady`, `setAttribute` /
+  `removeAttribute`, `clearUser`, `reset`, `identify({ id })`.
+- `beforeSend`, `release` (see the OTA recipe in [config-reference](docs/config-reference.md#release-and-ota-updates)).
+- Per-session limits with drop counts in `sdk.health`; `sampleRate` keeps or drops whole sessions.
+- Docs: [events](docs/events.md), [configuration](docs/config-reference.md),
+  [privacy](docs/privacy.md), [payload schema](docs/payload-schema.json).
+
+### Fixed
+
+- `screen.duration` now fires in real Ionic apps (lifecycle listeners in the capture phase).
+- `XMLHttpRequest` requests are captured, so Angular `HttpClient` traffic appears as `http.request`.
+
+### Removed
+
+- 4.x options `appName`, `appVersion`, `appPackage`, `appBuild`, `environment`, `location`,
+  `resolveLocation`, `locationProviderUrl`, `maxQueueSize`, `flushIntervalMs`, `batchSize`,
+  `deferFlush`, `awaitNativeInstall`, `captureNativeCrashes` and every `captureX` boolean.
+- Exports `RouterCapture`, `IonicLifecycleCapture`, `EdgeRumErrorCapture`, `EDGE_RUM_CONFIG`,
+  `edgeRumInitializerFactory`, `ERROR_ROUTE_PROVIDER`, `LIFECYCLE_EVENT_SOURCE`, `SDK_PLATFORM`,
+  `startCapacitorCapture` and the other `-capacitor` start functions.
+- Peers `@capacitor/device` and `@capacitor/network`.
+
 ## [@nathanclaire/rum-angular 3.3.1] — 2026-05-28
 ## [@nathanclaire/rum 3.3.2] — 2026-05-28
 

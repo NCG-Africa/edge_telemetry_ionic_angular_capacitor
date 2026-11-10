@@ -1,31 +1,29 @@
 # @nathanclaire/rum
 
-Core Real User Monitoring SDK for Ionic Angular Capacitor apps.
+Core of edge-rum, Real User Monitoring for Ionic Capacitor apps: the `EdgeRum` API and the
+WebView captures (errors, requests, Web Vitals, taps, frames, long tasks).
 
-This is the core package that handles event capture, batching, offline queuing, and transport. For most apps, you'll also want [`@nathanclaire/rum-angular`](https://www.npmjs.com/package/@nathanclaire/rum-angular) and [`@nathanclaire/rum-capacitor`](https://www.npmjs.com/package/@nathanclaire/rum-capacitor).
+Needs [`@nathanclaire/rum-capacitor`](https://www.npmjs.com/package/@nathanclaire/rum-capacitor):
+the native plugin stores and sends everything. On web this package does nothing.
 
-## Install
-
-```bash
-npm install @nathanclaire/rum @nathanclaire/rum-angular @nathanclaire/rum-capacitor
+```sh
+npm install @nathanclaire/rum @nathanclaire/rum-capacitor
 ```
 
-## Usage
+```ts
+import { EdgeRum } from '@nathanclaire/rum';
+import { defaultCaptures } from '@nathanclaire/rum-capacitor';
 
-See the [quick start guide](https://github.com/mktowett/edge_telemetry_ionic_angular_capacitor/blob/main/docs/quick-start.md) for full setup instructions.
-
-## API
-
-```typescript
-EdgeRum.init(config)        // Initialize the SDK
-EdgeRum.identify(user)      // Attach user.name / user.email / user.phone (user.id is SDK-owned)
-EdgeRum.track(name, attrs)  // Record a custom event
-EdgeRum.time(name)          // Start a timer (returns { end() })
-EdgeRum.captureError(err)   // Record a handled error
-EdgeRum.disable()           // Pause capture and clear queue
-EdgeRum.enable()            // Resume capture
-EdgeRum.getSessionId()      // Get the current session ID
+EdgeRum.init({ captures: defaultCaptures() });
+EdgeRum.track('checkout.started');
 ```
+
+Exports: `EdgeRum`, captures `vitals()`, `interactions()`, `frames()`, `longTasks()`,
+`resourceTiming()`, `consoleErrors()`, `defaultCaptures()`, and types `EdgeRumOptions`,
+`EdgeRumEvent`, `BeforeSend`, `Capture`, `UserTraits`, `RumTimer`, `EventAttributes`,
+`AttributeValue`.
+
+Setup, API and docs: [edge-rum README](https://github.com/NCG-Africa/edge_telemetry_ionic_angular_capacitor/blob/main/README.md).
 
 ## License
 

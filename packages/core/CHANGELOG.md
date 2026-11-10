@@ -1,5 +1,9 @@
 # @nathanclaire/rum
 
+## 5.0.0
+
+Released with all edge-rum packages at 5.0.0. See the [root CHANGELOG](../../CHANGELOG.md#500) and the [migration guide](../../docs/migration-5.md).
+
 ## 4.0.0
 
 ### Major Changes

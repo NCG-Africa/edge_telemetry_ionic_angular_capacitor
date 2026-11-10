@@ -30,6 +30,9 @@ wire contract 4.0.0 with `sdk.name=ionic`; an older backend rejects it.
   `frame_render_time` → `frame.summary`, `app.crash cause=ANR|Hang` → `app.anr` / `app.hang`,
   `metric.screen` → `screen.name`, `lifecycle.event` → `lifecycle.state`, memory keys → `memory.*`.
 - On web the SDK is a silent no-op.
+- `http.url` is `host[:port]` + templated path, without the scheme
+  (`api.example.com/v2/users/{id}`), and only lowercase `v2` counts as a version segment (`V2` →
+  `{id}`). This is the same rule the backend applies. `sanitizeUrl` now gets the URL without a scheme.
 
 ### Added
 

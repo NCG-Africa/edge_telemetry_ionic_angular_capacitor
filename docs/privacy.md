@@ -18,10 +18,10 @@ What edge-rum 5.0 collects, what it never collects, and the controls you have.
 Each request URL is reduced before it is stored:
 
 1. Capacitor HTTP proxy URLs (`…/_capacitor_http_interceptor_?u=…`) are unwrapped to the real URL.
-2. Query, fragment and userinfo are dropped.
+2. Scheme, query, fragment and userinfo are dropped; host and port are kept.
 3. Path segments containing a digit, or 32+ characters long, become `{id}`. Version segments
-   (`v1`, `v2`) are kept. Paths deeper than 6 segments end in `/…`.
-   `https://api.example.com/v2/users/8812/orders?token=x` → `https://api.example.com/v2/users/{id}/orders`
+   (lowercase `v1`, `v2`) are kept. Paths deeper than 6 segments end in `/…`.
+   `https://api.example.com/v2/users/8812/orders?token=x` → `api.example.com/v2/users/{id}/orders`
 4. Your `sanitizeUrl(url)` runs last, on the reduced URL. If it throws or returns a non-string, the
    reduced URL is kept.
 

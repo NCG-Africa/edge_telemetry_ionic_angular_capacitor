@@ -48,7 +48,7 @@ it('captures an Angular HttpClient request made over XHR', async () => {
   const rows = (await native.handedOff()).filter((r) => r.eventName === 'http.request');
   expect(rows).toHaveLength(1);
   expect(rows[0]?.attributes).toMatchObject({
-    'http.url': 'https://api.example.com/v1/orders/{id}',
+    'http.url': 'api.example.com/v1/orders/{id}',
     'http.method': 'POST',
     'http.status_code': 200,
     'http.success': true,

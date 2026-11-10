@@ -115,11 +115,11 @@ test('fetch and XHR reach mock-ingest as http.request with templated URLs (E6, P
       xhr.send('{"a":1}');
     });
   });
-  const origin = new URL(page.url()).origin;
+  const host = new URL(page.url()).host;
   await expect.poll(async () => (await ingested(request)).filter((e) => e.eventName === 'http.request').map((e) => e.attributes), { timeout: 10_000 })
     .toEqual([
-      expect.objectContaining({ 'http.url': `${origin}/harness.html`, 'http.method': 'GET', 'http.status_code': 200, 'http.success': true }),
-      expect.objectContaining({ 'http.url': `${origin}/missing/v2/{id}`, 'http.method': 'POST', 'http.success': false, 'http.request_size': 7 }),
+      expect.objectContaining({ 'http.url': `${host}/harness.html`, 'http.method': 'GET', 'http.status_code': 200, 'http.success': true }),
+      expect.objectContaining({ 'http.url': `${host}/missing/v2/{id}`, 'http.method': 'POST', 'http.success': false, 'http.request_size': 7 }),
     ]);
 });
 

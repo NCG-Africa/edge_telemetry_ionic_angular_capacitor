@@ -1672,3 +1672,26 @@ package version.
 **Consequences:**
 - (+) One command sets the version; drift fails `pnpm test` before a tag can be pushed.
 - (−) Two literals in source, contrary to the letter of Cordova V3.
+
+## ADR-049 — Router phases are keys on `navigation`, not child spans (#142)
+
+**Date:** 2026-11
+
+**Context:** X6 and ADR-035 §9 make the router guard/resolver/lazy-chunk phases child spans of the
+live root, and X8 puts Tier-1 keys on them. E19 ships them as `navigation.{guards_ms,resolvers_ms,
+chunk_load_ms}`, and §7 has no event for a JS child span. A per-phase row would need a new event
+name (spec §14 backend sign-off), and P5's guard/resolver class names would need a walk of
+`routeConfig.canActivate` / `resolve`, since `GuardsCheckStart` / `ResolveStart` carry only router
+state. ADR-047 §3 already settled the bridge half of X6: `bridge.summary` carries the child keys
+per root + plugin + method.
+
+**Decision:** The router phases are not child spans. `navigation` is the span: it already carries
+Tier-1 keys (a child of the live root, or the root it mints, X2), and the three phase durations stay
+keys on it. No router-phase event. No guard/resolver class names on the wire. X6, X8, E19 and P5
+change to match. ADR-035 §9–10 are amended for the router; the bridge half stands.
+
+**Consequences:**
+- (+) No new event name, no backend change, no `payload-schema.json` change. #120 already ships it.
+- (+) P5 gets narrower: no class names, so nothing about the app's code structure leaves the device.
+- (−) No separate phase bars in a trace waterfall, only totals per navigation. A per-phase row can be
+  added later as an additive event if the backend asks for it.

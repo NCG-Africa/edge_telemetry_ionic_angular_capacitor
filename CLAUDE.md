@@ -223,7 +223,7 @@ pnpm lint && pnpm type-check && pnpm test && pnpm build
 pnpm terminology-check && pnpm attribute-flatness-check && pnpm pack-audit && pnpm size
 pnpm test:integration        # Playwright: bridge spec + L3 bench
 pnpm test:android / test:ios # native core suites
-pnpm e2e:device android|ios  # Q3 device gate (emulator / simulator booted); nightly in CI
+pnpm e2e:device android|ios  # Q3 device gate (emulator / simulator booted); local only, before a release
 ```
 
 **Releasing (spec V2, V3):** `pnpm set-version X.Y.Z[-rc.N]` (all three packages + the copies native

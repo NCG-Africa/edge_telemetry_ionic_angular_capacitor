@@ -1,9 +1,9 @@
 name: Release
 
 # Spec V2 (= Cordova V2, for all three packages). Push a `vX.Y.Z` tag on main whose version
-# equals every package.json (`node scripts/set-version.mjs X.Y.Z` in the release PR). CI and the
-# Android fixture re-run on the tag and must pass (iOS core tests, the iOS fixture and device e2e
-# are local only: `scripts/fixture-build.sh ios`); then all three
+# equals every package.json (`node scripts/set-version.mjs X.Y.Z` in the release PR). CI re-runs
+# on the tag and must pass. Native fixtures, iOS core tests and device e2e are local only: run
+# `scripts/fixture-build.sh android` and `scripts/fixture-build.sh ios` before tagging. Then all three
 # packages publish together. `-rc.N` goes to the npm `next` dist-tag. Nothing publishes on a
 # branch push.
 on:
@@ -14,30 +14,8 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
-  # Spec V1: fresh Capacitor app + packed packages, `npx cap add`, native build.
-  # Release-only (slow native build). The iOS fixture runs locally: no hosted macOS runners.
-  fixture-android:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'pnpm'
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-      - uses: android-actions/setup-android@v3
-        with:
-          # Capacitor 8: compile/target SDK 36. Default package list includes the removed 'tools'.
-          packages: platform-tools platforms;android-36 build-tools;36.0.0
-      - run: pnpm install --frozen-lockfile
-      - run: scripts/fixture-build.sh android
-
   publish:
-    needs: [ci, fixture-android]
+    needs: [ci]
     runs-on: ubuntu-latest
     permissions:
       contents: write    # GitHub Release at the end of the job

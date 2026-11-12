@@ -1,8 +1,8 @@
 name: Release
 
 # Spec V2 (= Cordova V2, for all three packages). Push a `vX.Y.Z` tag on main whose version
-# equals every package.json (`node scripts/set-version.mjs X.Y.Z` in the release PR). CI, the
-# device e2e gate and both native fixtures re-run on the tag and must pass; then all three
+# equals every package.json (`node scripts/set-version.mjs X.Y.Z` in the release PR). CI and both
+# native fixtures re-run on the tag and must pass (device e2e is local only, spec Q3); then all three
 # packages publish together. `-rc.N` goes to the npm `next` dist-tag. Nothing publishes on a
 # branch push.
 on:
@@ -12,10 +12,6 @@ on:
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
-
-  # Spec Q3: device e2e gate, required on a release tag.
-  device-e2e:
-    uses: ./.github/workflows/device-e2e.yml
 
   # Spec V1: fresh Capacitor app + packed packages, `npx cap add`, native build.
   # Release-only (slow native builds); publish waits on both.
@@ -52,7 +48,7 @@ jobs:
       - run: scripts/fixture-build.sh ios
 
   publish:
-    needs: [ci, device-e2e, fixture-android, fixture-ios]
+    needs: [ci, fixture-android, fixture-ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write    # GitHub Release at the end of the job

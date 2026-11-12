@@ -12,8 +12,7 @@ emulator and a simulator; the scenario table covers the rest by hand on a **real
 
 ## Device e2e gate (spec Q3)
 
-- [ ] The `Device e2e` workflow is green on this commit (it runs nightly and on the release tag), or both
-  local runs print `[gate] <platform> OK` with an emulator and a simulator booted:
+- [ ] Both local runs on this commit print `[gate] <platform> OK` with an emulator and a simulator booted:
   `pnpm e2e:device android` and `pnpm e2e:device ios`.
 
 ## Setup for the manual run

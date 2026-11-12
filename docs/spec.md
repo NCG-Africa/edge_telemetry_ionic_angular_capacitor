@@ -188,7 +188,7 @@ Repos: `edge_telemetry_processor_go` (proc), `edge_telemetry_analytics_go` (anal
 
 - **Q1** = Cordova Q1–Q6 with swaps: `cordova.exec` stub → fake Capacitor bridge; Q2 Playwright harness (`e2e/`) sends via the fake bridge to mock-ingest and hosts the L3 bench; Q5 example = `demo/` upgraded to an Ionic Angular app using `provideEdgeRum`, one button/deep link per scenario; checks use `sdk.name=ionic`. ([043 §1](decisions.md#adr-043--test-strategy-and-coordinated-rollout-for-50-102))
 - **Q2** Golden batch per event type in native JUnit/XCTest; same files copied as fixtures into `edge_telemetry_processor_go`, asserting each Ionic event lands in its G-column. Golden change ⇒ paired processor fixture PR. ([043 §2](decisions.md#adr-043--test-strategy-and-coordinated-rollout-for-50-102))
-- **Q3** Device e2e (emulator + simulator, nightly, required on release tag) = Cordova Q4 + `navigation` router phase keys, `HttpClient` XHR captured, allowlisted request carries `traceparent` with outcome recorded. ([043 §3](decisions.md#adr-043--test-strategy-and-coordinated-rollout-for-50-102))
+- **Q3** Device e2e (emulator + simulator, run locally before every release tag; not in CI) = Cordova Q4 + `navigation` router phase keys, `HttpClient` XHR captured, allowlisted request carries `traceparent` with outcome recorded. ([043 §3](decisions.md#adr-043--test-strategy-and-coordinated-rollout-for-50-102))
 
 ## 17. Release — V
 

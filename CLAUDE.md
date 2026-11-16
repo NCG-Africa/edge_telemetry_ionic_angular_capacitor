@@ -248,5 +248,5 @@ version's section), every box in `docs/release-checklist.md`, then push tag `vX.
 - **Issue tracker:** GitHub issues on `NCG-Africa/edge_telemetry_ionic_angular_capacitor` via `gh`;
   external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
 - **Triage labels:** `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
-  See `docs/agents/triage-labels.md`.
+  See `../edge_telemetry_rum_home/docs/agents/triage-labels.md` (home repo).
 - **Domain docs:** single context; ADRs in `docs/decisions.md`. See `docs/agents/domain.md`.

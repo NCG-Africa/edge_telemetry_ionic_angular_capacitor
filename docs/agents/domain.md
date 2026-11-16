@@ -10,7 +10,7 @@ This is a **single-context** repo. Although it's a pnpm monorepo (`packages/core
 - **`docs/decisions.md`** — this repo's ADR log (numbered ADR-NNN entries). Read the ADRs that touch the area you're about to work in. There is no `docs/adr/` directory; decisions live in this single file.
 - **`docs/spec.md`** — the 5.0 build spec: event catalogue, wire contract, terminology firewall (N3).
 
-If a `CONTEXT.md` gets created later by `/domain-modeling`, read it too. If any of these files don't exist, **proceed silently** — don't flag their absence or suggest creating them upfront.
+If a `CONTEXT.md` gets created later by `/mattpocock-skills:domain-modeling`, read it too. If any of these files don't exist, **proceed silently** — don't flag their absence or suggest creating them upfront.
 
 ## Use the project's vocabulary
 

@@ -27,7 +27,8 @@ export function registerVitalsCapture(deps: VitalsDeps): void {
   for (const subscribe of SUBSCRIBERS) {
     subscribe((metric) => {
       try {
-        deps.recordMetric(metric.name, metric.value, {
+        // #149: catalogue names (`perf.lcp`, ...); the processor reads the old upper-case ones as aliases.
+        deps.recordMetric(`perf.${metric.name.toLowerCase()}`, metric.value, {
           'metric.unit': unitFor(metric.name),
           'metric.rating': metric.rating,
           'screen.name': deps.getCurrentRoute(),

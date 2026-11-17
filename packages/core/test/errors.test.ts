@@ -57,7 +57,7 @@ describe('registerErrorCapture', () => {
     target = createTarget();
   });
 
-  it('captures window error events as app.crash with handled:false, is_fatal:true (E9)', () => {
+  it('captures window error events as app.crash on the catalogue error.* keys (E9, #149)', () => {
     setup();
     const err = new TypeError("Cannot read properties of undefined (reading 'x')");
     err.stack = 'TypeError: boom\n  at foo';
@@ -69,14 +69,15 @@ describe('registerErrorCapture', () => {
     expect(recorded).toHaveLength(1);
     const event = recorded[0]!;
     expect(event.eventName).toBe('app.crash');
-    expect(event.attributes.exception_type).toBe('TypeError');
-    expect(event.attributes.message).toBe(err.message);
-    expect(event.attributes.stacktrace).toBe('TypeError: boom\n  at foo');
-    expect(event.attributes.is_fatal).toBe(true);
-    expect(event.attributes.handled).toBe(false);
-    expect(event.attributes.cause).toBe('UnhandledError');
-    expect(event.attributes.error_context).toBe('screen:/home');
-    expect(event.attributes.runtime).toBe('webview');
+    expect(event.attributes).toEqual({
+      'error.type': 'TypeError',
+      'error.message': err.message,
+      'error.stacktrace': 'TypeError: boom\n  at foo',
+      'error.cause': 'unhandled_exception',
+      'error.source': 'webview',
+      'error.breadcrumbs': '[]',
+      'screen.name': '/home',
+    });
   });
 
   it('flushes pipeline immediately on window.error', () => {
@@ -85,7 +86,7 @@ describe('registerErrorCapture', () => {
     expect(flushes).toBe(1);
   });
 
-  it('captures unhandledrejection with the Error name and cause:PromiseRejection', () => {
+  it('captures unhandledrejection with the Error name and error.cause promise_rejection', () => {
     setup();
     const reason = new Error('rejected');
     reason.stack = 'Error: rejected\n  at p';
@@ -93,43 +94,41 @@ describe('registerErrorCapture', () => {
 
     expect(recorded).toHaveLength(1);
     const event = recorded[0]!;
-    expect(event.attributes.exception_type).toBe('Error');
-    expect(event.attributes.cause).toBe('PromiseRejection');
-    expect(event.attributes.message).toBe('rejected');
-    expect(event.attributes.stacktrace).toBe('Error: rejected\n  at p');
-    expect(event.attributes.is_fatal).toBe(true);
-    expect(event.attributes.handled).toBe(false);
-    expect(event.attributes.runtime).toBe('webview');
+    expect(event.eventName).toBe('app.crash');
+    expect(event.attributes['error.type']).toBe('Error');
+    expect(event.attributes['error.cause']).toBe('promise_rejection');
+    expect(event.attributes['error.message']).toBe('rejected');
+    expect(event.attributes['error.stacktrace']).toBe('Error: rejected\n  at p');
     expect(flushes).toBe(1);
   });
 
   it('handles non-Error rejection reasons (string)', () => {
     setup();
     target.dispatch('unhandledrejection', { reason: 'nope' });
-    expect(recorded[0]!.attributes.message).toBe('nope');
-    expect(recorded[0]!.attributes.stacktrace).toBe('');
-    expect(recorded[0]!.attributes.exception_type).toBe('UnhandledRejection');
+    expect(recorded[0]!.attributes['error.message']).toBe('nope');
+    expect(recorded[0]!.attributes['error.stacktrace']).toBe('');
+    expect(recorded[0]!.attributes['error.type']).toBe('UnhandledRejection');
   });
 
-  it('error_context reflects current route at capture time', () => {
+  it('screen.name reflects current route at capture time', () => {
     let route = '/a';
     setup({ getCurrentRoute: () => route });
     target.dispatch('error', { message: 'm', error: new Error('m') });
-    expect(recorded[0]!.attributes.error_context).toBe('screen:/a');
+    expect(recorded[0]!.attributes['screen.name']).toBe('/a');
 
     route = '/products/42';
     target.dispatch('error', { message: 'm2', error: new Error('m2') });
-    expect(recorded[1]!.attributes.error_context).toBe('screen:/products/42');
+    expect(recorded[1]!.attributes['screen.name']).toBe('/products/42');
   });
 
-  it('falls back to screen:unknown when getCurrentRoute throws', () => {
+  it('falls back to screen.name unknown when getCurrentRoute throws', () => {
     setup({
       getCurrentRoute: () => {
         throw new Error('no route');
       },
     });
     target.dispatch('error', { message: 'm', error: new Error('m') });
-    expect(recorded[0]!.attributes.error_context).toBe('screen:unknown');
+    expect(recorded[0]!.attributes['screen.name']).toBe('unknown');
   });
 
   it('does not propagate errors from recordEvent to the event handler', () => {
@@ -177,42 +176,27 @@ describe('registerErrorCapture', () => {
     expect(json).not.toMatch(/opentelemetry/i);
   });
 
-  it('uses field names that match the Android SDK v2.0.0 exactly (plus breadcrumb attachment)', () => {
+  it('sends only catalogue keys: no legacy is_fatal / handled / runtime / cause names (#149)', () => {
     setup();
     target.dispatch('error', { message: 'm', error: new Error('m') });
-    const keys = Object.keys(recorded[0]!.attributes).sort();
-    // Android SDK v2 core keys
-    const androidKeys = [
-      'cause',
-      'error_context',
-      'exception_type',
-      'handled',
-      'is_fatal',
-      'message',
-      'runtime',
-      'stacktrace',
-    ];
-    for (const k of androidKeys) {
-      expect(keys).toContain(k);
-    }
-    // Plus the SDK's breadcrumb attachment (additive, not a wire-contract break)
-    expect(keys).toContain('crash.breadcrumbs');
-    expect(keys).toContain('crash.breadcrumb_count');
+    expect(Object.keys(recorded[0]!.attributes).sort()).toEqual([
+      'error.breadcrumbs', 'error.cause', 'error.message', 'error.source', 'error.stacktrace', 'error.type', 'screen.name',
+    ]);
   });
 
   it('handles missing error object on ErrorEvent gracefully', () => {
     setup();
     target.dispatch('error', { message: 'boom', error: null });
     expect(recorded).toHaveLength(1);
-    expect(recorded[0]!.attributes.exception_type).toBe('Error');
-    expect(recorded[0]!.attributes.message).toBe('boom');
-    expect(recorded[0]!.attributes.stacktrace).toBe('');
+    expect(recorded[0]!.attributes['error.type']).toBe('Error');
+    expect(recorded[0]!.attributes['error.message']).toBe('boom');
+    expect(recorded[0]!.attributes['error.stacktrace']).toBe('');
   });
 
   it('falls back to the ErrorEvent location as the frame, normalised (Y3)', () => {
     setup();
     target.dispatch('error', { message: 'Script error.', error: null, filename: 'capacitor://localhost/main.js', lineno: 3, colno: 7 });
-    expect(recorded[0]!.attributes.stacktrace).toBe('at app:///main.js:3:7');
+    expect(recorded[0]!.attributes['error.stacktrace']).toBe('at app:///main.js:3:7');
   });
 
   it('normalises frames in the message and stack, never keeps a raw copy (Y3)', () => {
@@ -221,8 +205,8 @@ describe('registerErrorCapture', () => {
     err.stack = 'Error: x\n    at f (https://localhost/main.js?v=2:1:2)\n    at g (https://cdn.example.com/lib.js:3:4)';
     target.dispatch('error', { message: err.message, error: err });
     const a = recorded[0]!.attributes;
-    expect(a.message).toBe('bad chunk app:///chunk-1.js');
-    expect(a.stacktrace).toBe('Error: x\n    at f (app:///main.js:1:2)\n    at g (https://cdn.example.com/lib.js:3:4)');
+    expect(a['error.message']).toBe('bad chunk app:///chunk-1.js');
+    expect(a['error.stacktrace']).toBe('Error: x\n    at f (app:///main.js:1:2)\n    at g (https://cdn.example.com/lib.js:3:4)');
     expect(JSON.stringify(a)).not.toContain('localhost');
   });
 

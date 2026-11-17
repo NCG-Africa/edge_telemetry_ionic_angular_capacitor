@@ -86,7 +86,7 @@ describe('registerVitalsCapture', () => {
 
     expect(recorded).toHaveLength(1);
     const m = recorded[0]!;
-    expect(m.metricName).toBe('LCP');
+    expect(m.metricName).toBe('perf.lcp'); // #149 catalogue name
     expect(m.value).toBe(1240);
     expect(m.attributes['metric.unit']).toBe('ms');
     expect(m.attributes['metric.rating']).toBe('good');
@@ -112,15 +112,15 @@ describe('registerVitalsCapture', () => {
   ] as const)('uses correct unit for %s → %s', (name, unit) => {
     callbacks[name]!({ ...baseMetric(name), value: 10 });
     expect(recorded[0]!.attributes['metric.unit']).toBe(unit);
-    expect(recorded[0]!.metricName).toBe(name);
+    expect(recorded[0]!.metricName).toBe(`perf.${name.toLowerCase()}`);
   });
 
-  it('metricName is always one of the five supported values', () => {
+  it('metricName is always one of the five catalogue names (#149)', () => {
     for (const name of ['LCP', 'INP', 'CLS', 'FCP', 'TTFB'] as const) {
       callbacks[name]!({ ...baseMetric(name) });
     }
     const names = recorded.map((m) => m.metricName);
-    expect(new Set(names)).toEqual(new Set(['LCP', 'INP', 'CLS', 'FCP', 'TTFB']));
+    expect(new Set(names)).toEqual(new Set(['perf.lcp', 'perf.inp', 'perf.cls', 'perf.fcp', 'perf.ttfb']));
   });
 
   it.each(['good', 'needs-improvement', 'poor'] as const)(

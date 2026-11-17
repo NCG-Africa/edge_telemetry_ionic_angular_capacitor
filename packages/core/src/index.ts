@@ -1,4 +1,4 @@
-export const SDK_VERSION = '5.0.0-rc.1';
+export const SDK_VERSION = '5.0.0-rc.2';
 
 export { EdgeRum, type RumTimer, type UserTraits } from './EdgeRum';
 export type { AttributeValue, Capture, EdgeRumEvent, EdgeRumOptions, EventAttributes } from './core';

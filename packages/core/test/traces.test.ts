@@ -78,7 +78,7 @@ afterEach(() => {
 });
 
 describe('roots and Tier-2 (X2, X8, X10)', () => {
-  it('mints the launch root at init, relays it once, and annotates crash / custom_event / screen.duration only', async () => {
+  it('mints the launch root at init, relays it once, and annotates errors / custom.event / screen.duration only', async () => {
     const EdgeRum = await load();
     EdgeRum.init();
     ready();
@@ -89,9 +89,9 @@ describe('roots and Tier-2 (X2, X8, X10)', () => {
     const [launch] = roots();
     expect(roots()).toHaveLength(1);
     expect(launch).toEqual({ 'trace.id': expect.stringMatching(/^[0-9a-f]{32}$/), 'rum.action.id': expect.stringMatching(/^[0-9a-f]{16}$/), 'trace.root_type': 'launch' });
-    expect(all.find((e) => e.eventName === 'custom_event')?.attributes).toMatchObject(launch as object);
-    expect(all.find((e) => e.eventName === 'app.crash')?.attributes).toMatchObject(launch as object);
-    expect(all.find((e) => e.metricName === 'cart.items')?.attributes).not.toHaveProperty('trace.id');
+    expect(all.find((e) => e.eventName === 'custom.event')?.attributes).toMatchObject(launch as object);
+    expect(all.find((e) => e.eventName === 'app.error')?.attributes).toMatchObject(launch as object);
+    expect(all.find((e) => e.metricName === 'custom.metric')?.attributes).not.toHaveProperty('trace.id');
   });
 
   it('a click mints an interaction root with Tier-1 keys; the request it fires is its child', async () => {

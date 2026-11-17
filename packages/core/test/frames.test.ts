@@ -69,11 +69,11 @@ describe('registerFrameCapture (E20 frame.summary, ADR-030 windows)', () => {
     }]);
   });
 
-  it('suppresses a smooth window (no slow frame) and an empty one', () => {
+  it('sends a smooth window too (#149: every window), but not an empty one', () => {
     const smooth = setup();
     for (const t of [0, 17, 33, 50]) smooth.raf.tick(t); // 60 Hz jitter is not slow
     smooth.handle.dispose();
-    expect(smooth.recorded).toHaveLength(0);
+    expect(smooth.recorded).toEqual([expect.objectContaining({ 'frame.total_frames': 3, 'frame.slow_frames': 0, 'frame.slow_frame_rate': 0 })]);
 
     const empty = setup();
     empty.raf.tick(0); // only the first tick: no frame yet
@@ -180,7 +180,8 @@ describe('registerFrameCapture (E20 frame.summary, ADR-030 windows)', () => {
       raf.tick(1500); // first tick after showing: a fresh gap, not a 1460 ms frame
       raf.tick(1516);
       handle.dispose();
-      expect(recorded).toHaveLength(1); // the 16 ms frame is smooth
+      expect(recorded).toHaveLength(2); // a fresh window: one 16 ms frame, not a 1460 ms one
+      expect(recorded[1]).toMatchObject({ 'frame.total_frames': 1, 'frame.slow_frames': 0, 'frame.max_total_duration_ms': 16 });
     } finally {
       delete g.document;
     }

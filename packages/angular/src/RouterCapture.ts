@@ -8,9 +8,10 @@ import type {
   NavigationStart,
 } from '@angular/router';
 import type { Subscription } from 'rxjs';
-import { __navigationSpan, __recordEvent, __setCurrentRoute, __setLastNavigationMethod, type EventAttributes } from '@nathanclaire/rum';
+import { __getCurrentRoute, __navigationSpan, __recordEvent, __setCurrentRoute, __setLastNavigationMethod, type EventAttributes } from '@nathanclaire/rum';
 
-type NavigationMethod = 'push' | 'pop' | 'replace' | 'initial' | 'cancel';
+/** Catalogue `navigation.method` values the router produces (processor #31). */
+type NavigationMethod = 'push' | 'pop' | 'replace' | 'initial';
 
 type RouteType = 'main_flow' | 'deeplink' | 'settings' | 'modal';
 
@@ -125,7 +126,9 @@ export class RouterCapture implements OnDestroy {
         return;
       }
       case EVENT_TYPE.NavigationCancel: {
-        this.emitRouteChange('cancel');
+        // #149: a cancelled navigation changed no screen, so it is not a `navigation` (the
+        // catalogue's method enum has no `cancel`); the next one is still `initial` if none landed.
+        this.pending = null;
         return;
       }
       case EVENT_TYPE.NavigationError: {
@@ -175,7 +178,6 @@ export class RouterCapture implements OnDestroy {
       'navigation.method': method,
       'navigation.route_type': classifyRoute(toRoute),
       'navigation.has_arguments': hasArguments(url, root),
-      'navigation.timestamp': new Date().toISOString(),
     };
     for (const [key, p] of Object.entries(this.pending?.phases ?? {})) {
       // Still open (cancelled mid-phase): leave the key out — the backend column is nullable (G4).
@@ -200,18 +202,18 @@ export class RouterCapture implements OnDestroy {
       error instanceof Error ? error.message : typeof error === 'string' ? error : 'Navigation failed';
     const stacktrace = error instanceof Error && error.stack ? error.stack : '';
 
+    // #149: the router caught it and the app kept running, so it is `app.error`, on the `error.*`
+    // keys. The failed URL is not sent (it may hold ids); `screen.name` is where the user still is.
     const attrs: EventAttributes = {
-      exception_type: 'NavigationError',
-      message,
-      stacktrace,
-      is_fatal: false,
-      handled: false,
-      error_context: `navigation:${event.url}`,
-      cause: 'NavigationError',
-      runtime: 'webview',
+      'error.type': 'NavigationError',
+      'error.message': message,
+      'error.stacktrace': stacktrace,
+      'error.cause': 'navigation_error',
+      'error.source': 'webview',
+      'screen.name': __getCurrentRoute(),
     };
 
-    __recordEvent('app.crash', attrs);
+    __recordEvent('app.error', attrs);
     this.pending = null;
   }
 }

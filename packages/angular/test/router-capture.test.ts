@@ -225,7 +225,7 @@ describe('RouterCapture', () => {
     expect(navCalls[1]![1]!['navigation.method']).toBe('replace');
   });
 
-  it('sets navigation.method to cancel when navigation is cancelled', () => {
+  it('sends no navigation for a cancelled one, and the next landed one is still initial (#149)', () => {
     const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
@@ -233,9 +233,14 @@ describe('RouterCapture', () => {
     harness.setRoute('/home', makeSnapshot({ path: 'home' }));
     harness.events.next(navStart(1, '/home'));
     harness.events.next(navCancel(1, '/home', 'blocked by guard'));
+    expect(callsByName(trackSpy, 'navigation')).toHaveLength(0);
 
-    const navCall = callsByName(trackSpy, 'navigation')[0]!;
-    expect(navCall[1]!['navigation.method']).toBe('cancel');
+    harness.events.next(navStart(2, '/home'));
+    harness.events.next(navEnd(2, '/home'));
+    const navCalls = callsByName(trackSpy, 'navigation');
+    expect(navCalls).toHaveLength(1);
+    expect(navCalls[0]![1]!['navigation.method']).toBe('initial');
+    expect(navCalls[0]![1]).not.toHaveProperty('navigation.timestamp');
   });
 
   it('omits navigation.from_screen on the first navigation and sets it on subsequent navigations', () => {
@@ -256,7 +261,7 @@ describe('RouterCapture', () => {
     expect(navCalls[1]![1]!['navigation.from_screen']).toBe('/home');
   });
 
-  it('emits an app.crash event with exception_type NavigationError when navigation errors', () => {
+  it('emits app.error with error.cause navigation_error when navigation errors (#149)', () => {
     const trackSpy = vi.spyOn(rumInternals, '__recordEvent');
     const harness = createFakeRouter();
     new RouterCapture(harness.router);
@@ -265,12 +270,14 @@ describe('RouterCapture', () => {
     harness.events.next(navError(1, '/broken', new Error('route not found')));
 
     const [name, attrs] = trackSpy.mock.calls[0]!;
-    expect(name).toBe('app.crash');
-    expect(attrs!['exception_type']).toBe('NavigationError');
-    expect(attrs!['message']).toBe('route not found');
-    expect(attrs!['error_context']).toBe('navigation:/broken');
-    expect(attrs!['is_fatal']).toBe(false);
-    expect(attrs!['handled']).toBe(false);
+    expect(name).toBe('app.error');
+    expect(attrs).toMatchObject({
+      'error.type': 'NavigationError',
+      'error.message': 'route not found',
+      'error.cause': 'navigation_error',
+      'error.source': 'webview',
+    });
+    expect(JSON.stringify(attrs)).not.toContain('/broken'); // the raw URL is never sent
   });
 
   it('handles a NavigationError whose error is a string', () => {
@@ -282,8 +289,8 @@ describe('RouterCapture', () => {
     harness.events.next(navError(1, '/boom', 'string-error'));
 
     const [name, attrs] = trackSpy.mock.calls[0]!;
-    expect(name).toBe('app.crash');
-    expect(attrs!['message']).toBe('string-error');
+    expect(name).toBe('app.error');
+    expect(attrs!['error.message']).toBe('string-error');
   });
 
   it('sets navigation.has_arguments to true when the route has params', () => {
@@ -385,7 +392,7 @@ describe('RouterCapture', () => {
     harness.setRoute('/home', makeSnapshot({ path: 'home' }));
     harness.events.next(navStart(1, '/home'));
     harness.events.next(phase(EVENT_TYPE.GuardsCheckStart));
-    harness.events.next(navCancel(1, '/home'));
+    harness.events.next(navEnd(1, '/home')); // the guard phase never closed
 
     const attrs = callsByName(trackSpy, 'navigation')[0]![1]!;
     expect(attrs).not.toHaveProperty('navigation.chunk_load_ms');

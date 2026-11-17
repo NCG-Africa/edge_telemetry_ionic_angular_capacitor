@@ -64,7 +64,9 @@ interface CapacitorGlobal {
 const FLUSH_MS = 2000; // T1
 const FLUSH_AT = 20; // T1
 const BUFFER_CAP = 500; // A4
-const TIER2_EVENTS = new Set(['app.crash', 'custom_event', 'screen.duration']); // X8
+const TIER2_EVENTS = new Set(['app.crash', 'app.error', 'custom.event', 'screen.duration']); // X8
+/** The crash family JS sends (#149): handled `app.error`, unhandled `app.crash`. */
+const ERRORS = new Set(['app.crash', 'app.error']);
 
 const cap = () => (globalThis as { Capacitor?: CapacitorGlobal }).Capacitor;
 let isLive: boolean | undefined;
@@ -156,10 +158,11 @@ export function onRouteChange(f: () => void): () => void {
 export function record(e: EdgeRumEvent, crumb = true): void {
   if (!live() || !state.enabled) return;
   e.attributes = { ...state.globals, ...e.attributes };
-  // X8 Tier-2 keys; Y2: `release` only on JS-origin crashes (native crashes never pass through here).
+  const error = ERRORS.has(e.eventName ?? '');
+  // X8 Tier-2 keys; Y2: `release` only on JS-origin errors (native crashes never pass through here).
   if (e.eventName && TIER2_EVENTS.has(e.eventName)) Object.assign(e.attributes, state.annotate());
-  if (e.eventName === 'app.crash' && state.options.release) e.attributes.release = state.options.release;
-  if (crumb && e.eventName && e.eventName !== 'app.crash') {
+  if (error && state.options.release) e.attributes.release = state.options.release;
+  if (crumb && e.eventName && !error) {
     const a = e.attributes;
     const name = a['navigation.to_screen'] ?? a['screen.name'] ?? (a['ui.type'] && `${a['ui.type']} ${a['ui.target']}`) ?? a['http.url'] ?? a['event.name'] ?? e.eventName;
     breadcrumbs.push({ ts: e.timestamp, type: e.eventName, name: String(name) });
@@ -170,8 +173,8 @@ export function record(e: EdgeRumEvent, crumb = true): void {
     count('js_buffer_full');
   }
   if (!state.ready) return;
-  // T1: a crash may be the page's last act, so it doesn't wait for the timer.
-  if (e.eventName === 'app.crash' || buffer.length >= FLUSH_AT) flush();
+  // T1: an error may be the page's last act, so it doesn't wait for the timer.
+  if (error || buffer.length >= FLUSH_AT) flush();
   else if (timer === undefined) timer = outside(() => setTimeout(flush, FLUSH_MS));
 }
 

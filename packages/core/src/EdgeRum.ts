@@ -1,5 +1,5 @@
 import {
-  call, discard, event, flush, isName, isValue, live, metric, now, onRouteChange, outside, route, routeListeners, setEnabled, start, state, whenReady,
+  call, discard, event, flush, isName, isValue, live, metric, onRouteChange, outside, route, routeListeners, setEnabled, start, state, whenReady,
   type AttributeValue, type EdgeRumOptions, type EventAttributes,
 } from './core';
 import { healthMonitor } from './internal/health';
@@ -54,7 +54,7 @@ function leaveScreen(method: string) {
     'screen.name': screen.name,
     'screen.duration_ms': Math.max(0, Date.now() - screen.enteredAt),
     'screen.exit_method': method,
-    'screen.timestamp': now(),
+    'span.start_time': new Date(screen.enteredAt).toISOString(), // the visit's entry (#31)
   });
   screen = null;
 }
@@ -131,12 +131,13 @@ export const EdgeRum = {
 
   /** Record a named app event. */
   track(name: string, attributes?: EventAttributes): void {
-    if (isName(name)) event('custom_event', { ...attributes, 'event.name': name });
+    if (isName(name)) event('custom.event', { ...attributes, 'event.name': name });
   },
 
   /** Record an app-named number, e.g. `measure('cart.items', 3)`. */
   measure(name: string, value: number, attributes?: EventAttributes): void {
-    if (isName(name) && typeof value === 'number' && isFinite(value)) metric(name, value, { ...attributes });
+    // #149: the app's name rides in `metric.name`; the row is always `custom.metric`.
+    if (isName(name) && typeof value === 'number' && isFinite(value)) metric('custom.metric', value, { ...attributes, 'metric.name': name });
   },
 
   /** Start a timer; `end()` records the elapsed milliseconds via `measure()`. */
@@ -160,7 +161,6 @@ export const EdgeRum = {
       'navigation.to_screen': name,
       'navigation.method': 'push',
       'navigation.has_arguments': false,
-      'navigation.timestamp': now(),
       ...(state.route !== '/' && { 'navigation.from_screen': state.route }),
       ...attributes,
     });
@@ -170,9 +170,9 @@ export const EdgeRum = {
 
   /** Report an error the app caught. */
   captureError(error: unknown, attributes?: Record<string, unknown>): void {
-    // E10. Host attrs first: they can't rewrite handled / cause / runtime.
+    // E10. Host attrs first: they can't rewrite the `error.*` keys.
     try {
-      event('app.crash', { ...flat(attributes), ...crashAttributes(error, true, 'ManualCapture', state.route) });
+      event('app.error', { ...flat(attributes), ...crashAttributes(error, 'handled', state.route) });
     } catch (err) {
       healthMonitor.reportError('errors.capture', err); // a host error with throwing getters
     }

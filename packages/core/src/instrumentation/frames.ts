@@ -94,11 +94,11 @@ export function registerFrameCapture(deps: FramesDeps): FramesHandle {
     }
   }
 
-  // Emit one summary for the closing window, then reset. Suppressed entirely
-  // when no slow frame occurred (a smooth or empty window sends nothing) —
-  // this is where the volume cut lives (ADR-030).
+  // Emit one summary for the closing window, then reset. Every window with a
+  // frame is sent, smooth ones too (#149, processor #33: analytics sums the
+  // windows, so a smooth one is the denominator); an empty window sends nothing.
   function flushWindow(): void {
-    if (slow) {
+    if (total) {
       try {
         deps.record({
           'screen.name': windowRoute,

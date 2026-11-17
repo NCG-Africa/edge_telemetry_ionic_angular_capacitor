@@ -145,10 +145,10 @@ beforeAll(async () => {
   window.dispatchEvent(new ErrorEvent('error', { error: new Error('boom'), message: 'boom' }));
   await fetch('https://api.example.com/v2/users/42');
   document.body.innerHTML = '<button id="buy">Buy now</button>';
-  document.getElementById('buy')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  document.getElementById('buy')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   await (g.Capacitor as { nativePromise: (p: string, m: string) => Promise<unknown> }).nativePromise('Camera', 'getPhoto');
   for (const [name, value] of [['LCP', 812.5], ['INP', 96], ['CLS', 0.05], ['FCP', 410], ['TTFB', 120]] as const) {
-    vitals[name]!({ name, value, rating: 'good', delta: value, id: 'v1', entries: [], navigationType: 'navigate' });
+    vitals[name]?.({ name, value, rating: 'good', delta: value, id: 'v1', entries: [], navigationType: 'navigate' });
   }
   for (const o of observers) {
     o.cb({
@@ -175,9 +175,9 @@ describe('golden batches (#149)', () => {
 
   it.each(JS_EVENTS)('%s matches its golden', (name) => {
     const row = recorded.get(name);
-    expect(row).toBeDefined();
+    if (!row) throw new Error(`${name} was not recorded`);
     const file = join(DIR, `${name.replace(/\./g, '-')}.json`);
-    const got = `${JSON.stringify(batch(row!), null, 2)}\n`;
+    const got = `${JSON.stringify(batch(row), null, 2)}\n`;
     if (UPDATE) {
       mkdirSync(DIR, { recursive: true });
       writeFileSync(file, got);

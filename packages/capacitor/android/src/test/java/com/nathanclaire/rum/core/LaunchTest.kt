@@ -79,6 +79,6 @@ class LaunchTest {
         pagePhases()
         launch.mark("bridgeReady", T0 + 700)
         val lines = session.admit(listOf(launch.mark("markReady", T0 + 1500)!!))
-        SignalsTest.assertGoldenBatch("app-start.json", dir, health, now, lines)
+        SignalsTest.dumpGoldenBatch("app-start.json", dir, health, now, lines)
     }
 }

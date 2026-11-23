@@ -1734,7 +1734,7 @@ still sent the alias forms (`app.crash handled=true`, `custom_event`, `LCP`, `me
   every SDK.
 - (+) Keys this SDK alone sends (`webview.detected_by`, `error.binary_images`, `release`,
   `resource.{host,initiator_type,count}`, `sdk.health` counters) are registered in the catalogue.
-- (−) A release with these names must wait for the processor release that reads catalogue 4.6.
+- (−) A release with these names must wait for the processor release that reads catalogue 4.7.
 - (−) The gate is not a required CI check until CI can read the processor repo.
 - (−) Mouse clicks and taps are no longer told apart; `memory.usage` loses the separate RSS row
   (kept as `memory.resident_kb`).

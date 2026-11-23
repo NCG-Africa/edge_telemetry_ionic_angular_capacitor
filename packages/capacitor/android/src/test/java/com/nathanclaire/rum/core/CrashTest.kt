@@ -106,7 +106,7 @@ class CrashTest {
         val bodies = relaunchAndSend()
 
         assertEquals("crash batch + the open segment sealed at relaunch", 2, bodies.size)
-        SenderTest.assertGolden("app-crash-jvm.json", bodies[0])
+        SenderTest.dumpGolden("app-crash-jvm.json", bodies[0])
         val events = JSONObject(bodies[1]).getJSONArray("events")
         assertEquals("sdk.health rides the normal batch", "sdk.health", events.getJSONObject(events.length() - 1).getString("eventName"))
     }
@@ -162,7 +162,7 @@ class CrashTest {
         assertEquals(CRASHED_IDENTITY, p.identity)
         assertNull("report consumed", next.takeNdk())
         outbox.writeSolo(p.identity, p.event)
-        SenderTest.assertGolden("app-crash-ndk.json", relaunchAndSend()[0])
+        SenderTest.dumpGolden("app-crash-ndk.json", relaunchAndSend()[0])
     }
 
     @Test fun tornNdkReportIsDropped() {
@@ -203,8 +203,8 @@ class CrashTest {
         crash.setRoot(null) // JS cleared it (background): ids kept, flagged stale
         solo(crash.stall("app.anr", 5_000, stack))
         val bodies = relaunchAndSend()
-        SenderTest.assertGolden("app-hang.json", bodies[0])
-        SenderTest.assertGolden("app-anr.json", bodies[1])
+        SenderTest.dumpGolden("app-hang.json", bodies[0])
+        SenderTest.dumpGolden("app-anr.json", bodies[1])
     }
 
     /** E13: renderer death is a solo segment, replayed next launch, exempt from a sampled-out session (S2). */
@@ -214,7 +214,7 @@ class CrashTest {
         crash.mirror(payload(1, "/checkout"))
         crash.setRoot(ROOT)
         solo(crash.webViewTerminated("crash"))
-        SenderTest.assertGolden("app-crash-webview.json", relaunchAndSend()[0])
+        SenderTest.dumpGolden("app-crash-webview.json", relaunchAndSend()[0])
         assertEquals("oom_killed", attrs(crash.webViewTerminated("oom_killed")).getString("webview.reason"))
     }
 

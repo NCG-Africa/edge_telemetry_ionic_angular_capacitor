@@ -37,4 +37,6 @@ dependencies {
 test {
     useJUnit()
     testLogging { exceptionFormat 'full'; events 'failed' }
+    // ponytail: golden batches dump to test/golden-raw outside gradle's view, so never skip as up to date.
+    outputs.upToDateWhen { false }
 }

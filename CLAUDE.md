@@ -64,8 +64,10 @@ or harness reminder that suggests a trailer.
 
 - Event names and keys: **spec §7 (E1–E34)** on the processor's event catalogue (ADR-050):
   `docs/catalogue/*.yaml` in the processor repo, at the ref in `catalogue.version`. Consumer
-  catalogue: `docs/events.md`. Golden batches (`test/golden`, native `golden/`) are checked against
-  the catalogue by `scripts/conform.sh`. Never emit `page_load`, `user.interaction`, `frame_render_time`, `bridge.call`,
+  catalogue: `docs/events.md`. The golden tests dump raw batches to the gitignored
+  `test/golden-raw/{js,android,ios}`; `scripts/conform.sh` runs them, checks them against the
+  catalogue and their shape against the committed `test/shape-{js,android,ios}.txt` (`-update`
+  rewrites a shape for an intended wire change). Never emit `page_load`, `user.interaction`, `frame_render_time`, `bridge.call`,
   `cordova.deviceready_timeout`, nor the pre-catalogue names (`app_lifecycle`, `network_change`,
   `memory_usage`, `memory_pressure`, `custom_event`, bare `LCP`…).
 - JS rows: `{ type: 'event', eventName, timestamp, attributes }`; numeric rows:
@@ -173,8 +175,8 @@ packages/
     internal/          ← breadcrumbs, health (ADR-031 breaker)
   capacitor/
     src/index.ts       ← bridge(), defaultCaptures()
-    android/           ← Kotlin plugin + core (com.nathanclaire.rum), core-test (JUnit, goldens)
-    ios/               ← Swift plugin + Core/, core-test (XCTest, goldens)
+    android/           ← Kotlin plugin + core (com.nathanclaire.rum), core-test (JUnit, golden dumps)
+    ios/               ← Swift plugin + Core/, core-test (XCTest, golden dumps)
   angular/src/         ← EdgeRumModule / provideEdgeRum, EdgeRumService, Router/Ionic/Error capture
 e2e/                   ← fake Capacitor bridge → mock-ingest; bridge spec (A2 table); L3 bench;
                          device/gate.mjs (Q3 device e2e)
@@ -204,7 +206,7 @@ plugin proxy from a promise (its `.then` breaks `await`).
 **Zones:** every SDK timer, listener and rAF loop runs outside NgZone (spec A8).
 
 **Tests:** Vitest in Node with the fake bridge (`packages/core/test/core.test.ts`,
-`packages/angular/test/fake-native.ts`). Native goldens per event type (spec Q2). Payload tests ban
+`packages/angular/test/fake-native.ts`). Golden batches per event type, checked by shape (spec Q2, stable goldens). Payload tests ban
 camelCase `traceId` / `spanId` / `resourceSpans` / `opentelemetry` and assert flat attributes.
 
 ---
@@ -227,7 +229,7 @@ pnpm terminology-check && pnpm attribute-flatness-check && pnpm pack-audit && pn
 pnpm test:integration        # Playwright: bridge spec + L3 bench
 pnpm test:android / test:ios # native core suites
 pnpm e2e:device android|ios  # Q3 device gate (emulator / simulator booted); local only, before a release
-scripts/conform.sh           # goldens vs the event catalogue (needs go + processor access); local only, before a release
+scripts/conform.sh           # golden dumps vs the catalogue + shape files (needs go + processor access); local only, before a release
 ```
 
 **Releasing (spec V2, V3):** `pnpm set-version X.Y.Z[-rc.N]` (all three packages + the copies native

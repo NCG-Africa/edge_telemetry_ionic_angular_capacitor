@@ -30,19 +30,13 @@ class SenderTest {
         fun gunzip(req: RecordedRequest): String =
             GZIPInputStream(req.body.inputStream()).use { it.readBytes().toString(Charsets.UTF_8) }
 
-        fun golden(name: String): JSONObject =
-            JSONObject(SenderTest::class.java.getResourceAsStream("/golden/$name")!!.use { it.readBytes().toString(Charsets.UTF_8) })
-
         /**
-         * Key order is part of the snapshot: the envelope is written in a fixed order.
-         * `UPDATE_GOLDEN=1` rewrites the file instead (gradle runs in `core-test`).
+         * Spec 2026-11-23 stable goldens: dumps [body] to the gitignored `test/golden-raw/<set>`
+         * (gradle runs in `core-test`); `scripts/conform.sh` checks it and its shape.
          */
-        fun assertGolden(name: String, body: String) {
-            if (System.getenv("UPDATE_GOLDEN") == "1") {
-                java.io.File("../src/test/resources/golden/$name").writeText(JSONObject(body).toString(2) + "\n")
-                return
-            }
-            assertEquals("$name drifted", golden(name).toString(2), JSONObject(body).toString(2))
+        fun dumpGolden(name: String, body: String, set: String = "android") {
+            val dir = java.io.File("../../../../test/golden-raw/$set").apply { mkdirs() }
+            java.io.File(dir, name).writeText(JSONObject(body).toString(2) + "\n")
         }
     }
 
@@ -70,7 +64,7 @@ class SenderTest {
         outbox.seal()
     }
 
-    @Test fun postsGzippedContractFourEnvelopeMatchingGolden() {
+    @Test fun postsGzippedContractFourEnvelopeAsGolden() {
         sealedBatch()
         server.enqueue(MockResponse().setResponseCode(202))
         sender.drain()
@@ -81,18 +75,18 @@ class SenderTest {
         assertEquals("gzip", req.getHeader("Content-Encoding"))
         assertEquals("application/json", req.getHeader("Content-Type"))
         assertEquals("edge_key_secret", req.getHeader("X-API-Key"))
-        assertGolden("batch.json", gunzip(req))
+        dumpGolden("batch.json", gunzip(req))
         assertTrue(outbox.sealed().isEmpty())
     }
 
-    @Test fun appendsSdkHealthWithDropCountsMatchingGolden() {
+    @Test fun appendsSdkHealthWithDropCountsAsGolden() {
         health.count("outbox_full", 7)
         health.count("rejected", 2)
         sealedBatch()
         server.enqueue(MockResponse().setResponseCode(200))
         sender.drain()
 
-        assertGolden("sdk-health.json", gunzip(server.takeRequest()))
+        dumpGolden("sdk-health.json", gunzip(server.takeRequest()))
         assertEquals(emptyMap<String, Long>(), health.snapshot())
     }
 

@@ -26,3 +26,6 @@ build/
 
 # Android NDK (native builds of the linked plugin)
 .cxx/
+
+# Golden batches the tests dump (spec 2026-11-23 stable goldens); shapes in test/shape-*.txt
+test/golden-raw/

@@ -38,8 +38,8 @@ class SignalsTest {
             .put("app.bundle_id", "builtin")
             .put("network.type", "wifi")
 
-        /** Seals [lines] into one batch, sends it, and compares the body with the golden file. */
-        fun assertGoldenBatch(name: String, dir: File, health: Health, now: Long, lines: List<String>) {
+        /** Seals [lines] into one batch, sends it, and dumps the body as a golden batch. */
+        fun dumpGoldenBatch(name: String, dir: File, health: Health, now: Long, lines: List<String>, set: String = "android") {
             val outbox = Outbox(dir, { now }, health)
             outbox.append(SenderTest.IDENTITY, lines)
             outbox.seal()
@@ -50,7 +50,7 @@ class SignalsTest {
                 sender.configure("k", server.url("/").toString())
                 server.enqueue(MockResponse().setResponseCode(200))
                 sender.drain()
-                SenderTest.assertGolden(name, SenderTest.gunzip(server.takeRequest()))
+                SenderTest.dumpGolden(name, SenderTest.gunzip(server.takeRequest()), set)
             } finally {
                 server.shutdown()
             }
@@ -134,14 +134,14 @@ class SignalsTest {
         val session = session()
         val ctx = deviceContext()
         session.context { ctx }
-        assertGoldenBatch("app-lifecycle.json", dir, health, now, session.admit(listOf(Signals.lifecycle("backgrounded", now))))
+        dumpGoldenBatch("app-lifecycle.json", dir, health, now, session.admit(listOf(Signals.lifecycle("backgrounded", now))))
         session.context { JSONObject() }
-        assertGoldenBatch("memory-usage.json", dir, health, now, session.admit(listOfNotNull(Signals.memory(187392, 143360, "session_start", now))))
-        assertGoldenBatch("memory-pressure.json", dir, health, now, session.admit(listOf(Signals.pressure(15, 187392, now)!!)))
-        assertGoldenBatch("network-change.json", dir, health, now, session.admit(listOf(Signals.network("wifi", "none", now))))
+        dumpGoldenBatch("memory-usage.json", dir, health, now, session.admit(listOfNotNull(Signals.memory(187392, 143360, "session_start", now))))
+        dumpGoldenBatch("memory-pressure.json", dir, health, now, session.admit(listOf(Signals.pressure(15, 187392, now)!!)))
+        dumpGoldenBatch("network-change.json", dir, health, now, session.admit(listOf(Signals.network("wifi", "none", now))))
         // Idle rotation: both bookends, then the profile event in the new session.
         now += Session.IDLE_MS + 1
         val profile = User(store) { now }.identify(JSONObject().put("id", "u1").put("name", "Ada").put("email", "ada@example.com"))!!
-        assertGoldenBatch("session.json", dir, health, now, session.admit(listOf(profile)))
+        dumpGoldenBatch("session.json", dir, health, now, session.admit(listOf(profile)))
     }
 }

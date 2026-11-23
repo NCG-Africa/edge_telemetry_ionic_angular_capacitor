@@ -9,16 +9,22 @@ emulator and a simulator; the scenario table covers the rest by hand on a **real
 
 - [ ] **G0:** prod runs collector PR #8 and processor PR #9 (otherwise contract-4 batches go to the DLQ as `<app-not-registered>`).
 - [ ] **G10:** the processor halves of G1–G5, G7 and G8 are live in prod. Analytics may trail.
-- [ ] **Catalogue (ADR-050):** prod runs the processor release that reads catalogue 4.6. A build
+- [ ] **Catalogue (ADR-050):** prod runs the processor release that reads catalogue 4.7. A build
   sending the catalogue names (`app.error`, `custom.event`, `perf.*`, `memory.usage`, …) must not ship
   before it.
 
 ## Catalogue conformance gate (ADR-050)
 
-- [ ] `catalogue.version` names a `catalogue-v4.N` tag of the processor repo, not a branch.
-- [ ] `scripts/conform.sh` on this commit prints `conforms to catalogue 4.N` (needs `go` and read
-  access to the processor repo; `PROCESSOR_DIR=<checkout>` reuses a local one). Local only: the
-  processor repo is private, so CI can't clone it.
+Spec 2026-11-23 stable goldens (AC-7). The pin moves only here, never in a feature PR.
+
+- [ ] Every catalogue change this release needs is tagged `catalogue-v4.N` in the processor repo. If
+  not, cut the tag there first.
+- [ ] `catalogue.version` names that `catalogue-v4.N` tag, not `main` or a branch.
+- [ ] `scripts/conform.sh` on this commit prints `conforms to catalogue 4.N` and `shape matches` for
+  all three sets (needs pnpm, gradle with JDK 17, swift, `go` and read access to the processor repo;
+  `PROCESSOR_DIR=<checkout>` reuses a local one). Local only: the processor repo is private, so CI
+  can't clone it. An intended wire change: `scripts/conform.sh -update`, and commit the shape diff
+  with the change.
 
 ## Device e2e gate (spec Q3)
 

@@ -34,12 +34,14 @@ class LaunchTest {
         assertNull("once per launch", launch.finish())
     }
 
-    @Test fun markReadyInsideWindowCompletesIt() {
+    @Test fun markReadyInsideWindowCompletesItButDoesNotExtendIt() {
         pagePhases()
         launch.mark("bridgeReady", T0 + 700)
         val e = launch.mark("markReady", T0 + 2000)!!
-        assertEquals(2000, e.getJSONObject("attributes").getLong("app.start.duration_ms"))
-        assertEquals(Sender.rfc3339(T0 + 2000), e.getString("timestamp"))
+        val a = e.getJSONObject("attributes")
+        assertEquals("#149: ends at bridge ready", 700, a.getLong("app.start.duration_ms"))
+        assertEquals(2000, a.getLong("app.start.mark_ready_ms"))
+        assertEquals(Sender.rfc3339(T0 + 700), e.getString("timestamp"))
         assertNull(launch.finish())
     }
 

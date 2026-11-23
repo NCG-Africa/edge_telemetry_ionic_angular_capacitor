@@ -6,7 +6,7 @@ source: map "edge-rum 5.0 — traces & spans, contract 4 parity, Ionic specialis
 
 # edge-rum 5.0.0 — build spec
 
-Packages `@nathanclaire/rum`, `@nathanclaire/rum-capacitor`, `@nathanclaire/rum-angular` 5.0.0, wire contract 4.0.0. Each rule is stated **once**, numbered, and links the ADR that decided it. ADRs (`docs/decisions.md`) hold the reasoning; this doc holds the rules. Impl issues cite rules by number ("spec X5").
+Packages `@nathanclaire/rum`, `@nathanclaire/rum-capacitor`, `@nathanclaire/rum-angular` 5.0.0, wire contract 4.3.0. Each rule is stated **once**, numbered, and links the ADR that decided it. ADRs (`docs/decisions.md`) hold the reasoning; this doc holds the rules. Impl issues cite rules by number ("spec X5").
 
 **Baselines, cited not restated:**
 - Contract 4 rules **R1–R16**: `edge_rum/wayfinder/spec.md` (`ionic` already in R2).
@@ -48,14 +48,14 @@ Terms (JS core, native core, hand-off, segment, exempt set) = Cordova §1. **Tra
 - **A2** Plugin methods = Cordova A2 action table, as Capacitor plugin methods instead of `exec`: `getState`, `enqueue`, `configure`, `identify`, `clearUser`, `enable`, `disable`, `reset`, `markPhase`; `subscribe` → `addListener('state', …)` (session rotation / enabled changes). **Plus** `setRoot({ trace.id, rum.action.id, trace.root_type } | null)` (X10) and the existing `setLastScreen`. Method names internal, not public API; Q2 pins the table. ([034](decisions.md#adr-034--contract-4-fit-native-core-owns-identity-outbox-and-send-web-is-a-no-op-76), [035 §11](decisions.md#adr-035--trace-model-ambient-root-fetchxhr-injection-native-crash-annotation-77))
 - **A3** Breadcrumbs = Cordova A3. ([034](decisions.md#adr-034--contract-4-fit-native-core-owns-identity-outbox-and-send-web-is-a-no-op-76))
 - **A4** Before `getState` resolves: JS buffers captures (= Cordova A4, cap 500, drop-oldest, counted), injects **no** `traceparent` (X7 `skipped_no_session`), never blocks startup. No JS fallback sender. ([036 §2](decisions.md#adr-036--lightweight-budget-and-modular-architecture-78), [037 §4](decisions.md#adr-037--event-catalogue-for-500-cordova-names-as-baseline-gap-fills-ionic-only-captures-79))
-- **A5** `app.start` assembled natively = Cordova A5 with Capacitor phases: process start → WebView created → `responseEnd` → `DOMContentLoaded` → `load` → bridge ready → optional `markReady()`. No `deviceready`. Carries the `launch` root (X2). ([037 §2](decisions.md#adr-037--event-catalogue-for-500-cordova-names-as-baseline-gap-fills-ionic-only-captures-79))
+- **A5** `app.start` assembled natively = Cordova A5 with Capacitor phases: process start → WebView created → `responseEnd` → `DOMContentLoaded` → `load` → bridge ready → optional `markReady()`. `app.start.duration_ms` ends at bridge ready; `markReady()` only adds `app.start.mark_ready_ms`. One per process. No `deviceready`. ([050](decisions.md#adr-050--converge-on-the-processors-event-catalogue-149)) Carries the `launch` root (X2). ([037 §2](decisions.md#adr-037--event-catalogue-for-500-cordova-names-as-baseline-gap-fills-ionic-only-captures-79))
 - **A6** WebView death: Android `WebViewListener.onRenderProcessGone`; iOS JS-reload heuristic (= Cordova A6 inference path; **no swizzle**). ([037 §2](decisions.md#adr-037--event-catalogue-for-500-cordova-names-as-baseline-gap-fills-ionic-only-captures-79))
 - **A7** Web is a silent no-op (R16, Cordova A8): every method exists, nothing captured or sent, one debug warning. `device.platform=web` gone. ([034 §2](decisions.md#adr-034--contract-4-fit-native-core-owns-identity-outbox-and-send-web-is-a-no-op-76))
 - **A8** Every capture loop, timer and listener the SDK owns runs **outside NgZone** (frame loop, hand-off timer, idle checks). ([036 §5](decisions.md#adr-036--lightweight-budget-and-modular-architecture-78))
 
 ## 4. Wire contract fit — W
 
-- **W1** `sdk.name = "ionic"`, `contract_version = "4.0.0"`, `sdk.version` = package version. `sdk.platform`, `location`, `app.environment` never sent. ([034 §5](decisions.md#adr-034--contract-4-fit-native-core-owns-identity-outbox-and-send-web-is-a-no-op-76))
+- **W1** `sdk.name = "ionic"`, `contract_version = "4.3.0"`, `sdk.version` = package version. `sdk.platform`, `location`, `app.environment` never sent. ([034 §5](decisions.md#adr-034--contract-4-fit-native-core-owns-identity-outbox-and-send-web-is-a-no-op-76))
 - **W2** App identity = Cordova W3 (native, no override; nil → omitted). ([034 §3](decisions.md#adr-034--contract-4-fit-native-core-owns-identity-outbox-and-send-web-is-a-no-op-76))
 - **W3** `device_id` = Cordova W4. Fresh UUID on first 5.0 launch; 4.x localStorage ids (`edge_rum_device_id` et al.) deleted, never carried over. ([034 §4](decisions.md#adr-034--contract-4-fit-native-core-owns-identity-outbox-and-send-web-is-a-no-op-76))
 - **W4** No contract amendment (R2 already lists `ionic`). Backend changes = §14. ([034](decisions.md#adr-034--contract-4-fit-native-core-owns-identity-outbox-and-send-web-is-a-no-op-76), [038](decisions.md#adr-038--backend-changes-to-surface-ionic-50-events-and-traces-81))
@@ -71,7 +71,7 @@ Wire byte-identical to Android trace v3 (`edge_telemetry_android/docs/specs/back
 - **X5** Header flags always `01`; sampled-out sessions send no header (no `-00`). A valid consumer-set header → `adopted` (`span.id` mirrors foreign parent-id; `rum.action.id` stays the local root's `span.id`); malformed → overwritten. ([035 §6–8](decisions.md#adr-035--trace-model-ambient-root-fetchxhr-injection-native-crash-annotation-77))
 - **X6** Children of the live root: each Capacitor plugin call (the `nativePromise` wrap, E18; reported per root + plugin + method on `bridge.summary`). Router guard / resolver / lazy-chunk phases are not children: they are duration keys on the `navigation` span (E19). Ionic page transitions are not children; `screen.duration` annotation-only. ([035 §9](decisions.md#adr-035--trace-model-ambient-root-fetchxhr-injection-native-crash-annotation-77), [049](decisions.md#adr-049--router-phases-are-keys-on-navigation-not-child-spans-142))
 - **X7** `traceparent.outcome` = Android's 6 values in Android precedence, plus `skipped_no_cors` (`mode:'no-cors'`, right after `skipped_off_allowlist`) and `skipped_no_session` (before `getState`, A4; row still gets `trace.id`/`span.id` once the session lands). 8 values. ([035 §6](decisions.md#adr-035--trace-model-ambient-root-fetchxhr-injection-native-crash-annotation-77), [037 §4](decisions.md#adr-037--event-catalogue-for-500-cordova-names-as-baseline-gap-fills-ionic-only-captures-79))
-- **X8** Key tiers: **Tier 1** (full span keys) on `interaction`/`navigation` root events, `http.request`, `bridge.summary` children. **Tier 2** (`trace.id`, `rum.action.id`, `trace.root_type`) on JS + native `app.crash`, `app.hang`/`app.anr`, `custom_event`, `screen.duration`. **None** on metric items, `app.start` phases, `app_lifecycle`, `session.*`, `user.profile.update`. `http.request` stamps `span.start_time` at send (anchored to `performance.now()`). ([035 §10](decisions.md#adr-035--trace-model-ambient-root-fetchxhr-injection-native-crash-annotation-77))
+- **X8** Key tiers: **Tier 1** (full span keys) on `interaction`/`navigation` root events, `http.request`, `bridge.summary` children. **Tier 2** (`trace.id`, `rum.action.id`, `trace.root_type`) on JS + native `app.crash`, `app.hang`/`app.anr`, `custom.event`, `screen.duration`. **None** on metric items, `app.start` phases, `app.lifecycle`, `session.*`, `user.profile.update`. `http.request` stamps `span.start_time` at send (anchored to `performance.now()`). ([035 §10](decisions.md#adr-035--trace-model-ambient-root-fetchxhr-injection-native-crash-annotation-77))
 - **X9** Root cleared on background and session rotation (later requests → `injected_expired`). Ids from `crypto.getRandomValues`; all-zero rejected. Redirect limitation documented (3xx to off-allowlist host keeps the header). ([035 §12](decisions.md#adr-035--trace-model-ambient-root-fetchxhr-injection-native-crash-annotation-77))
 - **X10** Native stitch = annotation only: on root mint/replace JS calls `setRoot` once (none per request or frame). Native keeps a non-parenting `lastRoot`, persists it with crash records; replayed native crash/hang/ANR/WebView death carries Tier-2 keys + `trace.root_expired=true` when stale. Native mints no spans. ([035 §11](decisions.md#adr-035--trace-model-ambient-root-fetchxhr-injection-native-crash-annotation-77))
 
@@ -88,34 +88,36 @@ Wire byte-identical to Android trace v3 (`edge_telemetry_android/docs/specs/back
 
 | # | Cordova row | Ionic delta |
 |---|---|---|
-| E1 | E1 `session.*` | Same. Counters last-write on backend (G8). |
-| E2 | E2 `app_lifecycle` | Source = Capacitor `appStateChange` + native fg/bg. `lifecycle.state`. |
+| E1 | E1 `session.*` | Same. Counters last-write on backend (G8). Rotates after 30 min idle or 4 h; `session.finalized` carries `session.reason ∈ timeout\|max_duration`. |
+| E2 | E2 `app.lifecycle` | Source = Capacitor `appStateChange` + native fg/bg. `lifecycle.state`. |
 | E3 | E3 `app.start` | Phases per A5. Replaces 4.x `page_load` + `lifecycle.cold_start_ms`. Exempt. |
 | E4 | E4 `navigation` | Source = Angular Router (normalised route template, never raw URL); `trackScreen()` for non-Angular apps. Plus E19 phase keys. |
 | E5 | E5 `screen.duration` | Ionic page lifecycle via **capture-phase** listener (4.x bubbling bug fixed). Tier-2 keys. |
 | E6 | E6 `http.request` | fetch + XHR (incl. `HttpClient`, 4.x XHR gap fixed); URL per P2; `http.{request_size,response_size}` where available; `success` = 200–399; X7/X8 keys. |
-| E7 | E7 `resource_timing` | `resourceTiming()` opt-in; **aggregate** per screen window grouped by templated host: `resource.{host,initiator_type,count,p95_ms,transfer_kb}`, value = p95. No per-resource URLs; CapacitorHttp proxy + SDK endpoint excluded. |
+| E7 | E7 `perf.resource_timing` | `resourceTiming()` opt-in; **aggregate** per screen window grouped by templated host: `resource.{host,initiator_type,count,p95_ms,transfer_kb}`, value = p95. No per-resource URLs; CapacitorHttp proxy + SDK endpoint excluded. |
 | E8 | E8 `traceparent` | §5. |
-| E9–E11 | `app.crash` JS | Same; `consoleErrors()` **in** `defaultCaptures()` (Cordova default off). `release` per Y2. |
-| E12 | E12 native crash | Same (PLCrashReporter iOS, JVM + NDK Android). X10 keys. |
-| E13 | E13 `WebViewTerminated` | Detection per A6; `webview.detected_by ∈ callback\|inference`. Exempt. |
-| E14 | E14 `app.anr` | Android, native config `anr`/`anrTimeoutMs` (5000). |
-| E15 | E15 `app.hang` | **Added on Android**; both platforms 2 s default (iOS 5 s → 2 s). No JS-thread hang detector. |
-| E16 | E16 `app.exit` | Same (Android `ApplicationExitInfo`, next launch). |
+| E9–E11 | `app.crash` / `app.error` JS | Unhandled = `app.crash` (`error.cause ∈ unhandled_exception\|promise_rejection`), handled (`captureError`, `ErrorHandler`) = `app.error` (`error.cause=handled`); `error.*` keys, `screen.name`; `consoleErrors()` **in** `defaultCaptures()` (Cordova default off). `release` per Y2. |
+| E12 | E12 native crash | Same (PLCrashReporter iOS, JVM + NDK Android). `error.cause=native_crash` (signal, NDK) or `unhandled_exception` (uncaught `NSException` / JVM exception, as the Android SDK), `error.{type,message,stacktrace,thread,is_main_thread,breadcrumbs}`, iOS `error.binary_images`. X10 keys. |
+| E13 | E13 WebView death | `app.crash`, `error.cause=webview_terminated`. Detection per A6; `webview.detected_by ∈ callback\|inference`. Exempt. |
+| E14 | E14 `app.anr` | Android, native config `anr`/`anrTimeoutMs` (5000). `anr.duration_ms`, `error.cause=anr`. |
+| E15 | E15 `app.hang` | **Added on Android**; both platforms 2 s default (iOS 5 s → 2 s). `hang.duration_ms`, `error.cause=hang`. No JS-thread hang detector. |
+| E16 | E16 `app.exit` | Same (Android `ApplicationExitInfo`, next launch). `exit.importance` = the raw int code. |
 | E17 | E17 `cordova.deviceready_timeout` | **Not emitted** (no `deviceready`). |
 | E18 | E18 `bridge.summary` | Source = `Capacitor.nativePromise` wrap; keys = Cordova E18 (`bridge.service` = plugin name, `bridge.action` = method, `bridge.{count,error_count,p50_ms,p95_ms,max_ms}`) + additive `bridge.error_codes`; SDK's own plugin excluded. Export `bridge()`, default on. **No `bridge.call`** (Cordova E19 not emitted). |
 | E19 | — | Router phases on `navigation`: `navigation.{guards_ms,resolvers_ms,chunk_load_ms}`; keys, not child spans (X6, [049](decisions.md#adr-049--router-phases-are-keys-on-navigation-not-child-spans-142)). Angular, default on. |
-| E20 | E20 `frame.summary` | rAF only, **idle-paused** after 2 s with no input/scroll/route change/Ionic transition; ADR-030 windowed shape, `frame.*` keys, `frame.source=raf`. `frames({ slowThresholdMs })`, default on. |
-| E21 | E21 web vitals | `vitals()`, default on. Backend WebView vitals panel (G7). |
-| E22–E24 | memory | Bookends + `memory_pressure` always on (native); periodic sampling = native config `memorySampling` (off, 30 s). `memory.*` keys. |
-| E25 | E25 `ui.interaction` | `interactions()`; rage/dead per Cordova; name per P4. |
-| E26 | E26 `network_change` | Native. |
-| E27–E31 | API events + `sdk.health` | Same (`task.complete` via `startTask`/`completeTask`/`failTask`). `user.profile.update` sampled (S2). |
+| E20 | E20 `frame.summary` | rAF only, **idle-paused** after 2 s with no input/scroll/route change/Ionic transition; ADR-030 windowed shape, every window with a frame is sent, `frame.*` keys, `frame.source=raf`. `frames({ slowThresholdMs })`, default on. |
+| E21 | E21 web vitals | `vitals()`, default on. Numeric `perf.{lcp,inp,cls,fcp,ttfb}`; long tasks `perf.long_task`. Backend WebView vitals panel (G7). |
+| E22–E24 | memory | Bookends + `memory.pressure` always on (native); periodic sampling = native config `memorySampling` (off, 30 s). `memory.usage` is an event: `memory.usage_mb` = process footprint in MB (Android total PSS, iOS `phys_footprint`, RSS fallback), `memory.type`, `memory.resident_kb`. `memory.pressure_level ∈ moderate\|critical`, Android trim level name in `memory.trim_level`. |
+| E25 | E25 `ui.interaction` | `interactions()`, `ui.type=tap`; rage/dead per Cordova; name per P4. |
+| E26 | E26 `network.change` | Native. |
+| E27–E31 | API events + `sdk.health` | `track()` = `custom.event`; `measure()`/`time()` = numeric `custom.metric` with `metric.name`. Otherwise same (`task.complete` via `startTask`/`completeTask`/`failTask`). `user.profile.update` sampled (S2). |
 | E32 | E32 context | Plus always-on context attrs `webview.version`, `app.bundle_id` (P5). |
 | E33 | — | `ionicUi()` (**off**): `ui.interaction` with `ui.type ∈ overlay_open\|overlay_dismiss\|tab_change\|back\|keyboard_show`, `ui.target` = component tag. |
-| E34 | — | Angular route error: `app.crash cause=NavigationError`, unchanged from 4.x. |
+| E34 | — | Angular route error: `app.error` with `error.cause=navigation_error`. |
 
-Never emit `page_load`, `user.interaction`, `frame_render_time`, `bridge.call`, `cordova.deviceready_timeout`. Skipped: view rollup, `screen.load`, `storage_usage`, `cpu_usage`, `sdk.health` as standalone capture beyond R4, change-detection cost, `nativeCallback` counts, Capgo rollback events, session replay. ([037 §2–5](decisions.md#adr-037--event-catalogue-for-500-cordova-names-as-baseline-gap-fills-ionic-only-captures-79), [036 §5–6](decisions.md#adr-036--lightweight-budget-and-modular-architecture-78), [040 §1–2](decisions.md#adr-040--public-api-and-configuration-for-500-80))
+Names and keys above are the processor's event catalogue 4.6 (`docs/catalogue/*.yaml` in the processor repo, pinned by `catalogue.version`); where this table and the catalogue differ, the catalogue wins. `scripts/conform.sh` checks every golden against it. ([050](decisions.md#adr-050--converge-on-the-processors-event-catalogue-149))
+
+Never emit `page_load`, `user.interaction`, `frame_render_time`, `bridge.call`, `cordova.deviceready_timeout`, nor the pre-catalogue names (`app_lifecycle`, `network_change`, `memory_usage`, `memory_pressure`, `custom_event`, bare `LCP`…). Skipped: view rollup, `screen.load`, `storage_usage`, `cpu_usage`, `sdk.health` as standalone capture beyond R4, change-detection cost, `nativeCallback` counts, Capgo rollback events, session replay. ([037 §2–5](decisions.md#adr-037--event-catalogue-for-500-cordova-names-as-baseline-gap-fills-ionic-only-captures-79), [036 §5–6](decisions.md#adr-036--lightweight-budget-and-modular-architecture-78), [040 §1–2](decisions.md#adr-040--public-api-and-configuration-for-500-80))
 
 ## 8. Naming and keys — N
 
@@ -142,8 +144,8 @@ Never emit `page_load`, `user.interaction`, `frame_render_time`, `bridge.call`, 
 ## 11. Sampling and caps — S
 
 - **S1** = Cordova S1, S3, S5–S8 (one native session roll, `sampleRate` from C1 only, `session.sampled` when rate < 1, gate + caps at outbox append). No separate trace rate. ([039 §3](decisions.md#adr-039--privacy-hooks-and-sampling-for-500-95))
-- **S2** Exempt set = Cordova S2 with `cordova.deviceready_timeout` removed and WebView death included. `user.profile.update` is **not** exempt (ADR-019 superseded). ([039 §3](decisions.md#adr-039--privacy-hooks-and-sampling-for-500-95))
-- **S3** Caps = Cordova S4 with `bridge.call` row replaced by `bridge.summary` 50/session; drops → `sdk.health` `cap.*` reasons. ([039 §3](decisions.md#adr-039--privacy-hooks-and-sampling-for-500-95))
+- **S2** Exempt set = Cordova S2 with `cordova.deviceready_timeout` removed and WebView death included. Every `app.crash` is exempt (handled errors are `app.error`). `user.profile.update` is **not** exempt (ADR-019 superseded). ([039 §3](decisions.md#adr-039--privacy-hooks-and-sampling-for-500-95))
+- **S3** Caps = Cordova S4 with `bridge.call` row replaced by `bridge.summary` 50/session; the error cap counts `app.error`; the custom budget counts `custom.event`, `task.complete`, `custom.metric` and `perf.long_task`; drops → `sdk.health` `cap.*` reasons. ([050](decisions.md#adr-050--converge-on-the-processors-event-catalogue-149)) ([039 §3](decisions.md#adr-039--privacy-hooks-and-sampling-for-500-95))
 
 ## 12. Privacy and consent — P
 
@@ -158,7 +160,7 @@ Never emit `page_load`, `user.interaction`, `frame_render_time`, `bridge.call`, 
 ## 13. Symbols — Y
 
 - **Y1** Wire-ready only (Cordova Y1): no upload CLI, Xcode phase, Gradle task, upload API, Debug IDs. ([042 §1](decisions.md#adr-042--release-identity-and-symbol-upload-for-50-101))
-- **Y2** `release` has no default; stamped only on JS-origin `app.crash` (unhandled + `captureError`). ([042 §2–3](decisions.md#adr-042--release-identity-and-symbol-upload-for-50-101))
+- **Y2** `release` has no default; stamped only on JS-origin `app.crash` / `app.error`. ([042 §2–3](decisions.md#adr-042--release-identity-and-symbol-upload-for-50-101))
 - **Y3** JS frames → `app:///` = Cordova Y2 (origins incl. `capacitor://localhost`, `https://localhost`, `http://localhost`). JS map key = `release` ?? `app.bundle_id` + normalised path; native key = `app.version` + `app.build_number`; native frame formats = Cordova Y3. ([042 §4](decisions.md#adr-042--release-identity-and-symbol-upload-for-50-101), [039 §4](decisions.md#adr-039--privacy-hooks-and-sampling-for-500-95))
 - **Y4** OTA: docs recipe setting `release` from Capgo/Appflow bundle version at build time. No vendor hook. ([042 §5](decisions.md#adr-042--release-identity-and-symbol-upload-for-50-101))
 
@@ -182,7 +184,7 @@ Repos: `edge_telemetry_processor_go` (proc), `edge_telemetry_analytics_go` (anal
 
 - **M1** Clean break: no 4.x deprecation minor, no config shim, no removed-key warnings. 4.x frozen at 5.0 GA, no `release/4.x` branch. ([041 §1–2](decisions.md#adr-041--4x--50-migration-path-100))
 - **M2** `docs/migration-5.md` (guide only, no codemod) covering the ADR-041 §5 list: backend prerequisite, install + plugin rename, config before/after table (C1, C4), Angular (C7, K5), API (C5, C6), data continuity (W3, N1), web no-op (A7). ([041 §5](decisions.md#adr-041--4x--50-migration-path-100))
-- **M3** Repo docs rewritten at implementation: `CLAUDE.md` (Rules 1–2, envelope, ID formats, eventName table, offline queue, bundle rules, config block), `docs/payload-schema.json`, `docs/terminology.md`, `docs/config-reference.md`, READMEs. ([033](decisions.md#adr-033--terminology-firewall-narrowed-to-opentelemetry-identity-tracespan-allowed-75), [034](decisions.md#adr-034--contract-4-fit-native-core-owns-identity-outbox-and-send-web-is-a-no-op-76), [036](decisions.md#adr-036--lightweight-budget-and-modular-architecture-78), [037](decisions.md#adr-037--event-catalogue-for-500-cordova-names-as-baseline-gap-fills-ionic-only-captures-79))
+- **M3** Repo docs rewritten at implementation: `CLAUDE.md` (Rules 1–2, envelope, ID formats, eventName table, offline queue, bundle rules, config block), `docs/terminology.md`, `docs/config-reference.md`, READMEs. ([033](decisions.md#adr-033--terminology-firewall-narrowed-to-opentelemetry-identity-tracespan-allowed-75), [034](decisions.md#adr-034--contract-4-fit-native-core-owns-identity-outbox-and-send-web-is-a-no-op-76), [036](decisions.md#adr-036--lightweight-budget-and-modular-architecture-78), [037](decisions.md#adr-037--event-catalogue-for-500-cordova-names-as-baseline-gap-fills-ionic-only-captures-79))
 
 ## 16. Tests — Q
 

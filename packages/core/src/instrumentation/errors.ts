@@ -1,17 +1,18 @@
 import { healthMonitor } from '../internal/health';
 import { breadcrumbs } from '../internal/breadcrumbs';
 
+/** Catalogue `error.cause` values JS sends (processor #30). */
+export type ErrorCause = 'unhandled_exception' | 'promise_rejection' | 'navigation_error' | 'handled';
+
+/** One JS crash-family row's keys, on the catalogue's `error.*` names (#149). */
 export type ErrorEventAttributes = {
-  exception_type: string;
-  message: string;
-  stacktrace: string;
-  is_fatal: boolean;
-  handled: boolean;
-  error_context: string;
-  cause: string;
-  runtime: 'webview';
-  'crash.breadcrumbs': string;
-  'crash.breadcrumb_count': number;
+  'error.type': string;
+  'error.message': string;
+  'error.stacktrace': string;
+  'error.cause': ErrorCause;
+  'error.source': 'webview';
+  'error.breadcrumbs': string;
+  'screen.name': string;
 };
 
 export interface ErrorsDeps {
@@ -61,14 +62,14 @@ const text = (v: unknown): string => {
 };
 
 /**
- * E9–E11: one JS `app.crash`'s keys. P6: message and stack unscrubbed, frames normalised (Y3, no
- * raw copy). `where` is a fallback frame when there is no stack; `type` names non-Error throws.
- * `release` and Tier-2 trace keys are stamped by `record()`.
+ * E9–E11: one JS crash-family row's keys. P6: message and stack unscrubbed, frames normalised (Y3,
+ * no raw copy). `where` is a fallback frame when there is no stack; `type` names non-Error throws.
+ * The event name says handled (`app.error`) or not (`app.crash`); `release` and Tier-2 trace keys
+ * are stamped by `record()`.
  */
 export function crashAttributes(
   err: unknown,
-  handled: boolean,
-  cause: string,
+  cause: ErrorCause,
   route: string,
   { where, type = 'Error' }: { where?: string; type?: string } = {},
 ): ErrorEventAttributes {
@@ -76,18 +77,14 @@ export function crashAttributes(
   const e = err && typeof err === 'object' ? (err as { name?: unknown; message?: unknown; stack?: unknown }) : undefined;
   const isError = typeof e?.message === 'string';
   const stack = (typeof e?.stack === 'string' && e.stack) || where || '';
-  const crumbs = breadcrumbs.snapshot();
   return {
-    exception_type: isError && typeof e?.name === 'string' && e.name ? e.name : type,
-    message: normaliseStack(isError ? (e?.message as string) : text(err)),
-    stacktrace: normaliseStack(stack),
-    is_fatal: !handled,
-    handled,
-    error_context: `screen:${route}`,
-    cause,
-    runtime: 'webview',
-    'crash.breadcrumbs': JSON.stringify(crumbs),
-    'crash.breadcrumb_count': crumbs.length,
+    'error.type': isError && typeof e?.name === 'string' && e.name ? e.name : type,
+    'error.message': normaliseStack(isError ? (e?.message as string) : text(err)),
+    'error.stacktrace': normaliseStack(stack),
+    'error.cause': cause,
+    'error.source': 'webview',
+    'error.breadcrumbs': JSON.stringify(breadcrumbs.snapshot()),
+    'screen.name': route,
   };
 }
 
@@ -97,9 +94,9 @@ export function registerErrorCapture(deps: ErrorsDeps): ErrorsHandle {
     return { dispose: () => undefined };
   }
 
-  const emit = (err: unknown, cause: string, opts?: { where?: string; type?: string }): void => {
+  const emit = (err: unknown, cause: ErrorCause, opts?: { where?: string; type?: string }): void => {
     try {
-      deps.recordEvent('app.crash', crashAttributes(err, false, cause, resolveContext(deps.getCurrentRoute), opts));
+      deps.recordEvent('app.crash', crashAttributes(err, cause, resolveContext(deps.getCurrentRoute), opts));
       deps.flushPipeline();
       healthMonitor.reportSuccess('errors.capture');
     } catch (err) {
@@ -110,11 +107,11 @@ export function registerErrorCapture(deps: ErrorsDeps): ErrorsHandle {
   // A non-Error throw (`throw 'x'`) is the value itself; cross-origin "Script error." has none.
   const onError = (event: ErrorEvent): void => {
     const where = event.filename ? `at ${event.filename}:${event.lineno}:${event.colno}` : undefined;
-    emit(event.error ?? event.message, 'UnhandledError', { where });
+    emit(event.error ?? event.message, 'unhandled_exception', { where });
   };
 
   const onRejection = (event: PromiseRejectionEvent): void => {
-    emit(event.reason, 'PromiseRejection', { type: 'UnhandledRejection' });
+    emit(event.reason, 'promise_rejection', { type: 'UnhandledRejection' });
   };
 
   target.addEventListener('error', onError as EventListener);

@@ -22,7 +22,7 @@ class SignalsTest {
             .put("device.model", "Pixel 9")
             .put("device.manufacturer", "Google")
             .put("device.brand", "google")
-            .put("device.android_sdk", "36")
+            .put("device.android_sdk", 36)
             .put("device.android_release", "16")
             .put("device.hardware", "tokay")
             .put("device.product", "tokay")
@@ -70,18 +70,32 @@ class SignalsTest {
         assertEquals(-1, Signals.rssKb("VmRSS:\tjunk kB\n"))
     }
 
-    @Test fun memorySkipsMissingReadings() {
-        assertEquals(2, Signals.memory(1024, 2048, "periodic", now).size)
-        val pssOnly = Signals.memory(-1, 2048, "periodic", now)
-        assertEquals(1, pssOnly.size)
-        assertEquals(2.0, pssOnly[0].getDouble("value"), 0.0)
-        assertEquals("pss", pssOnly[0].getJSONObject("attributes").getString("memory.type"))
+    @Test fun memoryIsOneUsageEventInPssMbFallingBackToRss() {
+        val both = Signals.memory(1024, 2048, "periodic", now)!!
+        assertEquals("memory.usage", both.getString("eventName"))
+        assertEquals("event", both.getString("type"))
+        val a = both.getJSONObject("attributes")
+        assertEquals(2.0, a.getDouble("memory.usage_mb"), 0.0)
+        assertEquals("pss", a.getString("memory.type"))
+        assertEquals(1024, a.getLong("memory.resident_kb"))
+        val rssOnly = Signals.memory(1024, -1, "periodic", now)!!.getJSONObject("attributes")
+        assertEquals(1.0, rssOnly.getDouble("memory.usage_mb"), 0.0)
+        assertEquals("rss", rssOnly.getString("memory.type"))
+        assertNull(Signals.memory(-1, -1, "periodic", now))
     }
 
-    @Test fun uiHiddenIsNotPressure() {
-        assertNull(Signals.pressure(20, 1, now))
+    @Test fun pressureLevelsMapToTheCatalogueEnum() {
+        assertNull("UI_HIDDEN is a backgrounding", Signals.pressure(20, 1, now))
+        assertNull("BACKGROUND is no pressure", Signals.pressure(40, 1, now))
         assertNull(Signals.pressure(7, 1, now))
-        assertFalse(Signals.pressure(15, -1, now)!!.getJSONObject("attributes").has("memory.usage_mb"))
+        val levels = mapOf(5 to "moderate", 10 to "moderate", 15 to "critical", 60 to "moderate", 80 to "critical")
+        for ((level, want) in levels) {
+            val a = Signals.pressure(level, 1, now)!!.getJSONObject("attributes")
+            assertEquals(want, a.getString("memory.pressure_level"))
+        }
+        val a = Signals.pressure(15, -1, now)!!.getJSONObject("attributes")
+        assertEquals("running_critical", a.getString("memory.trim_level"))
+        assertFalse(a.has("memory.usage_mb"))
     }
 
     @Test fun bundleIdIsLastPathSegmentOrBuiltin() {
@@ -103,14 +117,14 @@ class SignalsTest {
     @Test fun passiveSignalsNeitherRotateNorCountAsActivity() {
         val s = session()
         now += Session.IDLE_MS / 2 + 1
-        assertEquals(listOf("network_change"), SessionTest.names(s.admitPassive(listOf(Signals.network("wifi", "none", now)))))
+        assertEquals(listOf("network.change"), SessionTest.names(s.admitPassive(listOf(Signals.network("wifi", "none", now)))))
         now += Session.IDLE_MS / 2 + 1
         val late = s.admitPassive(listOf(Signals.pressure(15, 1, now)!!))
-        assertEquals("no rotation from the background", listOf("memory_pressure"), SessionTest.names(late))
+        assertEquals("no rotation from the background", listOf("memory.pressure"), SessionTest.names(late))
         assertEquals("session_1", SessionTest.attrs(late[0]).getString("session.id"))
         assertEquals(
-            listOf("session.finalized", "session.started", "custom_event"),
-            SessionTest.names(s.admit(listOf(SessionTest.event("custom_event")))),
+            listOf("session.finalized", "session.started", "custom.event"),
+            SessionTest.names(s.admit(listOf(SessionTest.event("custom.event")))),
         )
     }
 
@@ -122,8 +136,12 @@ class SignalsTest {
         session.context { ctx }
         assertGoldenBatch("app-lifecycle.json", dir, health, now, session.admit(listOf(Signals.lifecycle("backgrounded", now))))
         session.context { JSONObject() }
-        assertGoldenBatch("memory-usage.json", dir, health, now, session.admit(Signals.memory(187392, 143360, "session_start", now)))
+        assertGoldenBatch("memory-usage.json", dir, health, now, session.admit(listOfNotNull(Signals.memory(187392, 143360, "session_start", now))))
         assertGoldenBatch("memory-pressure.json", dir, health, now, session.admit(listOf(Signals.pressure(15, 187392, now)!!)))
         assertGoldenBatch("network-change.json", dir, health, now, session.admit(listOf(Signals.network("wifi", "none", now))))
+        // Idle rotation: both bookends, then the profile event in the new session.
+        now += Session.IDLE_MS + 1
+        val profile = User(store) { now }.identify(JSONObject().put("id", "u1").put("name", "Ada").put("email", "ada@example.com"))!!
+        assertGoldenBatch("session.json", dir, health, now, session.admit(listOf(profile)))
     }
 }

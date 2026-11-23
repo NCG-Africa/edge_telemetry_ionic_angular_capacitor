@@ -1,6 +1,6 @@
 {
   "type": "telemetry_batch",
-  "contract_version": "4.0.0",
+  "contract_version": "4.3.0",
   "timestamp": "2026-10-26T10:00:03.000Z",
   "batch_size": 1,
   "device_id": "device_1700000000000_0123456789abcdef_ios",
@@ -17,30 +17,30 @@
   },
   "events": [
     {
-      "type": "event",
-      "eventName": "app_lifecycle",
+      "eventName": "app.lifecycle",
       "timestamp": "2026-10-26T10:00:02.000Z",
       "attributes": {
         "lifecycle.state": "backgrounded",
-        "device.platform": "ios",
-        "device.platform_version": "26.1",
-        "device.model": "iPhone16,2",
-        "device.manufacturer": "Apple",
-        "device.brand": "Apple",
-        "device.locale": "en-KE",
-        "device.timezone": "Africa/Nairobi",
-        "device.dark_mode": false,
-        "device.cpu_abi": "arm64",
+        "app.bundle_id": "builtin",
         "device.cpu_cores": 6,
         "device.screen_density": 480,
-        "device.screen_width_px": 1290,
-        "device.screen_height_px": 2796,
-        "display.refresh_rate": 120,
-        "webview.version": "21622.2.11.11.9",
-        "app.bundle_id": "builtin",
         "network.type": "wifi",
-        "session.id": "session_1"
-      }
+        "device.cpu_abi": "arm64",
+        "device.platform": "ios",
+        "device.locale": "en-KE",
+        "display.refresh_rate": 120,
+        "device.brand": "Apple",
+        "device.timezone": "Africa/Nairobi",
+        "device.model": "iPhone16,2",
+        "device.platform_version": "26.1",
+        "webview.version": "21622.2.11.11.9",
+        "device.screen_height_px": 2796,
+        "device.dark_mode": false,
+        "session.id": "session_1",
+        "device.manufacturer": "Apple",
+        "device.screen_width_px": 1290
+      },
+      "type": "event"
     }
   ]
 }

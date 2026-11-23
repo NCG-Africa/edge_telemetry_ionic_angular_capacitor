@@ -160,12 +160,12 @@ class EdgeRumCrashPlugin : Plugin() {
         })
     }
 
-    /** E24: `onTrimMemory` / `onLowMemory` → `memory_pressure`. */
+    /** E24: `onTrimMemory` / `onLowMemory` → `memory.pressure`. */
     private fun watchMemoryPressure() {
         val cb = object : ComponentCallbacks2 {
             override fun onTrimMemory(level: Int) {
                 val at = System.currentTimeMillis()
-                capture(true) { listOfNotNull(Signals.pressure(level, rssKb(), at)) }
+                capture(true) { listOfNotNull(Signals.pressure(level, Debug.getPss(), at)) }
             }
 
             @Deprecated("Deprecated in Java")
@@ -177,7 +177,7 @@ class EdgeRumCrashPlugin : Plugin() {
         trimCallback = cb
     }
 
-    /** E26: default-network transport changes → `network_change`; the first reading only seeds `network.type`. */
+    /** E26: default-network transport changes → `network.change`; the first reading only seeds `network.type`. */
     private fun watchNetwork() {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val cb = object : ConnectivityManager.NetworkCallback() {
@@ -198,7 +198,7 @@ class EdgeRumCrashPlugin : Plugin() {
             cm.registerDefaultNetworkCallback(cb)
             networkCallback = cb
         } catch (e: RuntimeException) {
-            // Missing permission (stripped manifest) or the per-app callback limit: no network_change.
+            // Missing permission (stripped manifest) or the per-app callback limit: no network.change.
             Log.w(TAG, "network callback unavailable", e)
         }
     }
@@ -245,7 +245,7 @@ class EdgeRumCrashPlugin : Plugin() {
     /** E22 / E23: RSS + PSS, worker only (`getPss` walks smaps). */
     private fun sampleMemory(source: String) {
         try {
-            recordPassive(Signals.memory(rssKb(), Debug.getPss(), source, System.currentTimeMillis()))
+            recordPassive(listOfNotNull(Signals.memory(rssKb(), Debug.getPss(), source, System.currentTimeMillis())))
         } catch (e: RuntimeException) {
             Log.w(TAG, "memory sample failed", e)
         }
@@ -604,7 +604,7 @@ class EdgeRumCrashPlugin : Plugin() {
                 .put("device.model", Build.MODEL)
                 .put("device.manufacturer", Build.MANUFACTURER)
                 .put("device.brand", Build.BRAND)
-                .put("device.android_sdk", Build.VERSION.SDK_INT.toString())
+                .put("device.android_sdk", Build.VERSION.SDK_INT)
                 .put("device.android_release", Build.VERSION.RELEASE)
                 .put("device.hardware", Build.HARDWARE)
                 .put("device.product", Build.PRODUCT)

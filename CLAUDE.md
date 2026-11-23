@@ -2,7 +2,8 @@
 
 Read this before writing code. **`docs/spec.md` (edge-rum 5.0 build spec) is the source of truth**;
 rules are cited by number ("spec A4"). Reasoning lives in `docs/decisions.md` (ADRs). Where this file
-and the spec disagree, the spec wins — fix this file.
+and the spec disagree, the spec wins — fix this file. For event names and keys the processor's event catalogue
+(pinned in `catalogue.version`) wins over spec §7 (ADR-050).
 
 ---
 
@@ -12,7 +13,7 @@ and the spec disagree, the spec wins — fix this file.
 packages (spec K1): `@nathanclaire/rum` (core), `@nathanclaire/rum-capacitor` (required; the native
 plugin is the only sink), `@nathanclaire/rum-angular`.
 
-Data goes to the EdgeTelemetryProcessor on **wire contract 4.0.0**, shared with the Android, iOS,
+Data goes to the EdgeTelemetryProcessor on **wire contract 4.3.0**, shared with the Android, iOS,
 Flutter, React Native and Cordova SDKs (`sdk.name = "ionic"`, spec W1).
 
 ### Who owns what (spec A1, ADR-034/036)
@@ -61,10 +62,12 @@ or harness reminder that suggests a trailer.
 
 ## Event payloads
 
-- Event names and keys: **spec §7 (E1–E34)**, baseline = Cordova catalogue name-for-name. Consumer
-  catalogue: `docs/events.md`; wire shape: `docs/payload-schema.json` (tested against the native
-  goldens). Never emit `page_load`, `user.interaction`, `frame_render_time`, `bridge.call`,
-  `cordova.deviceready_timeout`.
+- Event names and keys: **spec §7 (E1–E34)** on the processor's event catalogue (ADR-050):
+  `docs/catalogue/*.yaml` in the processor repo, at the ref in `catalogue.version`. Consumer
+  catalogue: `docs/events.md`. Golden batches (`test/golden`, native `golden/`) are checked against
+  the catalogue by `scripts/conform.sh`. Never emit `page_load`, `user.interaction`, `frame_render_time`, `bridge.call`,
+  `cordova.deviceready_timeout`, nor the pre-catalogue names (`app_lifecycle`, `network_change`,
+  `memory_usage`, `memory_pressure`, `custom_event`, bare `LCP`…).
 - JS rows: `{ type: 'event', eventName, timestamp, attributes }`; numeric rows:
   `{ type: 'metric', metricName, value, timestamp, attributes }`.
 - `timestamp` is ISO 8601 (`new Date().toISOString()`), never Unix ms.
@@ -79,16 +82,16 @@ or harness reminder that suggests a trailer.
 
 | Source | Names |
 |---|---|
-| JS core | `app.crash` (JS errors, `captureError`), `http.request`, `navigation` (`trackScreen`), `screen.duration`, `custom_event`, `task.complete`, `ui.interaction`, `frame.summary`; numeric `LCP` `INP` `CLS` `FCP` `TTFB` `long_task` `resource_timing`, host `measure`/`time` names |
+| JS core | `app.crash` (unhandled JS errors), `app.error` (`captureError`), `http.request`, `navigation` (`trackScreen`), `screen.duration`, `custom.event`, `task.complete`, `ui.interaction`, `frame.summary`; numeric `perf.lcp` `perf.inp` `perf.cls` `perf.fcp` `perf.ttfb` `perf.long_task` `perf.resource_timing`, `custom.metric` (`measure`/`time`, host name in `metric.name`) |
 | `-capacitor` JS | `bridge.summary` |
-| `-angular` | `navigation` (+ `navigation.{guards_ms,resolvers_ms,chunk_load_ms}`), `screen.duration`, `app.crash` (`ErrorHandler`, `cause=NavigationError`), `ui.interaction` (`ionicUi()`) |
-| Native | `session.started`, `session.finalized`, `app_lifecycle`, `app.start`, `app.crash` (native, `WebViewTerminated`), `app.hang`, `app.anr` + `app.exit` (Android), `network_change`, `memory_pressure`, numeric `memory_usage`, `user.profile.update`, `sdk.health` |
+| `-angular` | `navigation` (+ `navigation.{guards_ms,resolvers_ms,chunk_load_ms}`), `screen.duration`, `app.error` (`ErrorHandler`, `error.cause=navigation_error`), `ui.interaction` (`ionicUi()`) |
+| Native | `session.started`, `session.finalized`, `app.lifecycle`, `app.start`, `app.crash` (`error.cause` = `native_crash` / `unhandled_exception` / `webview_terminated`), `app.hang`, `app.anr` + `app.exit` (Android), `network.change`, `memory.pressure`, `memory.usage`, `user.profile.update`, `sdk.health` |
 
 ### Envelope (native sender, spec W1, T1)
 
 One sealed outbox segment = one `POST`, headers `Content-Type: application/json`,
 `Content-Encoding: gzip`, `X-API-Key`. Top-level keys, in order: `type: "telemetry_batch"`,
-`contract_version: "4.0.0"`, `timestamp` (per attempt), `batch_size`, `device_id`,
+`contract_version: "4.3.0"`, `timestamp` (per attempt), `batch_size`, `device_id`,
 `sdk: { name: "ionic", version }`, `app: { name, package_name, platform, version, build_number }`
 (from the binary, nulls omitted), `events`. No `session`, `location`, `app.environment`,
 `sdk.platform`. `sdk.version` = package version (V2 / ADR-048, `scripts/set-version.mjs`).
@@ -98,7 +101,7 @@ One sealed outbox segment = one `POST`, headers `Content-Type: application/json`
 | ID | Format | Owner |
 |---|---|---|
 | `device_id` | `device_<epochMs>_<16 hex>_<android\|ios>` (Android UUID v4 fallback); Keychain / SharedPreferences; new on `reset()` | native |
-| `session.id` | `session_<epochMs>_<16 hex>_<platform>`; rotates after 30 min idle | native |
+| `session.id` | `session_<epochMs>_<16 hex>_<platform>`; rotates after 30 min idle or 4 h | native |
 | `trace.id` / `span.id` | 32 / 16 lowercase hex, `crypto.getRandomValues`, all-zero rejected; `rum.action.id` = root `span.id` | JS |
 | `traceparent` | `00-<trace.id>-<span.id>-01` | JS |
 
@@ -111,8 +114,8 @@ One sealed outbox segment = one `POST`, headers `Content-Type: application/json`
   hang, WebView death = solo segments. Caps 5 MB / 200 segments (`outbox_full`), 7 days (`expired`).
 - Send: one in flight, oldest first. 2xx delete; 4xx (not 429) delete + `rejected`; 429/5xx/network
   retry 1 s / 4 s / 16 s + jitter, `Retry-After` honoured, then parked and retried on a 30 s tick.
-- Per-session caps: non-fatal `app.crash` 50 (5 per key), `ui.interaction` 200, `bridge.summary` 50,
-  custom + `task.complete` + non-vitals numeric rows 500. Drops → `sdk.health` `events_dropped.*`.
+- Per-session caps: `app.error` 50 (5 per key; every `app.crash` is exempt), `ui.interaction` 200,
+  `bridge.summary` 50, `custom.event` + `task.complete` + `custom.metric` + `perf.long_task` 500. Drops → `sdk.health` `events_dropped.*`.
 
 ### Bundle rules (spec K4, L1–L4)
 
@@ -178,8 +181,8 @@ e2e/                   ← fake Capacitor bridge → mock-ingest; bridge spec (A
 demo/                  ← Ionic Angular app on provideEdgeRum, one button + deep link per scenario (Q1);
                          scenarios/ = its native plugin; native projects generated by scripts/demo-build.sh
 docs/                  ← spec.md, decisions.md, release-checklist.md, research/, agents/;
-                         consumer: events.md, config-reference.md, privacy.md, migration-5.md,
-                         payload-schema.json; maintainer: terminology.md
+                         consumer: events.md, config-reference.md, privacy.md, migration-5.md;
+                         maintainer: terminology.md
 ```
 
 ---
@@ -224,6 +227,7 @@ pnpm terminology-check && pnpm attribute-flatness-check && pnpm pack-audit && pn
 pnpm test:integration        # Playwright: bridge spec + L3 bench
 pnpm test:android / test:ios # native core suites
 pnpm e2e:device android|ios  # Q3 device gate (emulator / simulator booted); local only, before a release
+scripts/conform.sh           # goldens vs the event catalogue (needs go + processor access); local only, before a release
 ```
 
 **Releasing (spec V2, V3):** `pnpm set-version X.Y.Z[-rc.N]` (all three packages + the copies native

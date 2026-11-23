@@ -49,14 +49,22 @@ class Session(
         return ArrayList<String>().also(::start)
     }
 
-    /** Rotation check without activity (foreground). Bookends to append, or none. */
+    /**
+     * Rotation check without activity (foreground): 30 min idle (`timeout`) or 4 h since the start
+     * (`max_duration`, processor #39). Bookends to append, or none.
+     */
     @Synchronized
     fun rotateIfIdle(): List<String> {
         val out = ArrayList<String>()
-        if (id != null && clock() - lastActivityAt > IDLE_MS) {
-            out.add(finalized())
-            start(out)
+        val now = clock()
+        val reason = when {
+            id == null -> return out
+            now - lastActivityAt > IDLE_MS -> "timeout"
+            now - startedAt >= MAX_DURATION_MS -> "max_duration"
+            else -> return out
         }
+        out.add(finalized(reason))
+        start(out)
         return out
     }
 
@@ -104,7 +112,7 @@ class Session(
             val metric = e.optString("type") == "metric"
             val name = e.optString(if (metric) "metricName" else "eventName")
             count(metric, name, attrs)
-            if (!exempt(name, attrs)) {
+            if (name !in EXEMPT) {
                 if (!sampled) continue
                 val reason = capReason(metric, name, attrs)
                 if (reason != null) {
@@ -128,15 +136,16 @@ class Session(
     /** S3 / Cordova S7: the `sdk.health` reason when a cap is hit, else null (and the event is counted). */
     private fun capReason(metric: Boolean, name: String, attrs: JSONObject): String? {
         if (metric && name in SDK_METRICS) return null
-        return when (if (metric) "custom_event" else name) {
-            "app.crash" -> {
-                val key = "error:" + attrs.optString("exception_type") + "|" + topFrame(attrs.optString("stacktrace"))
+        return when (if (metric) "custom.event" else name) {
+            // Handled errors only: every `app.crash` is unhandled and exempt (S2).
+            "app.error" -> {
+                val key = "error:" + attrs.optString("error.type") + "|" + topFrame(attrs.optString("error.stacktrace"))
                 if (allow("error", CAP_ERRORS, key, CAP_ERRORS_PER_KEY)) null else "cap.error"
             }
             "ui.interaction" -> if (allow("interaction", CAP_INTERACTIONS)) null else "cap.interaction"
             "bridge.summary" -> if (allow("bridge", CAP_BRIDGE)) null else "cap.bridge"
-            // `custom_event`, host metrics (mapped above) and tasks share one budget.
-            "custom_event", "task.complete" -> if (allow("custom", CAP_CUSTOM)) null else "cap.custom"
+            // `custom.event`, host metrics (`custom.metric`, `perf.long_task`) and tasks share one budget.
+            "custom.event", "task.complete" -> if (allow("custom", CAP_CUSTOM)) null else "cap.custom"
             else -> null
         }
     }
@@ -183,7 +192,8 @@ class Session(
     }
 
     /** E1: backdated to the last activity, so idle time isn't session time. */
-    private fun finalized(): String = bookend("session.finalized", lastActivityAt, sampledAttr(JSONObject()
+    private fun finalized(reason: String): String = bookend("session.finalized", lastActivityAt, sampledAttr(JSONObject()
+        .put("session.reason", reason)
         .put("session.start_time", Sender.rfc3339(startedAt))
         .put("session.duration_ms", maxOf(0, lastActivityAt - startedAt))
         .put("session.event_count", eventCount)
@@ -239,6 +249,8 @@ class Session(
 
     companion object {
         const val IDLE_MS = 30 * 60_000L
+        /** Processor #39: no session lives past 4 h, active or not. */
+        const val MAX_DURATION_MS = 4 * 60 * 60_000L
         const val KEY_RECORD = "session"
         const val KEY_TOTAL = "total_sessions"
         /** `session.visited_screens` keeps the first 50; `session.screen_count` counts them all. */
@@ -250,15 +262,12 @@ class Session(
         const val CAP_BRIDGE = 50
         const val CAP_CUSTOM = 500
 
-        /** S2: never sampled out, never capped (fatal / WebView-death `app.crash` checked separately). */
-        private val EXEMPT = setOf("session.started", "session.finalized", "app.anr", "app.exit", "app.start", "sdk.health")
-        /** SDK metrics; any other metric name is the host's (`measure()` / `time()`). */
-        private val SDK_METRICS = setOf("LCP", "INP", "CLS", "FCP", "TTFB", "resource_timing", "memory_usage")
+        /** S2: never sampled out, never capped. `app.crash` is always unhandled (JS, native, WebView death). */
+        private val EXEMPT = setOf("session.started", "session.finalized", "app.crash", "app.anr", "app.exit", "app.start", "sdk.health")
+        /** SDK metrics outside the custom budget; `custom.metric` and `perf.long_task` are in it. */
+        private val SDK_METRICS = setOf("perf.lcp", "perf.inp", "perf.cls", "perf.fcp", "perf.ttfb", "perf.resource_timing")
         /** A JSC frame (`fn@url:line[:col]`); a V8 message line with an `@` in it doesn't match. */
         private val JSC_FRAME = Regex("^[^\\s@]*@\\S+:\\d+(:\\d+)?$")
-
-        private fun exempt(name: String, attrs: JSONObject) = name in EXEMPT ||
-            (name == "app.crash" && (attrs.optBoolean("is_fatal") || attrs.optString("cause") == "WebViewTerminated"))
 
         // ponytail: first line that looks like a frame (V8 `at …`, JSC `fn@url`); parsed frames are issue 11's.
         private fun topFrame(stack: String): String =

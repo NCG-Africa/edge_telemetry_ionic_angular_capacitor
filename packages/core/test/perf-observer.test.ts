@@ -103,13 +103,12 @@ describe('registerPerfObserver', () => {
     ]);
 
     expect(recorded).toHaveLength(2);
-    expect(recorded[0]!.name).toBe('long_task');
+    expect(recorded[0]!.name).toBe('perf.long_task');
     expect(recorded[0]!.value).toBe(78);
     expect(recorded[0]!.attrs['metric.unit']).toBe('ms');
-    expect(recorded[0]!.attrs['metric.name']).toBe('self');
+    expect(recorded[0]!.attrs).not.toHaveProperty('metric.name'); // the host's name, on `custom.metric` only
     expect(recorded[0]!.attrs['screen.name']).toBe('/products/42');
     expect(recorded[1]!.value).toBe(142);
-    expect(recorded[1]!.attrs['metric.name']).toBe('cross-origin-descendant');
   });
 
   function resources() {
@@ -148,11 +147,11 @@ describe('registerPerfObserver', () => {
     r.emit([{ duration: 10, name: 'https://cdn.example.com/a.js', initiatorType: 'script' }]);
 
     expect(r.recorded).toEqual([
-      { name: 'resource_timing', value: 300, attrs: {
+      { name: 'perf.resource_timing', value: 300, attrs: {
         'metric.unit': 'ms', 'screen.name': '/home', 'resource.host': 'cdn.example.com',
         'resource.initiator_type': 'img', 'resource.count': 2, 'resource.p95_ms': 300, 'resource.transfer_kb': 3,
       } },
-      { name: 'resource_timing', value: 50, attrs: {
+      { name: 'perf.resource_timing', value: 50, attrs: {
         'metric.unit': 'ms', 'screen.name': '/home', 'resource.host': 'api.example.com',
         'resource.initiator_type': 'fetch', 'resource.count': 1, 'resource.p95_ms': 50, 'resource.transfer_kb': 0.5,
       } },

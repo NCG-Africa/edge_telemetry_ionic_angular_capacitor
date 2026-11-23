@@ -1,7 +1,8 @@
 import Foundation
 
 /// Spec A3, E12, E15, X10, Y3 (= Cordova `Crash`, Android `Crash`): the native breadcrumb mirror,
-/// the last trace root, and the `app.crash` / `app.hang` records built from them. PLCrashReporter
+/// the last trace root, and the `app.crash` / `app.hang` records built from them, on the event
+/// catalogue's `error.*` keys (processor #30, #149). PLCrashReporter
 /// writes the crash; the plugin hands its fields over as a `Report` next launch, and `replay` turns
 /// it into an event under the identity, session, breadcrumbs and root `saveContext` saved before it died.
 final class Crash {
@@ -13,7 +14,6 @@ final class Crash {
     /// Sibling `CrashReportingService` caps; whole frames are kept.
     private static let maxStack = 2000
     private static let maxMessage = 1000
-    private static let signalNumbers = ["SIGILL": 4, "SIGTRAP": 5, "SIGABRT": 6, "SIGFPE": 8, "SIGBUS": 10, "SIGSEGV": 11]
 
     /// A record ready for `Outbox.writeSolo`.
     struct Pending {
@@ -97,20 +97,19 @@ final class Crash {
                 "trace.root_type": given?["trace.root_type"] as? String ?? "", "set_at": clock()]
     }
 
-    /// E15: main-thread stall at or past the line. Not fatal, not handled; main stack only.
+    /// E15: main-thread stall at or past the line; main stack only. Not fatal (the process lived).
     func hang(durationMs: Int64, frames: [Frame]) -> [String: Any] {
         var a: [String: Any] = [
-            "message": "Main thread blocked for \(durationMs) ms",
-            "crash_thread": "main",
-            "crash_is_main_thread": true,
-            "is_fatal": false,
-            "handled": false,
-            "hang_duration_ms": durationMs,
+            "error.message": "Main thread blocked for \(durationMs) ms",
+            "error.cause": "hang",
+            "error.thread": "main",
+            "error.is_main_thread": true,
+            "hang.duration_ms": durationMs,
         ]
         Self.stack(frames, into: &a)
         let at = clock()
         lock.lock()
-        a["screen_name"] = screen
+        a["screen.name"] = screen
         // Judged when the main thread blocked, not when the watchdog noticed.
         Self.annotate(&a, root, at - durationMs)
         lock.unlock()
@@ -121,18 +120,16 @@ final class Crash {
     /// on iOS). iOS gives no reason. Fatal, same path as E12, X10 keys judged now.
     func webViewTerminated() -> [String: Any] {
         var a: [String: Any] = [
-            "message": "WebView content process terminated",
-            "exception_type": "WebViewTerminated",
-            "cause": "WebViewTerminated",
+            "error.message": "WebView content process terminated",
+            "error.type": "WebViewTerminated",
+            "error.cause": "webview_terminated",
             "webview.reason": "unknown",
             "webview.detected_by": "inference",
-            "is_fatal": true,
-            "handled": false,
         ]
         let at = clock()
         lock.lock()
-        a["crash.breadcrumbs"] = Self.json(crumbs)
-        a["screen_name"] = screen
+        a["error.breadcrumbs"] = Self.json(crumbs)
+        a["screen.name"] = screen
         Self.annotate(&a, root, at)
         lock.unlock()
         return Self.record("app.crash", at, a)
@@ -146,8 +143,8 @@ final class Crash {
         a["user.id"] = userId
         var ctx: [String: Any] = ["identity": identity]
         lock.lock()
-        a["crash.breadcrumbs"] = Self.json(crumbs)
-        a["screen_name"] = screen
+        a["error.breadcrumbs"] = Self.json(crumbs)
+        a["screen.name"] = screen
         ctx["root"] = root
         lock.unlock()
         ctx["attributes"] = a
@@ -181,21 +178,18 @@ final class Crash {
         var a: [String: Any]
         if let name = r.exceptionName {
             let reason = r.exceptionReason ?? ""
-            a = ["message": cap(reason.isEmpty ? name : name + ": " + reason, maxMessage),
-                 "exception_type": name, "cause": "NSException"]
+            a = ["error.message": cap(reason.isEmpty ? name : name + ": " + reason, maxMessage), "error.type": name,
+                 "error.cause": "unhandled_exception"]
         } else {
             let name = r.signal ?? "SIGNAL"
-            a = ["message": "\(name), code \(r.signalCode ?? "0"), fault addr 0x\(String(r.faultAddress, radix: 16))",
-                 "exception_type": name, "cause": "signal \(signalNumbers[name].map(String.init) ?? name)"]
+            a = ["error.message": "\(name), code \(r.signalCode ?? "0"), fault addr 0x\(String(r.faultAddress, radix: 16))",
+                 "error.type": name, "error.cause": "native_crash"]
         }
         if let t = r.thread {
-            a["crash_thread"] = t == 0 ? "main" : "thread \(t)"
-            a["crash_is_main_thread"] = t == 0
+            a["error.thread"] = t == 0 ? "main" : "thread \(t)"
+            a["error.is_main_thread"] = t == 0
         }
-        a["error_context"] = r.frames.first?.location ?? "unknown"
         stack(r.frames, into: &a)
-        a["is_fatal"] = true
-        a["handled"] = false
         a.merge(context) { _, saved in saved }
         // PLCrashReporter stamps whole seconds: judge the root at the latest the crash could have been.
         annotate(&a, root, r.at + 999)
@@ -218,8 +212,8 @@ final class Crash {
         if root["ended"] as? Bool == true || at - setAt > line { a["trace.root_expired"] = true }
     }
 
-    /// `stacktrace` (whole frames up to `maxStack` bytes, as the sibling's `StackFrames.capped`) and
-    /// `crash.binary_images`, the images those frames reference (Y3 symbolication keys).
+    /// `error.stacktrace` (whole frames up to `maxStack` bytes, as the sibling's `StackFrames.capped`) and
+    /// `error.binary_images`, the images those frames reference (Y3 symbolication keys).
     private static func stack(_ frames: [Frame], into a: inout [String: Any]) {
         var kept: [Frame] = []
         var size = -1 // no separator before the first frame
@@ -229,7 +223,7 @@ final class Crash {
             kept.append(f)
         }
         guard !kept.isEmpty else { return }
-        a["stacktrace"] = kept.map(\.text).joined(separator: "\n")
+        a["error.stacktrace"] = kept.map(\.text).joined(separator: "\n")
         var seen = Set<UInt64>()
         var images: [[String: String]] = []
         for f in kept where f.base != 0 && seen.insert(f.base).inserted {
@@ -237,7 +231,7 @@ final class Crash {
             if !f.uuid.isEmpty { image["uuid"] = f.uuid }
             images.append(image)
         }
-        if !images.isEmpty { a["crash.binary_images"] = json(images) }
+        if !images.isEmpty { a["error.binary_images"] = json(images) }
     }
 
     static func record(_ name: String, _ at: Int64, _ attrs: [String: Any]) -> [String: Any] {

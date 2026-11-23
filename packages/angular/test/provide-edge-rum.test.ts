@@ -75,7 +75,7 @@ describe('ErrorHandler chaining (C7)', () => {
 
       expect(hostCalls).toEqual([err]);
       expect(capture).toHaveBeenCalledOnce();
-      expect(capture.mock.calls[0]![1]).toMatchObject({ cause: 'AngularError', handled: true });
+      expect(capture.mock.calls[0]![0]).toBe(err); // captureError sends app.error (#149)
     });
   }
 

@@ -119,17 +119,10 @@ describe('P4 ui.target naming', () => {
     vi.advanceTimersByTime(1000);
     const { attrs, at } = recorded[0]!;
     expect(at).toBe('2026-11-06T10:00:00.000Z');
-    expect(attrs).toMatchObject({ 'ui.type': 'click', 'ui.screen': '/products/:id', 'ui.x': 10, 'ui.y': 21 });
+    expect(attrs).toMatchObject({ 'ui.type': 'tap', 'ui.screen': '/products/:id', 'ui.x': 10, 'ui.y': 21 });
     for (const v of Object.values(attrs)) expect(['string', 'number', 'boolean']).toContain(typeof v);
   });
 
-  it('a touch just before makes it a tap', () => {
-    html('<button class="b">Go</button>');
-    document.querySelector('.b')!.dispatchEvent(new Event('touchstart', { bubbles: true }));
-    tap('.b');
-    vi.advanceTimersByTime(1000);
-    expect(recorded[0]!.attrs['ui.type']).toBe('tap');
-  });
 });
 
 describe('E25 rage / dead', () => {
@@ -227,7 +220,7 @@ describe('P6 breadcrumb', () => {
     const crumbs: string[] = [];
     start({ breadcrumb: (n: string) => crumbs.push(n) } as never);
     tap('.b');
-    expect(crumbs).toEqual(['click Pay ###']);
+    expect(crumbs).toEqual(['tap Pay ###']);
     expect(recorded).toHaveLength(0);
   });
 });

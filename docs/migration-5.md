@@ -5,7 +5,7 @@ Follow the steps below in order. 4.x gets no further fixes once 5.0 is released.
 
 ## 1. Backend first
 
-5.0 sends wire contract 4.0.0 with `sdk.name = "ionic"`. Ship a 5.0 build only once the Edge RUM
+5.0 sends wire contract 4.3.0 with `sdk.name = "ionic"`, on the backend's event catalogue 4.3. Ship a 5.0 build only once the Edge RUM
 backend release that accepts it is live. On an older backend the data is rejected and lost.
 
 App builds still on 4.x keep reporting after the backend update, until users update the app.
@@ -129,11 +129,26 @@ Expect a step in your dashboards at the upgrade:
 | `page_load`, `lifecycle.cold_start_ms` | `app.start` |
 | `user.interaction` | `ui.interaction` |
 | `frame_render_time` | `frame.summary` |
-| `app.crash` with `cause=ANR` / `cause=Hang` | `app.anr` / `app.hang` |
+| `app.crash` with `cause=ANR` / `cause=Hang` | `app.anr` / `app.hang`, with `anr.duration_ms` / `hang.duration_ms` |
+| `app.crash` with `handled=true` (`captureError`, Angular `ErrorHandler`, router errors) | `app.error` |
+| `exception_type`, `message`, `stacktrace`, `cause`, `crash.breadcrumbs`, `crash_thread`, `crash_is_main_thread`, `screen_name` | `error.type`, `error.message`, `error.stacktrace`, `error.cause` (lowercase values, e.g. `promise_rejection`), `error.breadcrumbs`, `error.thread`, `error.is_main_thread`, `screen.name` |
+| `is_fatal`, `handled`, `error_context` | not sent: the event name says it (`app.crash` = unhandled, `app.error` = handled) |
+| `app_lifecycle`, `network_change`, `memory_pressure` | `app.lifecycle`, `network.change`, `memory.pressure` |
+| `memory_usage` reading | `memory.usage` event; `memory.usage_mb` is the app process (total PSS on Android, physical footprint on iOS) |
+| `custom_event` | `custom.event` |
+| a reading named after your `measure()` / `time()` name | `custom.metric` reading with your name in `metric.name` |
+| `LCP`, `INP`, `CLS`, `FCP`, `TTFB`, `long_task`, `resource_timing` | `perf.lcp`, `perf.inp`, `perf.cls`, `perf.fcp`, `perf.ttfb`, `perf.long_task`, `perf.resource_timing` |
+| `ui.type = click` | `ui.type = tap` |
+| `navigation.method = cancel` | not sent: a cancelled navigation sends nothing |
 | memory keys without a dot | `memory.*` |
 | `metric.screen` | `screen.name` |
 | `lifecycle.event` | `lifecycle.state` |
 | battery keys in camelCase | snake_case |
 | `device.platform = web` | not sent (step 7) |
+
+Also new in how rows are counted: `app.start.duration_ms` ends when the native bridge is ready
+(`markReady()` adds `app.start.mark_ready_ms` and no longer lengthens it), `frame.summary` is sent for
+every window that drew a frame, and a session ends after 30 minutes idle or 4 hours, whichever comes
+first (`session.reason` on `session.finalized`).
 
 The full 5.0 list: [events.md](./events.md).

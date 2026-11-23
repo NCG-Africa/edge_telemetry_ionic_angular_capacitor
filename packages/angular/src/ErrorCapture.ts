@@ -1,5 +1,5 @@
 import type { ErrorHandler } from '@angular/core';
-import { EdgeRum, __getCurrentRoute } from '@nathanclaire/rum';
+import { EdgeRum } from '@nathanclaire/rum';
 
 const TEMPLATE_PATTERN = /([A-Z][A-Za-z0-9_]*)_Template_/;
 const HOST_BINDING_PATTERN = /([A-Z][A-Za-z0-9_]*)_HostBindings/;
@@ -44,7 +44,7 @@ const chained = new WeakSet<ErrorHandler>();
  * C7: wraps whatever `ErrorHandler` DI resolved — the host's, or Angular's default — so the host
  * handler keeps running whichever order the providers were listed in. Replacing it (4.x) lost one.
  */
-export function chainErrorHandler(host: ErrorHandler, route: () => string = __getCurrentRoute): void {
+export function chainErrorHandler(host: ErrorHandler): void {
   // provideEdgeRum + forRoot, or two injectors sharing one handler: capture each error once.
   if (chained.has(host)) return;
   chained.add(host);
@@ -53,13 +53,11 @@ export function chainErrorHandler(host: ErrorHandler, route: () => string = __ge
     try {
       const err = toError(error);
       const component = extractComponentName(err.stack);
-      const context: Record<string, string | number | boolean> = {
-        cause: 'AngularError',
-        error_context: `screen:${route()}`,
-        handled: true,
-      };
+      // `captureError` sends `app.error` (handled: Angular caught it) with the `error.*` keys and
+      // `screen.name`; the failing component, when the stack names one, rides in `error.component_stack`.
+      const context: Record<string, string> = {};
       if (component !== null) {
-        context['component'] = component;
+        context['error.component_stack'] = component;
       }
       EdgeRum.captureError(err, context);
     } catch {

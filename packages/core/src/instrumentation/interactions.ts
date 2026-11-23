@@ -55,8 +55,6 @@ export function registerInteractionCapture(deps: InteractionsDeps): Interactions
   let mutations = 0;
   const activity = () => mutations + external();
 
-  // E25 touch: a tap's click is often a plain MouseEvent (no `pointerType`), so a touch just before marks it.
-  let touchedAt = -Infinity;
   let recent: { el: Element; at: number }[] = [];
   const pending = new Set<{ attrs: EventAttributes; at: string; timer: ReturnType<typeof setTimeout> }>();
 
@@ -88,10 +86,10 @@ export function registerInteractionCapture(deps: InteractionsDeps): Interactions
 
       const [label, source] = nameOf(target, el);
       const at = new Date().toISOString();
-      const type = (ev as PointerEvent).pointerType === 'touch' || t - touchedAt < WINDOW_MS ? 'tap' : 'click';
-      deps.breadcrumb?.(`${type} ${label}`);
+      deps.breadcrumb?.(`tap ${label}`);
       const attrs: EventAttributes = {
-        'ui.type': type,
+        // The catalogue has one press type (#149): a mouse click in the WebView is a tap too.
+        'ui.type': 'tap',
         'ui.target': label,
         'ui.name_source': source,
         'ui.x': Math.round(ev.clientX),
@@ -127,8 +125,6 @@ export function registerInteractionCapture(deps: InteractionsDeps): Interactions
     }
   };
 
-  const onTouch = () => (touchedAt = performance.now());
-
   /** Emit open taps now, unjudged (absent `ui.dead` never accuses). */
   const drain = () => {
     try {
@@ -148,7 +144,6 @@ export function registerInteractionCapture(deps: InteractionsDeps): Interactions
 
   // E25: capture phase, so the tap is seen before the host's handler navigates or stops it.
   doc.addEventListener('click', onTap, true);
-  doc.addEventListener('touchstart', onTouch, { capture: true, passive: true });
   doc.addEventListener('visibilitychange', onHidden);
   globalThis.addEventListener?.('pagehide', drain);
 
@@ -156,7 +151,6 @@ export function registerInteractionCapture(deps: InteractionsDeps): Interactions
     dispose: () => {
       drain();
       doc.removeEventListener('click', onTap, true);
-      doc.removeEventListener('touchstart', onTouch, true);
       doc.removeEventListener('visibilitychange', onHidden);
       globalThis.removeEventListener?.('pagehide', drain);
     },

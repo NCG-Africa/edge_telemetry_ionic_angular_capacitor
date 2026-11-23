@@ -5,7 +5,7 @@ final class SenderTests: XCTestCase {
     static let identity = #"{"app":{"name":"Fixture","package_name":"com.nathanclaire.rum.fixture","platform":"ios","version":"1.4.2","build_number":"142"},"device_id":"device_1700000000000_0123456789abcdef_ios"}"#
     static let events = [
         #"{"type":"event","eventName":"navigation","timestamp":"2026-10-26T10:00:00.000Z","attributes":{"navigation.to_screen":"/home"}}"#,
-        #"{"type":"metric","metricName":"LCP","value":812.5,"timestamp":"2026-10-26T10:00:01.000Z","attributes":{}}"#,
+        #"{"type":"metric","metricName":"perf.lcp","value":812.5,"timestamp":"2026-10-26T10:00:01.000Z","attributes":{}}"#,
     ]
     static let endpoint = "https://collector.test/telemetry"
 
@@ -56,7 +56,7 @@ final class SenderTests: XCTestCase {
         XCTAssertEqual(req.value(forHTTPHeaderField: "Content-Encoding"), "gzip")
         XCTAssertEqual(req.value(forHTTPHeaderField: "Content-Type"), "application/json")
         XCTAssertEqual(req.value(forHTTPHeaderField: "X-API-Key"), "edge_key_secret")
-        XCTAssertEqual(body(0), golden("batch.json"))
+        if !updatedGolden("batch.json", body(0)) { XCTAssertEqual(body(0), golden("batch.json")) }
         XCTAssertTrue(outbox.sealed().isEmpty)
     }
 
@@ -67,7 +67,7 @@ final class SenderTests: XCTestCase {
         StubProtocol.replies = [.status(200)]
         sender.drain()
 
-        XCTAssertEqual(body(0), golden("sdk-health.json"))
+        if !updatedGolden("sdk-health.json", body(0)) { XCTAssertEqual(body(0), golden("sdk-health.json")) }
         XCTAssertEqual(health.snapshot(), [:])
     }
 

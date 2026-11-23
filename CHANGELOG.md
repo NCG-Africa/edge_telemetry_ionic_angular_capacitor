@@ -10,7 +10,8 @@ All three packages move to 5.0.0 together. A clean break from 4.x: read the
 [migration guide](docs/migration-5.md) first.
 
 ⚠ **Install the Edge RUM backend release for 5.0 before shipping a build with this SDK.** It sends
-wire contract 4.0.0 with `sdk.name=ionic`; an older backend rejects it.
+wire contract 4.3.0 with `sdk.name=ionic`; an older backend rejects it. Event names and keys follow
+the backend's event catalogue 4.6: the backend release that reads that catalogue must be live first.
 
 ### Changed
 
@@ -29,6 +30,25 @@ wire contract 4.0.0 with `sdk.name=ionic`; an older backend rejects it.
 - Renamed: `page_load` → `app.start`, `user.interaction` → `ui.interaction`,
   `frame_render_time` → `frame.summary`, `app.crash cause=ANR|Hang` → `app.anr` / `app.hang`,
   `metric.screen` → `screen.name`, `lifecycle.event` → `lifecycle.state`, memory keys → `memory.*`.
+- **Events use the backend's event catalogue names** (same names as the other Edge RUM SDKs):
+  - Errors your app caught (`captureError`, Angular `ErrorHandler`, router errors) are `app.error`;
+    `app.crash` is unhandled only. Both use `error.type`, `error.message`, `error.stacktrace`,
+    `error.cause`, `error.breadcrumbs` and `screen.name`; `is_fatal`, `handled`, `exception_type`,
+    `message`, `stacktrace` and `cause` are gone. `app.anr` / `app.hang` carry `anr.duration_ms` /
+    `hang.duration_ms`.
+  - `app_lifecycle` → `app.lifecycle`, `network_change` → `network.change`, `memory_pressure` →
+    `memory.pressure`, `custom_event` → `custom.event`. `measure()` / `time()` send `custom.metric`
+    with your name in `metric.name`. Web vitals are `perf.lcp`, `perf.inp`, `perf.cls`, `perf.fcp`,
+    `perf.ttfb`; also `perf.long_task` and `perf.resource_timing`.
+  - `memory.usage` is one event per sample; `memory.usage_mb` is the app process (total PSS on
+    Android, physical footprint on iOS). `memory.pressure_level` is `moderate` or `critical`.
+  - `app.start.duration_ms` ends when the native bridge is ready; `markReady()` adds
+    `app.start.mark_ready_ms` without lengthening it.
+  - `frame.summary` is sent for every window that drew a frame, not only slow ones.
+  - A session ends after 30 minutes idle or 4 hours; `session.finalized` says which in
+    `session.reason`.
+  - `ui.type` from `interactions()` is always `tap`. A cancelled navigation sends nothing. Android
+    `exit.importance` is the numeric importance code.
 - On web the SDK is a silent no-op.
 - `http.url` is `host[:port]` + templated path, without the scheme
   (`api.example.com/v2/users/{id}`), and only lowercase `v2` counts as a version segment (`V2` →
@@ -39,8 +59,8 @@ wire contract 4.0.0 with `sdk.name=ionic`; an older backend rejects it.
 - **Trace headers:** `traceHostAllowlist` adds a W3C `traceparent` to requests to your hosts, tied to
   the tap, navigation or launch that caused them; `traceparent.outcome` on every `http.request`.
   Native crashes and hangs carry the last user action's trace id.
-- **Launch time:** one `app.start` per cold launch with native and WebView phases, ended by
-  `markReady()`.
+- **Launch time:** one `app.start` per cold launch with native and WebView phases; `markReady()`
+  marks when your first screen is usable.
 - **Router phases:** guard, resolver and lazy-load timings on `navigation`.
 - **Native plugin call timings:** `bridge.summary` per plugin and method (`bridge()`).
 - **Smoothness:** `frame.summary` from `requestAnimationFrame`, paused when the screen is idle.
@@ -51,7 +71,7 @@ wire contract 4.0.0 with `sdk.name=ionic`; an older backend rejects it.
 - `beforeSend`, `release` (see the OTA recipe in [config-reference](docs/config-reference.md#release-and-ota-updates)).
 - Per-session limits with drop counts in `sdk.health`; `sampleRate` keeps or drops whole sessions.
 - Docs: [events](docs/events.md), [configuration](docs/config-reference.md),
-  [privacy](docs/privacy.md), [payload schema](docs/payload-schema.json).
+  [privacy](docs/privacy.md).
 
 ### Fixed
 

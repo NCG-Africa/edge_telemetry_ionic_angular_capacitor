@@ -81,7 +81,7 @@ describe('IonicLifecycleCapture', () => {
     expect(attrs['screen.name']).toBe('app-product');
     expect(attrs['screen.duration_ms']).toBe(4331);
     expect(attrs['screen.exit_method']).toBe('navigate');
-    expect(attrs['screen.timestamp']).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(attrs['span.start_time']).toMatch(/^\d{4}-\d{2}-\d{2}T/); // entry time (#31)
     capture.ngOnDestroy();
   });
 

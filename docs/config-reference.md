@@ -37,7 +37,7 @@ Run `npx cap sync` after any change.
 | `hangTimeoutMs` | number | `2000` | Hang threshold |
 | `anr` | boolean | `true` | Android only: report ANRs as `app.anr` |
 | `anrTimeoutMs` | number | `5000` | ANR threshold |
-| `memorySampling` | boolean | `false` | Periodic `memory_usage` readings (start / end of session and pressure are always on) |
+| `memorySampling` | boolean | `false` | Periodic `memory.usage` events (start / end of session and pressure are always on) |
 | `memorySamplingIntervalMs` | number | `30000` | Interval; iOS rounds to whole seconds, minimum 1 s |
 
 App name, package, version and build number are read from the app binary. They can't be set.
@@ -74,13 +74,13 @@ Errors and requests are always captured. Everything else is a capture:
 
 | Capture | Package | In `defaultCaptures()` | Sends |
 |---|---|---|---|
-| `vitals()` | `@nathanclaire/rum` | yes | LCP, INP, CLS, FCP, TTFB |
+| `vitals()` | `@nathanclaire/rum` | yes | `perf.lcp`, `perf.inp`, `perf.cls`, `perf.fcp`, `perf.ttfb` |
 | `interactions()` | `@nathanclaire/rum` | yes | `ui.interaction` (taps, rage and dead taps) |
 | `frames({ slowThresholdMs = 34 })` | `@nathanclaire/rum` | yes | `frame.summary` |
-| `longTasks()` | `@nathanclaire/rum` | yes | `long_task` |
+| `longTasks()` | `@nathanclaire/rum` | yes | `perf.long_task` |
 | `consoleErrors()` | `@nathanclaire/rum` | yes | `console.error` lines as error breadcrumbs |
 | `bridge()` | `@nathanclaire/rum-capacitor` | yes (the `-capacitor` set) | `bridge.summary` |
-| `resourceTiming()` | `@nathanclaire/rum` | no | `resource_timing` |
+| `resourceTiming()` | `@nathanclaire/rum` | no | `perf.resource_timing` |
 | `ionicUi()` | `@nathanclaire/rum-angular` | no | `ui.interaction` for overlays, tabs, back, keyboard |
 
 `@nathanclaire/rum`'s `defaultCaptures()` is the same set without `bridge()`. `provideEdgeRum()`

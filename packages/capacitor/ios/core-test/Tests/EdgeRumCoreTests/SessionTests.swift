@@ -18,7 +18,7 @@ func attrs(_ line: String) -> [String: Any] {
 }
 
 func crash(_ type: String, _ stack: String) -> [String: Any] {
-    event("app.crash", ["is_fatal": false, "handled": true, "exception_type": type, "stacktrace": stack])
+    event("app.error", ["error.type": type, "error.stacktrace": stack])
 }
 
 final class SessionTests: XCTestCase {
@@ -68,16 +68,38 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(a["user.id"] as? String, "u1")
     }
 
+    func testActiveSessionEndsAtFourHoursWithMaxDuration() {
+        let s = session(1)
+        _ = s.begin()
+        let start = now
+        while now - start < Session.maxDurationMs - 60_000 {
+            now += 60_000
+            XCTAssertEqual(names(s.admit([event("custom.event")])), ["custom.event"])
+        }
+        now += 60_000
+        let out = s.admit([event("custom.event")])
+        XCTAssertEqual(names(out), ["session.finalized", "session.started", "custom.event"])
+        XCTAssertEqual(attrs(out[0])["session.reason"] as? String, "max_duration")
+        XCTAssertEqual(attrs(out[2])["session.id"] as? String, "session_2")
+    }
+
+    func testIdleRotationSaysTimeout() {
+        let s = session(1)
+        _ = s.begin()
+        now += Session.idleMs + 1
+        XCTAssertEqual(attrs(s.rotateIfIdle()[0])["session.reason"] as? String, "timeout")
+    }
+
     func testIdleTimeoutRotatesWithBackdatedFinalizeAndFreshCounters() {
         let s = session(1)
         _ = s.begin()
-        _ = s.admit([event("navigation", ["navigation.to_screen": "/home"]), metric("LCP")])
+        _ = s.admit([event("navigation", ["navigation.to_screen": "/home"]), metric("perf.lcp")])
         now += 60_000
         _ = s.admit([event("navigation", ["navigation.to_screen": "/cart"])])
         now += Session.idleMs + 1
 
-        let out = s.admit([event("custom_event")])
-        XCTAssertEqual(names(out), ["session.finalized", "session.started", "custom_event"])
+        let out = s.admit([event("custom.event")])
+        XCTAssertEqual(names(out), ["session.finalized", "session.started", "custom.event"])
         let fin = attrs(out[0])
         XCTAssertEqual(json(out[0])["timestamp"] as? String, "2026-10-26T10:01:00.000Z", "E1: backdated")
         XCTAssertEqual(fin["session.id"] as? String, "session_1")
@@ -140,9 +162,9 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(attrs(s.begin()[0])["session.sampled"] as? Bool, false)
 
         let kept = s.admit([
-            event("navigation"), metric("LCP"), event("app.hang"), event("user.profile.update"),
-            event("app.crash", ["is_fatal": false]),
-            event("app.crash", ["is_fatal": true]), event("app.crash", ["cause": "WebViewTerminated"]),
+            event("navigation"), metric("perf.lcp"), event("app.hang"), event("user.profile.update"),
+            event("app.error"),
+            event("app.crash"), event("app.crash", ["error.cause": "webview_terminated"]),
             event("app.anr"), event("app.exit"), event("app.start"), event("sdk.health"),
         ])
         XCTAssertEqual(names(kept), ["app.crash", "app.crash", "app.anr", "app.exit", "app.start", "sdk.health"])
@@ -185,12 +207,12 @@ final class SessionTests: XCTestCase {
     func testCustomCapIsCombinedAcrossCustomHostMetricsAndTasks() {
         let s = session(1)
         _ = s.begin()
-        let kept = s.admit(Array(repeating: event("custom_event"), count: 300)).count
+        let kept = s.admit(Array(repeating: event("custom.event"), count: 300)).count
             + s.admit(Array(repeating: metric("checkout_ms"), count: 150)).count
             + s.admit(Array(repeating: event("task.complete"), count: 50)).count
         XCTAssertEqual(kept, 500)
-        XCTAssertEqual(s.admit([event("custom_event"), metric("cart"), event("task.complete")]).count, 0)
-        XCTAssertEqual(s.admit([metric("LCP")]).count, 1)
+        XCTAssertEqual(s.admit([event("custom.event"), metric("cart"), event("task.complete")]).count, 0)
+        XCTAssertEqual(s.admit([metric("perf.lcp")]).count, 1)
         XCTAssertEqual(health.snapshot(), ["events_dropped.cap.custom": 3])
     }
 
@@ -202,7 +224,7 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(s.admit(Array(repeating: crash("TypeError", "TypeError: x\n    at g (app:///main.js:9:9)"), count: 5)).count, 5)
         for i in 0..<8 { _ = s.admit(Array(repeating: crash("E\(i)", ""), count: 5)) }
         XCTAssertEqual(s.admit([crash("New", "")]).count, 0, "50 total")
-        XCTAssertEqual(s.admit([event("app.crash", ["is_fatal": true])]).count, 1, "fatal never capped")
+        XCTAssertEqual(s.admit([event("app.crash")]).count, 1, "app.crash never capped")
         XCTAssertEqual(health.snapshot(), ["events_dropped.cap.error": 2])
     }
 

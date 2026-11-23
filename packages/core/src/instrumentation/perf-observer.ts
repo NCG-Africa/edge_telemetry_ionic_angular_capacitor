@@ -51,9 +51,8 @@ export function registerPerfObserver(deps: PerfObserverDeps): PerfObserverHandle
       const obs = new Ctor((list) => {
         for (const entry of list.getEntries()) {
           try {
-            deps.recordMetric('long_task', entry.duration, {
+            deps.recordMetric('perf.long_task', entry.duration, {
               'metric.unit': 'ms',
-              'metric.name': entry.name || 'self',
               'screen.name': deps.getCurrentRoute(),
             });
             healthMonitor.reportSuccess('perf-observer.longtask.emit');
@@ -78,7 +77,7 @@ export function registerPerfObserver(deps: PerfObserverDeps): PerfObserverHandle
       try {
         const sorted = g.durations.sort((a, b) => a - b);
         const p95 = Math.round(sorted[Math.min(sorted.length - 1, Math.ceil(0.95 * sorted.length) - 1)] ?? 0);
-        deps.recordMetric('resource_timing', p95, {
+        deps.recordMetric('perf.resource_timing', p95, {
           'metric.unit': 'ms',
           'screen.name': windowRoute,
           'resource.host': g.host,

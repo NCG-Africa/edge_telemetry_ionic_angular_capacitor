@@ -169,7 +169,7 @@ describe('buffer and hand-off (A4, T1)', () => {
     EdgeRum.captureError(new Error('boom'));
     await vi.advanceTimersByTimeAsync(0);
     expect(fake.enqueued()).toHaveLength(4);
-    expect(fake.enqueued()[3]?.events[0]?.eventName).toBe('app.crash');
+    expect(fake.enqueued()[3]?.events[0]?.eventName).toBe('app.error');
   });
 
   it('counts a failed hand-off and resends the count next time', async () => {
@@ -207,7 +207,7 @@ describe('beforeSend (P1)', () => {
     await tick();
     const [batch] = fake.enqueued();
     expect(batch?.events).toHaveLength(1);
-    expect(batch?.events[0]).toMatchObject({ eventName: 'custom_event', attributes: { 'session.id': 'sid', scrubbed: true } });
+    expect(batch?.events[0]).toMatchObject({ eventName: 'custom.event', attributes: { 'session.id': 'sid', scrubbed: true } });
     expect(batch?.drops).toEqual({ before_send_null: 1, before_send_error: 1 });
   });
 });
@@ -278,7 +278,9 @@ describe('API (C2, C5, C6)', () => {
     fake.ready();
     await tick();
     const events = fake.enqueued()[0]?.events ?? [];
-    expect(events.map((e) => e.metricName ?? e.eventName)).toEqual(['cart.items', 'load', 'custom_event']);
+    // #149: the app's own name rides in metric.name on a custom.metric row.
+    expect(events.map((e) => e.metricName ?? e.eventName)).toEqual(['custom.metric', 'custom.metric', 'custom.event']);
+    expect(events.map((e) => e.attributes['metric.name'])).toEqual(['cart.items', 'load', undefined]);
     expect(events[0]?.attributes.tier).toBe('gold');
     expect(events[2]?.attributes.tier).toBeUndefined();
   });
@@ -319,15 +321,16 @@ describe('errors (Y2, C6)', () => {
     const EdgeRum = await load();
     EdgeRum.init({ release: 'web@1.2.3' });
     EdgeRum.track('plain');
-    EdgeRum.captureError(new Error('x'), { handled: false, runtime: 'native', screen: 'Home' });
+    EdgeRum.captureError(new Error('x'), { 'error.cause': 'anr', 'error.source': 'native', screen: 'Home' });
     fake.ready();
     await tick();
     const [plain, crash] = fake.enqueued()[0]?.events ?? [];
     expect(plain?.attributes.release).toBeUndefined();
-    expect(crash?.attributes).toMatchObject({ release: 'web@1.2.3', handled: true, runtime: 'webview', screen: 'Home' });
+    expect(crash?.eventName).toBe('app.error');
+    expect(crash?.attributes).toMatchObject({ release: 'web@1.2.3', 'error.cause': 'handled', 'error.source': 'webview', screen: 'Home' });
   });
 
-  it('captureError is handled, non-fatal, normalised, with no release by default (E10, Y2, Y3)', async () => {
+  it('captureError is app.error, cause handled, normalised, with no release by default (E10, Y2, Y3, #149)', async () => {
     const fake = fakeBridge();
     const EdgeRum = await load();
     EdgeRum.init();
@@ -338,12 +341,13 @@ describe('errors (Y2, C6)', () => {
     fake.ready();
     await tick();
     const [a, b] = fake.enqueued()[0]?.events ?? [];
+    expect(a?.eventName).toBe('app.error');
     expect(a?.attributes).toMatchObject({
-      exception_type: 'TypeError', message: 'x', stacktrace: 'TypeError: x\n    at f (app:///main.js:1:2)',
-      handled: true, is_fatal: false, cause: 'ManualCapture',
+      'error.type': 'TypeError', 'error.message': 'x', 'error.stacktrace': 'TypeError: x\n    at f (app:///main.js:1:2)',
+      'error.cause': 'handled',
     });
     expect(a?.attributes).not.toHaveProperty('release');
-    expect(b?.attributes).toMatchObject({ exception_type: 'Error', message: 'plain string' });
+    expect(b?.attributes).toMatchObject({ 'error.type': 'Error', 'error.message': 'plain string' });
   });
 });
 
@@ -380,7 +384,7 @@ describe('breadcrumbs (A3)', () => {
     await tick();
     const [batch] = fake.enqueued();
     expect(batch?.breadcrumbs).toEqual([]);
-    expect(batch?.events[0]?.attributes['crash.breadcrumb_count']).toBe(0);
+    expect(batch?.events[0]?.attributes['error.breadcrumbs']).toBe('[]');
   });
 });
 

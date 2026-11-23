@@ -196,7 +196,7 @@ class Sender(
     companion object {
         /** W1. */
         const val SDK_NAME = "ionic"
-        const val CONTRACT_VERSION = "4.0.0"
+        const val CONTRACT_VERSION = "4.3.0"
         /** T6: delays before the 3 retries that follow a failed first send. */
         val RETRY_MS = longArrayOf(1_000, 4_000, 16_000)
         /** Backoff of a parked segment; matches the 30 s tick that retries it (T6). */

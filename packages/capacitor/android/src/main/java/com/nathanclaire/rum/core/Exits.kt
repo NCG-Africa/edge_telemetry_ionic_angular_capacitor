@@ -43,7 +43,8 @@ object Exits {
     private fun attributes(r: Record): JSONObject {
         val a = JSONObject()
             .put("exit.reason", REASONS.getOrNull(r.reason) ?: "unknown_${r.reason}")
-            .put("exit.importance", importance(r.importance))
+            // The raw `RunningAppProcessInfo.IMPORTANCE_*` code: the catalogue types it int (#149).
+            .put("exit.importance", r.importance)
             .put("exit.description", r.description)
             .put("exit.status", r.status)
             .put("exit.pss_kb", r.pssKb)
@@ -53,15 +54,4 @@ object Exits {
         return a
     }
 
-    /** `RunningAppProcessInfo.IMPORTANCE_*`, by value. */
-    private fun importance(code: Int) = when (code) {
-        100 -> "foreground"
-        125 -> "foreground_service"
-        200 -> "visible"
-        230 -> "perceptible"
-        300 -> "service"
-        400 -> "cached"
-        1000 -> "gone"
-        else -> "unknown_$code"
-    }
 }

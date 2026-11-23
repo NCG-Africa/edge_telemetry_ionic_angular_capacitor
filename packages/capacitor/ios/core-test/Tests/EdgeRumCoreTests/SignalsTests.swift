@@ -52,22 +52,28 @@ final class SignalsTests: XCTestCase {
         StubProtocol.replies = [.status(200)]
         sender.drain()
         let body = try XCTUnwrap(StubProtocol.requests.first.map { gunzip($0.body) }, file: file, line: line)
+        if updatedGolden(name, body) { return }
         XCTAssertEqual(json(body) as NSDictionary, json(golden(name)) as NSDictionary, file: file, line: line)
     }
 
     // MARK: - E22–E24, E26, E32
 
-    func testMemorySkipsMissingReadingsAndRoundsToTenthMB() {
-        XCTAssertEqual(Signals.memory(footprint: 1 << 20, resident: 2 << 20, source: "periodic", at: now).count, 2)
-        let one = Signals.memory(footprint: nil, resident: 196_608_000, source: "periodic", at: now)
-        XCTAssertEqual(one.count, 1)
-        XCTAssertEqual(one[0]["value"] as? Double, 187.5)
-        XCTAssertEqual(attrs(one[0])["memory.type"] as? String, "rss")
+    func testMemoryIsOneUsageEventInFootprintMbFallingBackToRss() {
+        let both = Signals.memory(footprint: 1 << 20, resident: 2 << 20, source: "periodic", at: now)
+        XCTAssertEqual(both?["eventName"] as? String, "memory.usage")
+        XCTAssertEqual(both?["type"] as? String, "event")
+        XCTAssertEqual(attrs(both)["memory.usage_mb"] as? Double, 1)
+        XCTAssertEqual(attrs(both)["memory.type"] as? String, "footprint")
+        XCTAssertEqual(attrs(both)["memory.resident_kb"] as? Int64, 2048)
+        let rssOnly = attrs(Signals.memory(footprint: nil, resident: 196_608_000, source: "periodic", at: now))
+        XCTAssertEqual(rssOnly["memory.usage_mb"] as? Double, 187.5)
+        XCTAssertEqual(rssOnly["memory.type"] as? String, "rss")
+        XCTAssertNil(Signals.memory(footprint: nil, resident: nil, source: "periodic", at: now))
     }
 
     func testPressureWithoutReadingOmitsUsage() {
         let a = attrs(Signals.pressure(footprint: nil, at: now))
-        XCTAssertEqual(a["memory.pressure_level"] as? String, "warning")
+        XCTAssertEqual(a["memory.pressure_level"] as? String, "critical")
         XCTAssertNil(a["memory.usage_mb"])
     }
 
@@ -97,7 +103,7 @@ final class SignalsTests: XCTestCase {
         let s = session()
         now += Session.idleMs + 1
         XCTAssertEqual(names(s.admitPassive([Signals.network(previous: "wifi", current: "none", at: now)])),
-                       ["network_change"])
+                       ["network.change"])
         XCTAssertEqual(names(s.rotateIfIdle()), ["session.finalized", "session.started"],
                        "a background signal doesn't keep the session alive")
     }
@@ -129,10 +135,16 @@ final class SignalsTests: XCTestCase {
         try Self.assertGolden("app-lifecycle.json", dir, health, s.admit([Signals.lifecycle("backgrounded", at: now)]))
         s.context = { [:] }
         try Self.assertGolden("memory-usage.json", dir, health,
-                              s.admit(Signals.memory(footprint: 196_608_000, resident: 262_144_000, source: "session_start", at: now)))
+                              s.admit([try XCTUnwrap(Signals.memory(footprint: 196_608_000, resident: 262_144_000,
+                                                                    source: "session_start", at: now))]))
         try Self.assertGolden("memory-pressure.json", dir, health, s.admit([Signals.pressure(footprint: 196_608_000, at: now)]))
         try Self.assertGolden("network-change.json", dir, health,
                               s.admit([Signals.network(previous: "wifi", current: "none", at: now)]))
+        // Idle rotation: both bookends, then the profile event in the new session.
+        now += Session.idleMs + 1
+        let user = User(defaults: defaults, clock: { [unowned self] in now })
+        let profile = try XCTUnwrap(user.identify(["id": "u1", "name": "Ada", "email": "ada@example.com"]))
+        try Self.assertGolden("session.json", dir, health, s.admit([profile]))
     }
 
     // MARK: - A6, E13

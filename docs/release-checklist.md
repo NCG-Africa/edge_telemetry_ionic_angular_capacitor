@@ -9,6 +9,16 @@ emulator and a simulator; the scenario table covers the rest by hand on a **real
 
 - [ ] **G0:** prod runs collector PR #8 and processor PR #9 (otherwise contract-4 batches go to the DLQ as `<app-not-registered>`).
 - [ ] **G10:** the processor halves of G1–G5, G7 and G8 are live in prod. Analytics may trail.
+- [ ] **Catalogue (ADR-050):** prod runs the processor release that reads catalogue 4.6. A build
+  sending the catalogue names (`app.error`, `custom.event`, `perf.*`, `memory.usage`, …) must not ship
+  before it.
+
+## Catalogue conformance gate (ADR-050)
+
+- [ ] `catalogue.version` names a `catalogue-v4.N` tag of the processor repo, not a branch.
+- [ ] `scripts/conform.sh` on this commit prints `conforms to catalogue 4.N` (needs `go` and read
+  access to the processor repo; `PROCESSOR_DIR=<checkout>` reuses a local one). Local only: the
+  processor repo is private, so CI can't clone it.
 
 ## Device e2e gate (spec Q3)
 
@@ -30,7 +40,7 @@ emulator and a simulator; the scenario table covers the rest by hand on a **real
    `curl -s localhost:4319/__requests | jq '.requests[].parsed.events[] | {eventName, metricName, attributes}'`,
    and clear it between scenarios with `curl -X POST localhost:4319/__reset`.
 
-Every batch must also have: `Content-Encoding: gzip`, `sdk.name = ionic`, `contract_version = 4.0.0`,
+Every batch must also have: `Content-Encoding: gzip`, `sdk.name = ionic`, `contract_version = 4.3.0`,
 `app.platform` matching the phone, and the same `device_id` across launches.
 
 ## Scenarios
@@ -38,16 +48,16 @@ Every batch must also have: `Content-Encoding: gzip`, `sdk.name = ionic`, `contr
 | Scenario | Do | Expect | Android | iOS |
 |---|---|---|---|---|
 | `happy` | Tap it | `session.started`, `app.start` with phase keys incl. `app.start.bridge_ready_ms`, `navigation` to `/happy` with `navigation.{guards_ms,resolvers_ms,chunk_load_ms}`, `http.request` for `ping.json` with `traceparent.outcome = injected_*`, `bridge.summary` for `DemoScenarios` / `slow` | [ ] | [ ] |
-| `js-error` | Tap it | `app.crash` with `handled=false`, `is_fatal=true`, `runtime=webview`, frames as `app:///…`, `crash.breadcrumbs` | [ ] | [ ] |
+| `js-error` | Tap it | `app.crash` with `error.cause=unhandled_exception`, `error.source=webview`, frames as `app:///…` in `error.stacktrace`, `error.breadcrumbs` | [ ] | [ ] |
 | `native-crash` | Tap it (the app dies), then open the app again | On relaunch: `app.crash` from the native handler, alone in its batch (no `sdk.health`), with the native breadcrumbs | [ ] | [ ] |
-| `renderer-kill` | Tap it | `app.crash` with `cause=WebViewTerminated`, `screen_name=/renderer-kill`; Android `webview.detected_by=callback`, iOS `webview.detected_by=inference` (if the app shows a blank page, open it again) | [ ] | [ ] |
-| `hang` | Tap it, keep the app open for 7 s | Android: `app.anr` (≥ 5 s) and `app.hang`; iOS: `app.hang` (≥ 2 s) | [ ] | [ ] |
+| `renderer-kill` | Tap it | `app.crash` with `error.cause=webview_terminated`, `screen.name=/renderer-kill`; Android `webview.detected_by=callback`, iOS `webview.detected_by=inference` (if the app shows a blank page, open it again) | [ ] | [ ] |
+| `hang` | Tap it, keep the app open for 7 s | Android: `app.anr` (`anr.duration_ms` ≥ 5000) and `app.hang`; iOS: `app.hang` (`hang.duration_ms` ≥ 2000) | [ ] | [ ] |
 | `slow-bridge` | Tap it, then go back | `bridge.summary` for `DemoScenarios` / `slow` with `bridge.max_ms` ≥ 1500. No `bridge.call` (E18) | [ ] | [ ] |
-| `offline` | No toggle in the app: turn on airplane mode, tap it, background the app, turn airplane mode off, open the app | Nothing arrives while offline; afterwards the 30 `custom_event`s (`event.name=offline.burst`) arrive once each (offline replay, R12) | [ ] | [ ] |
+| `offline` | No toggle in the app: turn on airplane mode, tap it, background the app, turn airplane mode off, open the app | Nothing arrives while offline; afterwards the 30 `custom.event`s (`event.name=offline.burst`) arrive once each (offline replay, R12) | [ ] | [ ] |
 | `rage-tap` | Tap it (or tap “Does nothing” three times fast) | `ui.interaction` with `ui.rage=true` and `ui.dead=true` | [ ] | [ ] |
-| `mark-ready` | Kill the app, open it, tap it within 30 s | That launch's `app.start` has `app.start.mark_ready_ms` | [ ] | [ ] |
+| `mark-ready` | Kill the app, open it, tap it within 30 s | That launch's `app.start` has `app.start.mark_ready_ms`, and `app.start.duration_ms` equals `app.start.bridge_ready_ms` | [ ] | [ ] |
 | `task` | Tap it | `task.complete` with `task.name=checkout`, `task.outcome` completed, `span.duration_ms` ≈ 500 | [ ] | [ ] |
-| `caps` | Tap it | `custom_event`s stop at the per-session cap (500, shared with `task.complete` and host measures), and `sdk.health` counts the rest as `cap.custom` (100 in a session with nothing else) | [ ] | [ ] |
+| `caps` | Tap it | `custom.event`s stop at the per-session cap (500, shared with `task.complete` and host measures), and `sdk.health` counts the rest as `cap.custom` (100 in a session with nothing else) | [ ] | [ ] |
 | 5xx retry (R12) | `curl -X POST 'localhost:4319/__status?code=503'`, tap `task`, background the app; then `curl -X POST 'localhost:4319/__status?code=200'` and open the app | While 503: the same batch is retried (several requests in `__requests`). After: it arrives and is accepted once | [ ] | [ ] |
 | 4xx drop (R12) | `curl -X POST 'localhost:4319/__status?code=400'`, tap `task`, background; set `code=200`, tap `task`, background | The 400 batch is not retried; the next accepted batch has `sdk.health` with `rejected` ≥ 1 | [ ] | [ ] |
 

@@ -1699,3 +1699,42 @@ change to match. ADR-035 §9–10 are amended for the router; the bridge half st
 - (+) P5 gets narrower: no class names, so nothing about the app's code structure leaves the device.
 - (−) No separate phase bars in a trace waterfall, only totals per navigation. A per-phase row can be
   added later as an additive event if the backend asks for it.
+
+## ADR-050 — Converge on the processor's event catalogue (#149)
+
+**Date:** 2026-11
+
+**Context:** ADR-037 took the Cordova catalogue as the baseline, name for name. The processor now
+owns one event catalogue for all six SDKs (`docs/catalogue/*.yaml` in the processor repo, processor
+#26): canonical names and keys, with each SDK's old names kept alive only as aliases. 5.0.0-rc.1
+still sent the alias forms (`app.crash handled=true`, `custom_event`, `LCP`, `memory_usage`, …), and
+`docs/payload-schema.json` described the wire by hand, a second authority next to the catalogue.
+
+**Decision:**
+1. Every event and key this SDK sends is the catalogue's canonical form at the ref in
+   `catalogue.version`; wire contract 4.3.0. The catalogue wins over spec §7 where they differ.
+2. Handled errors are `app.error`, unhandled `app.crash`; both on `error.*` keys and `screen.name`.
+   `is_fatal`, `handled`, `error_context` are not sent. `app.anr` / `app.hang` carry
+   `anr.duration_ms` / `hang.duration_ms` and `error.cause`. iOS images ride in `error.binary_images`.
+3. `app.start.duration_ms` ends at bridge ready; `markReady()` is a phase only. One per process.
+4. `memory.usage` is an event with the process footprint in MB (Android total PSS, iOS
+   `phys_footprint`, RSS as fallback); `memory.pressure_level` is `moderate|critical`.
+5. Sessions end at 30 min idle or 4 h (`session.reason`). Every frame window is sent.
+6. Long tail: `app.lifecycle`, `network.change`, `memory.pressure`, `custom.event`, `custom.metric`
+   (`metric.name`), `perf.*`. `ui.type` from `interactions()` is `tap`. `exit.importance` is the raw
+   int. `storage.usage` and `sdk.capabilities` are not emitted here, so not renamed.
+7. Caps (S3): the error cap counts `app.error`; every `app.crash` is exempt (S2). The custom budget
+   counts `custom.event`, `task.complete`, `custom.metric`, `perf.long_task`.
+8. `docs/payload-schema.json` and its test are retired. `scripts/conform.sh` runs the processor's
+   `cmd/conform` over every golden batch (JS, Android, iOS). It is a local pre-release gate, on the
+   release checklist: the processor repo is private, so CI can't clone it.
+
+**Consequences:**
+- (+) One authority for the wire; no alias hits from this SDK; dashboards read the same names for
+  every SDK.
+- (+) Keys this SDK alone sends (`webview.detected_by`, `error.binary_images`, `release`,
+  `resource.{host,initiator_type,count}`, `sdk.health` counters) are registered in the catalogue.
+- (−) A release with these names must wait for the processor release that reads catalogue 4.6.
+- (−) The gate is not a required CI check until CI can read the processor repo.
+- (−) Mouse clicks and taps are no longer told apart; `memory.usage` loses the separate RSS row
+  (kept as `memory.resident_kb`).

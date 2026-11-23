@@ -9,7 +9,8 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 tag="$(cat "$root/catalogue.version")"
 raw="$root/test/golden-raw"
 rm -rf "$raw"
-# JS rows first: the Android JsGoldenTest sends them through the native sender.
+# The script runs the tests itself: the JS set needs vitest before gradle (JsGoldenTest sends its rows
+# through the native sender), and a fresh raw dir keeps a removed event from passing on a stale dump.
 (cd "$root" && pnpm vitest run test/golden-batch.test.ts && pnpm test:android && pnpm test:ios)
 src="${PROCESSOR_DIR:-}"
 if [ -z "$src" ]; then

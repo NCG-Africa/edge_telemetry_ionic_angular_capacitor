@@ -101,6 +101,7 @@ func json(_ text: String) -> [String: Any] {
 func dumpGolden(_ name: String, _ body: String) {
     let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .appendingPathComponent("../../../../../../test/golden-raw/ios").standardized
-    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    try? Data(body.utf8).write(to: dir.appendingPathComponent(name))
+    // A failed dump must fail the run, not show up later as a missing event in the shape.
+    try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    try! Data(body.utf8).write(to: dir.appendingPathComponent(name))
 }

@@ -3,8 +3,9 @@
 Everything edge-rum 5.0 sends, by name. Each row is either an **event** (`eventName`) or a **numeric
 reading** (`metricName` + `value`). Names and keys follow the backend's event catalogue
 (`docs/catalogue/*.yaml` in the backend repo, at the version pinned in
-[`catalogue.version`](../catalogue.version)); a recorded example of every row is in
-[`test/golden`](../test/golden) and the native `golden` folders. What is never collected:
+[`catalogue.version`](../catalogue.version)); the keys and types of every row are in
+[`test/shape-js.txt`](../test/shape-js.txt), [`shape-android.txt`](../test/shape-android.txt) and
+[`shape-ios.txt`](../test/shape-ios.txt). What is never collected:
 [privacy.md](./privacy.md).
 
 **Source:** JS = captured in the WebView, passes through `beforeSend`. Native = captured by the

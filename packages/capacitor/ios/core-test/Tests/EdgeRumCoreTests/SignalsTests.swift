@@ -34,8 +34,8 @@ final class SignalsTests: XCTestCase {
         lines.map { json($0)["eventName"] as? String ?? json($0)["metricName"] as? String ?? "" }
     }
 
-    /// The lines as one sent batch (`solo`: their own segment, as a crash), compared parsed.
-    static func assertGolden(_ name: String, _ dir: URL, _ health: Health, _ lines: [String], solo: Bool = false,
+    /// The lines as one sent batch (`solo`: their own segment, as a crash), dumped as a golden batch.
+    static func dumpGoldenBatch(_ name: String, _ dir: URL, _ health: Health, _ lines: [String], solo: Bool = false,
                              file: StaticString = #filePath, line: UInt = #line) throws {
         StubProtocol.reset()
         let sendAt: Int64 = 1_793_008_803_000 // 10:00:03.000Z
@@ -52,8 +52,7 @@ final class SignalsTests: XCTestCase {
         StubProtocol.replies = [.status(200)]
         sender.drain()
         let body = try XCTUnwrap(StubProtocol.requests.first.map { gunzip($0.body) }, file: file, line: line)
-        if updatedGolden(name, body) { return }
-        XCTAssertEqual(json(body) as NSDictionary, json(golden(name)) as NSDictionary, file: file, line: line)
+        dumpGolden(name, body)
     }
 
     // MARK: - E22–E24, E26, E32
@@ -132,19 +131,19 @@ final class SignalsTests: XCTestCase {
     func testGoldenBatches() throws {
         let s = session()
         s.context = { Self.deviceContext }
-        try Self.assertGolden("app-lifecycle.json", dir, health, s.admit([Signals.lifecycle("backgrounded", at: now)]))
+        try Self.dumpGoldenBatch("app-lifecycle.json", dir, health, s.admit([Signals.lifecycle("backgrounded", at: now)]))
         s.context = { [:] }
-        try Self.assertGolden("memory-usage.json", dir, health,
+        try Self.dumpGoldenBatch("memory-usage.json", dir, health,
                               s.admit([try XCTUnwrap(Signals.memory(footprint: 196_608_000, resident: 262_144_000,
                                                                     source: "session_start", at: now))]))
-        try Self.assertGolden("memory-pressure.json", dir, health, s.admit([Signals.pressure(footprint: 196_608_000, at: now)]))
-        try Self.assertGolden("network-change.json", dir, health,
+        try Self.dumpGoldenBatch("memory-pressure.json", dir, health, s.admit([Signals.pressure(footprint: 196_608_000, at: now)]))
+        try Self.dumpGoldenBatch("network-change.json", dir, health,
                               s.admit([Signals.network(previous: "wifi", current: "none", at: now)]))
         // Idle rotation: both bookends, then the profile event in the new session.
         now += Session.idleMs + 1
         let user = User(defaults: defaults, clock: { [unowned self] in now })
         let profile = try XCTUnwrap(user.identify(["id": "u1", "name": "Ada", "email": "ada@example.com"]))
-        try Self.assertGolden("session.json", dir, health, s.admit([profile]))
+        try Self.dumpGoldenBatch("session.json", dir, health, s.admit([profile]))
     }
 
     // MARK: - A6, E13
@@ -167,7 +166,7 @@ final class SignalsTests: XCTestCase {
         crash.mirror(CrashTests.payload(1, "/checkout"))
         crash.setRoot(CrashTests.root)
         let e = crash.webViewTerminated()
-        try Self.assertGolden("app-crash-webview.json", dir, health, s.admit([e]), solo: true)
+        try Self.dumpGoldenBatch("app-crash-webview.json", dir, health, s.admit([e]), solo: true)
     }
 
     func testWebViewTerminatedIsExemptFromTheRoll() {

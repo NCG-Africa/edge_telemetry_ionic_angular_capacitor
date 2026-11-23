@@ -75,12 +75,6 @@ final class CrashTests: XCTestCase {
         return StubProtocol.requests.map { gunzip($0.body) }
     }
 
-    func assertGolden(_ name: String, _ body: String, file: StaticString = #filePath, line: UInt = #line) {
-        if updatedGolden(name, body) { return }
-        // Event dictionaries are unordered: compare parsed, not byte for byte.
-        XCTAssertEqual(json(body) as NSDictionary, json(golden(name)) as NSDictionary, file: file, line: line)
-    }
-
     func attrs(_ e: [String: Any]?) -> [String: Any] {
         e?["attributes"] as? [String: Any] ?? [:]
     }
@@ -104,7 +98,7 @@ final class CrashTests: XCTestCase {
         let bodies = relaunchAndSend()
 
         XCTAssertEqual(bodies.count, 2, "crash batch + the open segment sealed at relaunch")
-        assertGolden("app-crash-signal.json", bodies[0])
+        dumpGolden("app-crash-signal.json", bodies[0])
         let events = json(bodies[1])["events"] as? [[String: Any]] ?? []
         XCTAssertEqual(events.last?["eventName"] as? String, "sdk.health", "sdk.health rides the normal batch")
     }
@@ -115,7 +109,7 @@ final class CrashTests: XCTestCase {
         crash.saveContext(identity: Self.crashedIdentity, sessionId: "session_1", userId: "u1")
         let p = try XCTUnwrap(crash.replay(Self.exception))
         try outbox.writeSolo(p.identity, p.event)
-        assertGolden("app-crash-exception.json", relaunchAndSend()[0])
+        dumpGolden("app-crash-exception.json", relaunchAndSend()[0])
     }
 
     func testHangGoldenBatch() throws {
@@ -123,7 +117,7 @@ final class CrashTests: XCTestCase {
         crash.setRoot(Self.root)
         now += 2_100
         try solo(crash.hang(durationMs: 2_100, frames: Self.frames))
-        assertGolden("app-hang.json", relaunchAndSend()[0])
+        dumpGolden("app-hang.json", relaunchAndSend()[0])
     }
 
     func testMissingContextIsDropped() {

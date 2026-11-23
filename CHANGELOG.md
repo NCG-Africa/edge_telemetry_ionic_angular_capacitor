@@ -11,7 +11,7 @@ All three packages move to 5.0.0 together. A clean break from 4.x: read the
 
 ⚠ **Install the Edge RUM backend release for 5.0 before shipping a build with this SDK.** It sends
 wire contract 4.3.0 with `sdk.name=ionic`; an older backend rejects it. Event names and keys follow
-the backend's event catalogue 4.6: the backend release that reads that catalogue must be live first.
+the backend's event catalogue 4.7: the backend release that reads that catalogue must be live first.
 
 ### Changed
 

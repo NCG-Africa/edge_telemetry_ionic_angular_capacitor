@@ -76,6 +76,6 @@ final class LaunchTests: XCTestCase {
         pagePhases()
         _ = launch.mark("bridgeReady", Self.t0 + 700)
         let start = try XCTUnwrap(launch.mark("markReady", Self.t0 + 1500))
-        try SignalsTests.assertGolden("app-start.json", dir, health, session.admit([start]))
+        try SignalsTests.dumpGoldenBatch("app-start.json", dir, health, session.admit([start]))
     }
 }

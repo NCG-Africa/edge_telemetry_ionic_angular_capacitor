@@ -115,7 +115,7 @@ Wire byte-identical to Android trace v3 (`edge_telemetry_android/docs/specs/back
 | E33 | — | `ionicUi()` (**off**): `ui.interaction` with `ui.type ∈ overlay_open\|overlay_dismiss\|tab_change\|back\|keyboard_show`, `ui.target` = component tag. |
 | E34 | — | Angular route error: `app.error` with `error.cause=navigation_error`. |
 
-Names and keys above are the processor's event catalogue 4.3 (`docs/catalogue/*.yaml` in the processor repo, pinned by `catalogue.version`); where this table and the catalogue differ, the catalogue wins. `scripts/conform.sh` checks every golden against it. ([050](decisions.md#adr-050--converge-on-the-processors-event-catalogue-149))
+Names and keys above are the processor's event catalogue 4.6 (`docs/catalogue/*.yaml` in the processor repo, pinned by `catalogue.version`); where this table and the catalogue differ, the catalogue wins. `scripts/conform.sh` checks every golden against it. ([050](decisions.md#adr-050--converge-on-the-processors-event-catalogue-149))
 
 Never emit `page_load`, `user.interaction`, `frame_render_time`, `bridge.call`, `cordova.deviceready_timeout`, nor the pre-catalogue names (`app_lifecycle`, `network_change`, `memory_usage`, `memory_pressure`, `custom_event`, bare `LCP`…). Skipped: view rollup, `screen.load`, `storage_usage`, `cpu_usage`, `sdk.health` as standalone capture beyond R4, change-detection cost, `nativeCallback` counts, Capgo rollback events, session replay. ([037 §2–5](decisions.md#adr-037--event-catalogue-for-500-cordova-names-as-baseline-gap-fills-ionic-only-captures-79), [036 §5–6](decisions.md#adr-036--lightweight-budget-and-modular-architecture-78), [040 §1–2](decisions.md#adr-040--public-api-and-configuration-for-500-80))
 

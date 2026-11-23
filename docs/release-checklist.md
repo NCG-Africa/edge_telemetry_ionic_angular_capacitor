@@ -9,7 +9,7 @@ emulator and a simulator; the scenario table covers the rest by hand on a **real
 
 - [ ] **G0:** prod runs collector PR #8 and processor PR #9 (otherwise contract-4 batches go to the DLQ as `<app-not-registered>`).
 - [ ] **G10:** the processor halves of G1–G5, G7 and G8 are live in prod. Analytics may trail.
-- [ ] **Catalogue (ADR-050):** prod runs the processor release that reads catalogue 4.3. A build
+- [ ] **Catalogue (ADR-050):** prod runs the processor release that reads catalogue 4.6. A build
   sending the catalogue names (`app.error`, `custom.event`, `perf.*`, `memory.usage`, …) must not ship
   before it.
 

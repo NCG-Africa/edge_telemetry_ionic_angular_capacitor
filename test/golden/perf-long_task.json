@@ -29,7 +29,6 @@
         "device.model": "Pixel 8",
         "device.platform": "android",
         "device.platform_version": "15",
-        "metric.name": "self",
         "metric.unit": "ms",
         "network.type": "wifi",
         "screen.name": "/products/:id",

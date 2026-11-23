@@ -1,41 +1,40 @@
 import Darwin
 import Foundation
 
-/// Spec E2, E22–E24, E26, E32 (= Cordova iOS `Signals`, Android `Signals`): native `app_lifecycle`,
-/// `memory_usage`, `memory_pressure` and `network_change` records, N1 keys. The plugin reads the
-/// platform; these only shape it.
+/// Spec E2, E22–E24, E26, E32 (= Cordova iOS `Signals`, Android `Signals`): native `app.lifecycle`,
+/// `memory.usage`, `memory.pressure` and `network.change` records, on the event catalogue's names
+/// (#149). The plugin reads the platform; these only shape it.
 enum Signals {
     /// E2: native fg/bg (`foregrounded` / `backgrounded`); JS sends its own `appStateChange` states.
     static func lifecycle(_ state: String, at: Int64) -> [String: Any] {
-        Crash.record("app_lifecycle", at, ["lifecycle.state": state])
+        Crash.record("app.lifecycle", at, ["lifecycle.state": state])
     }
 
-    /// E22 / E23: one `memory_usage` per measure (footprint, the number jetsam kills on; RSS), in
-    /// MB. A missing reading is skipped.
-    static func memory(footprint: Int64?, resident: Int64?, source: String, at: Int64) -> [[String: Any]] {
-        [("footprint", footprint), ("rss", resident)].compactMap { type, bytes in
-            bytes.map { b in
-                let mb = mb(b)
-                return ["type": "metric", "metricName": "memory_usage", "value": mb, "timestamp": Sender.rfc3339(at),
-                        "attributes": ["metric.unit": "MB", "memory.usage_mb": mb, "memory.type": type,
-                                       "memory.source": source]]
-            }
-        }
+    /// E22 / E23: one `memory.usage` event. `memory.usage_mb` is `phys_footprint` in MB (the number
+    /// jetsam kills on; the catalogue's iOS footprint, processor #33), else RSS when it is missing;
+    /// RSS also rides in `memory.resident_kb`. Nil with neither reading.
+    static func memory(footprint: Int64?, resident: Int64?, source: String, at: Int64) -> [String: Any]? {
+        guard let bytes = footprint ?? resident else { return nil }
+        var a: [String: Any] = ["memory.usage_mb": mb(bytes), "memory.type": footprint != nil ? "footprint" : "rss",
+                                "memory.source": source]
+        if let resident { a["memory.resident_kb"] = resident / 1024 }
+        return Crash.record("memory.usage", at, a)
     }
 
-    /// E24: `UIApplicationDidReceiveMemoryWarning` → `memory_pressure`; iOS has one level.
+    /// E24: `UIApplicationDidReceiveMemoryWarning` → `memory.pressure`; iOS has one level, the
+    /// catalogue's `critical`.
     static func pressure(footprint: Int64?, at: Int64) -> [String: Any] {
-        var a: [String: Any] = ["memory.pressure_level": "warning", "memory.source": "memory_warning"]
+        var a: [String: Any] = ["memory.pressure_level": "critical", "memory.source": "memory_warning"]
         if let footprint {
             a["memory.usage_mb"] = mb(footprint)
             a["memory.type"] = "footprint"
         }
-        return Crash.record("memory_pressure", at, a)
+        return Crash.record("memory.pressure", at, a)
     }
 
     /// E26: path transport changed (`wifi` / `cellular` / `ethernet` / `other` / `none`).
     static func network(previous: String, current: String, at: Int64) -> [String: Any] {
-        Crash.record("network_change", at, ["network.type": current, "network.previous_type": previous])
+        Crash.record("network.change", at, ["network.type": current, "network.previous_type": previous])
     }
 
     /// E32 / P5: `app.bundle_id` = last segment of Capacitor's `getServerBasePath()`, or `builtin`

@@ -83,7 +83,7 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         foreground = UIApplication.shared.applicationState != .background
         let launchedForeground = foreground
         // A5: plugins load once the bridge has created the WebView; close enough to "WebView created".
-        launch = Launch(processStart: processStartedAt, webViewCreated: Outbox.now())
+        launch = Launch(processStart: processStartedAt, webViewCreated: Outbox.now(), once: true)
         device = Self.deviceContext()
         refreshBasePath()
         // C1: `hang`/`hangTimeoutMs` (true/2000). Started only once armed, after the core exists.
@@ -226,7 +226,7 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    /// E26: path transport changes → `network_change`; the first reading only seeds `network.type`.
+    /// E26: path transport changes → `network.change`; the first reading only seeds `network.type`.
     private func watchNetwork() {
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
@@ -269,7 +269,7 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
         return c
     }
 
-    /// E24: memory warning → `memory_pressure`.
+    /// E24: memory warning → `memory.pressure`.
     @objc private func didReceiveMemoryWarning() {
         let at = Outbox.now()
         let footprint = Signals.footprintBytes()
@@ -288,8 +288,10 @@ public class EdgeRumCrashPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// E22 / E23: footprint + RSS. Worker only.
     private func sampleMemory(_ source: String) {
-        recordPassive(Signals.memory(footprint: Signals.footprintBytes(), resident: Signals.residentBytes(),
-                                     source: source, at: Outbox.now()))
+        if let sample = Signals.memory(footprint: Signals.footprintBytes(), resident: Signals.residentBytes(),
+                                       source: source, at: Outbox.now()) {
+            recordPassive([sample])
+        }
     }
 
     @objc func getState(_ call: CAPPluginCall) {

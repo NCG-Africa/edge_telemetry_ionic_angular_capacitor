@@ -61,8 +61,8 @@ test('A2 plugin methods and args', async ({ page }) => {
     { method: 'markPhase', arg: { phase: 'bridgeReady', ts: expect.any(Number) } },
     // A3: new crumbs ride every hand-off.
     { method: 'enqueue', arg: {
-      events: [expect.objectContaining({ eventName: 'custom_event' })],
-      breadcrumbs: [{ ts: expect.any(String), type: 'custom_event', name: 'checkout' }],
+      events: [expect.objectContaining({ eventName: 'custom.event' })],
+      breadcrumbs: [{ ts: expect.any(String), type: 'custom.event', name: 'checkout' }],
     } },
     { method: 'setLastScreen', arg: { screen: '/tabs/home' } },
     { method: 'clearUser', arg: undefined },
@@ -84,7 +84,7 @@ test('a custom event reaches mock-ingest with global attributes, after beforeSen
     EdgeRum.track('checkout', { plan: 'pro' });
   });
   // T1: the 2 s hand-off timer, then the fake sender's POST.
-  await expect.poll(async () => (await ingested(request)).filter((e) => e.eventName === 'custom_event'), { timeout: 10_000 })
+  await expect.poll(async () => (await ingested(request)).filter((e) => e.eventName === 'custom.event'), { timeout: 10_000 })
     .toEqual([expect.objectContaining({
       attributes: expect.objectContaining({ 'event.name': 'checkout', plan: 'pro', tenant: 'acme', 'session.id': 'harness-session' }),
     })]);
@@ -100,7 +100,7 @@ test('a thrown error reaches mock-ingest at once as app.crash', async ({ page, r
     }, 50);
   });
   await expect.poll(async () => (await ingested(request)).find((e) => e.eventName === 'app.crash'), { timeout: 1_500 })
-    .toMatchObject({ attributes: { exception_type: 'TypeError', message: expect.stringContaining('harness boom'), runtime: 'webview' } });
+    .toMatchObject({ attributes: { 'error.type': 'TypeError', 'error.message': expect.stringContaining('harness boom'), 'error.source': 'webview' } });
 });
 
 test('fetch and XHR reach mock-ingest as http.request with templated URLs (E6, P2)', async ({ page, request }) => {

@@ -39,7 +39,7 @@
         "ui.name_source": "id",
         "ui.screen": "/products/:id",
         "ui.target": "buy",
-        "ui.type": "click",
+        "ui.type": "tap",
         "ui.x": 0,
         "ui.y": 0,
         "user.id": "u1",

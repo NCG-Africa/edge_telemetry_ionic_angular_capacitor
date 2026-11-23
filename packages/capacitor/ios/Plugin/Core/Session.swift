@@ -5,6 +5,8 @@ import Foundation
 /// or a relaunch inside the idle timeout resumes the same session. Worker queue only.
 final class Session {
     static let idleMs: Int64 = 30 * 60_000
+    /// Processor #39: no session lives past 4 h, active or not.
+    static let maxDurationMs: Int64 = 4 * 60 * 60_000
     static let recordKey = "edge_rum_capacitor.session"
     static let totalKey = "edge_rum_capacitor.total_sessions"
     /// `session.visited_screens` keeps the first 50; `session.screen_count` counts them all.
@@ -15,10 +17,10 @@ final class Session {
     static let capInteractions = 200
     static let capBridge = 50
     static let capCustom = 500
-    /// S2: never sampled out, never capped (fatal / WebView-death `app.crash` checked separately).
-    private static let exempt: Set = ["session.started", "session.finalized", "app.anr", "app.exit", "app.start", "sdk.health"]
-    /// SDK metrics; any other metric name is the host's (`measure()` / `time()`).
-    private static let sdkMetrics: Set = ["LCP", "INP", "CLS", "FCP", "TTFB", "resource_timing", "memory_usage"]
+    /// S2: never sampled out, never capped. `app.crash` is always unhandled (JS, native, WebView death).
+    private static let exempt: Set = ["session.started", "session.finalized", "app.crash", "app.anr", "app.exit", "app.start", "sdk.health"]
+    /// SDK metrics outside the custom budget; `custom.metric` and `perf.long_task` are in it.
+    private static let sdkMetrics: Set = ["perf.lcp", "perf.inp", "perf.cls", "perf.fcp", "perf.ttfb", "perf.resource_timing"]
     /// A JSC frame (`fn@url:line[:col]`); a V8 message line with an `@` in it doesn't match.
     private static let jscFrame = #"^[^\s@]*@\S+:\d+(:\d+)?$"#
 
@@ -70,13 +72,22 @@ final class Session {
         return out
     }
 
-    /// Rotation check without activity (foreground). Bookends to append, or none.
+    /// Rotation check without activity (foreground): 30 min idle (`timeout`) or 4 h since the start
+    /// (`max_duration`, processor #39). Bookends to append, or none.
     func rotateIfIdle() -> [String] {
         var out: [String] = []
-        if id != nil && clock() - lastActivityAt > Self.idleMs {
-            out.append(finalized())
-            start(&out)
+        guard id != nil else { return out }
+        let now = clock()
+        let reason: String
+        if now - lastActivityAt > Self.idleMs {
+            reason = "timeout"
+        } else if now - startedAt >= Self.maxDurationMs {
+            reason = "max_duration"
+        } else {
+            return out
         }
+        out.append(finalized(reason))
+        start(&out)
         return out
     }
 
@@ -140,7 +151,7 @@ final class Session {
             let isMetric = e["type"] as? String == "metric"
             let name = e[isMetric ? "metricName" : "eventName"] as? String ?? ""
             count(isMetric, name, attrs)
-            if !Self.isExempt(name, attrs) {
+            if !Self.exempt.contains(name) {
                 guard isSampled else { continue }
                 if let reason = capReason(isMetric, name, attrs) {
                     health.count(reason, 1)
@@ -171,14 +182,15 @@ final class Session {
     /// S3 / Cordova S7: the `sdk.health` reason when a cap is hit, else nil (and the event is counted).
     private func capReason(_ isMetric: Bool, _ name: String, _ attrs: [String: Any]) -> String? {
         if isMetric && Self.sdkMetrics.contains(name) { return nil }
-        switch isMetric ? "custom_event" : name {
-        case "app.crash":
-            let key = "error:" + (attrs["exception_type"] as? String ?? "") + "|" + Self.topFrame(attrs["stacktrace"] as? String ?? "")
+        switch isMetric ? "custom.event" : name {
+        // Handled errors only: every `app.crash` is unhandled and exempt (S2).
+        case "app.error":
+            let key = "error:" + (attrs["error.type"] as? String ?? "") + "|" + Self.topFrame(attrs["error.stacktrace"] as? String ?? "")
             return allow("error", Self.capErrors, key, Self.capErrorsPerKey) ? nil : "cap.error"
         case "ui.interaction": return allow("interaction", Self.capInteractions) ? nil : "cap.interaction"
         case "bridge.summary": return allow("bridge", Self.capBridge) ? nil : "cap.bridge"
-        // `custom_event`, host metrics (mapped above) and tasks share one budget.
-        case "custom_event", "task.complete": return allow("custom", Self.capCustom) ? nil : "cap.custom"
+        // `custom.event`, host metrics (`custom.metric`, `perf.long_task`) and tasks share one budget.
+        case "custom.event", "task.complete": return allow("custom", Self.capCustom) ? nil : "cap.custom"
         default: return nil
         }
     }
@@ -221,8 +233,9 @@ final class Session {
     }
 
     /// E1: backdated to the last activity, so idle time isn't session time.
-    private func finalized() -> String {
+    private func finalized(_ reason: String) -> String {
         bookend("session.finalized", lastActivityAt, sampledAttr([
+            "session.reason": reason,
             "session.start_time": Sender.rfc3339(startedAt),
             "session.duration_ms": max(0, lastActivityAt - startedAt),
             "session.event_count": eventCount,
@@ -271,11 +284,6 @@ final class Session {
         self.screens = screens
         self.caps = caps
         id = rid
-    }
-
-    private static func isExempt(_ name: String, _ attrs: [String: Any]) -> Bool {
-        exempt.contains(name) ||
-            (name == "app.crash" && (attrs["is_fatal"] as? Bool == true || attrs["cause"] as? String == "WebViewTerminated"))
     }
 
     // ponytail: first line that looks like a frame (V8 `at …`, JSC `fn@url`); parsed frames are issue 11's.

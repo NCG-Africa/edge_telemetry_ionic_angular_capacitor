@@ -1,6 +1,6 @@
 {
   "type": "telemetry_batch",
-  "contract_version": "4.0.0",
+  "contract_version": "4.3.0",
   "timestamp": "2026-10-26T10:00:03.000Z",
   "batch_size": 1,
   "device_id": "device_1700000000000_0123456789abcdef_ios",
@@ -17,28 +17,25 @@
   },
   "events": [
     {
-      "type": "event",
       "eventName": "app.crash",
-      "timestamp": "2026-10-26T10:00:01.000Z",
       "attributes": {
-        "message": "SIGSEGV, code SEGV_MAPERR, fault addr 0x8",
-        "exception_type": "SIGSEGV",
-        "cause": "signal 11",
-        "crash_thread": "main",
-        "crash_is_main_thread": true,
-        "stacktrace": "Fixture +0x1a2c\nlibsystem_c.dylib +0x39f10\n0xdead",
-        "error_context": "Fixture +0x1a2c",
-        "is_fatal": true,
-        "handled": false,
-        "screen_name": "/checkout",
-        "crash.breadcrumbs": "[{\"category\":\"navigation\",\"message\":\"crumb 0\"}]",
-        "crash.binary_images": "[{\"base\":\"0x102a40000\",\"name\":\"Fixture\",\"uuid\":\"4f6e8a0b1c2d3e4f5a6b7c8d9e0f1a2b\"},{\"base\":\"0x1a0f00000\",\"name\":\"libsystem_c.dylib\",\"uuid\":\"9a8b7c6d5e4f30211203f4e5d6c7b8a9\"}]",
+        "error.binary_images": "[{\"base\":\"0x102a40000\",\"name\":\"Fixture\",\"uuid\":\"4f6e8a0b1c2d3e4f5a6b7c8d9e0f1a2b\"},{\"base\":\"0x1a0f00000\",\"name\":\"libsystem_c.dylib\",\"uuid\":\"9a8b7c6d5e4f30211203f4e5d6c7b8a9\"}]",
+        "screen.name": "/checkout",
+        "error.type": "SIGSEGV",
+        "error.thread": "main",
         "trace.id": "4bf92f3577b34da6a3ce929d0e0e4736",
+        "error.breadcrumbs": "[{\"category\":\"navigation\",\"message\":\"crumb 0\"}]",
         "rum.action.id": "00f067aa0ba902b7",
-        "trace.root_type": "interaction",
+        "error.is_main_thread": true,
+        "user.id": "u1",
         "session.id": "session_1",
-        "user.id": "u1"
-      }
+        "trace.root_type": "interaction",
+        "error.stacktrace": "Fixture +0x1a2c\nlibsystem_c.dylib +0x39f10\n0xdead",
+        "error.message": "SIGSEGV, code SEGV_MAPERR, fault addr 0x8",
+        "error.cause": "native_crash"
+      },
+      "timestamp": "2026-10-26T10:00:01.000Z",
+      "type": "event"
     }
   ]
 }

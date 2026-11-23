@@ -3,6 +3,8 @@ import Foundation
 /// Spec A5, E3 (= Android `Launch`): the one `app.start` per cold launch, assembled from the native
 /// process start + WebView created marks and the JS `markPhase` phases (ADR-044 §1). `bridgeReady`
 /// stands where Cordova had `deviceready`; there is no ready timeout (E17 not emitted).
+/// Processor #32 / #149: `app.start.duration_ms` ends at bridge ready; `markReady()` is a phase
+/// (`app.start.mark_ready_ms`) and no longer extends it. One per process (`sent`).
 final class Launch {
     /// A5: `markReady()` counts when it lands within this long of `bridgeReady`.
     static let readyWindowMs: Int64 = 30_000
@@ -22,10 +24,24 @@ final class Launch {
     private let lock = NSLock()
     private var marks: [String: Int64] = [:]
     private var emitted = false
+    /// A second bridge (another `CAPBridgeViewController`) in the same process owes no `app.start`.
+    private static var sent = false
+    /// Guards `sent`: each bridge's `Launch` has its own `lock`.
+    private static let sentLock = NSLock()
+    private let once: Bool
 
-    init(processStart: Int64, webViewCreated: Int64) {
+    /// `once`: at most one `app.start` for the whole process (the plugin); tests build many.
+    init(processStart: Int64, webViewCreated: Int64, once: Bool = false) {
         self.processStart = processStart
         self.webViewCreated = webViewCreated
+        self.once = once
+        if once {
+            // Claimed at creation, not at emit: a second bridge may load before the first one sends.
+            Self.sentLock.lock()
+            emitted = Self.sent
+            Self.sent = true
+            Self.sentLock.unlock()
+        }
     }
 
     /// Records a phase (first mark wins: a WebView reload re-sends them). Returns `app.start` when
@@ -47,8 +63,7 @@ final class Launch {
     private func emit() -> [String: Any] {
         emitted = true
         // Callers checked `bridgeReady` is marked.
-        let r = marks[Self.bridgeReady]!
-        let end = marks[Self.markReady].map { max($0, r) } ?? r
+        let end = marks[Self.bridgeReady]!
         var a: [String: Any] = [
             "app.start.type": "cold",
             "app.start.duration_ms": max(0, end - processStart),

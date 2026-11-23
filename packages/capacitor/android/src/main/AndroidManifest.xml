@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- E26: default-network callback for network_change / network.type. -->
+    <!-- E26: default-network callback for network.change / network.type. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 </manifest>

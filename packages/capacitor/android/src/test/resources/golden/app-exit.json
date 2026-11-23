@@ -1,50 +1,50 @@
 {
-  "type": "telemetry_batch",
-  "contract_version": "4.0.0",
-  "timestamp": "2026-10-26T10:00:02.000Z",
+  "app": {
+    "name": "Fixture",
+    "package_name": "com.nathanclaire.rum.fixture",
+    "build_number": "142",
+    "version": "1.4.2",
+    "platform": "android"
+  },
+  "contract_version": "4.3.0",
   "batch_size": 2,
   "device_id": "device_1700000000000_0123456789abcdef_android",
   "sdk": {
     "name": "ionic",
     "version": "1.0.0"
   },
-  "app": {
-    "name": "Fixture",
-    "package_name": "com.nathanclaire.rum.fixture",
-    "platform": "android",
-    "version": "1.4.2",
-    "build_number": "142"
-  },
+  "type": "telemetry_batch",
   "events": [
     {
-      "type": "event",
       "eventName": "app.exit",
-      "timestamp": "2026-10-26T10:00:02.000Z",
       "attributes": {
         "exit.reason": "anr",
-        "exit.importance": "foreground",
         "exit.description": "user request after error: Input dispatching timed out",
-        "exit.status": 0,
-        "exit.pss_kb": 51200,
-        "exit.rss_kb": 102400,
         "exit.timestamp": 1793008700000,
+        "exit.rss_kb": 102400,
         "exit.trace": "----- pid 4242 -----\n\"main\" prio=5 tid=1 Native\n",
-        "session.id": "session_1"
-      }
+        "exit.importance": 100,
+        "session.id": "session_1",
+        "exit.status": 0,
+        "exit.pss_kb": 51200
+      },
+      "type": "event",
+      "timestamp": "2026-10-26T10:00:02.000Z"
     },
     {
-      "type": "event",
       "eventName": "app.exit",
-      "timestamp": "2026-10-26T10:00:02.000Z",
       "attributes": {
         "exit.reason": "user_requested",
-        "exit.importance": "cached",
-        "exit.status": 0,
-        "exit.pss_kb": 40000,
-        "exit.rss_kb": 90000,
         "exit.timestamp": 1793008600000,
-        "session.id": "session_1"
-      }
+        "exit.rss_kb": 90000,
+        "exit.importance": 400,
+        "session.id": "session_1",
+        "exit.status": 0,
+        "exit.pss_kb": 40000
+      },
+      "type": "event",
+      "timestamp": "2026-10-26T10:00:02.000Z"
     }
-  ]
+  ],
+  "timestamp": "2026-10-26T10:00:02.000Z"
 }

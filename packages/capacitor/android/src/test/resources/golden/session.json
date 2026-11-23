@@ -1,0 +1,57 @@
+{
+  "app": {
+    "name": "Fixture",
+    "package_name": "com.nathanclaire.rum.fixture",
+    "build_number": "142",
+    "version": "1.4.2",
+    "platform": "android"
+  },
+  "contract_version": "4.3.0",
+  "batch_size": 3,
+  "device_id": "device_1700000000000_0123456789abcdef_android",
+  "sdk": {
+    "name": "ionic",
+    "version": "1.0.0"
+  },
+  "type": "telemetry_batch",
+  "events": [
+    {
+      "eventName": "session.finalized",
+      "attributes": {
+        "session.metric_count": 0,
+        "session.reason": "timeout",
+        "session.start_time": "2026-10-26T10:00:02.000Z",
+        "session.screen_count": 0,
+        "session.duration_ms": 0,
+        "session.event_count": 4,
+        "session.id": "session_1",
+        "session.visited_screens": ""
+      },
+      "type": "event",
+      "timestamp": "2026-10-26T10:00:02.000Z"
+    },
+    {
+      "eventName": "session.started",
+      "attributes": {
+        "session.is_first_session": false,
+        "session.start_time": "2026-10-26T10:30:02.001Z",
+        "session.total_sessions": 2,
+        "session.id": "session_1"
+      },
+      "type": "event",
+      "timestamp": "2026-10-26T10:30:02.001Z"
+    },
+    {
+      "eventName": "user.profile.update",
+      "attributes": {
+        "user.id": "u1",
+        "user.email": "ada@example.com",
+        "user.name": "Ada",
+        "session.id": "session_1"
+      },
+      "type": "event",
+      "timestamp": "2026-10-26T10:30:02.001Z"
+    }
+  ],
+  "timestamp": "2026-10-26T10:30:02.001Z"
+}

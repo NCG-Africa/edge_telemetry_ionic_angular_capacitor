@@ -122,8 +122,8 @@ class CrashTest {
         Thread.getDefaultUncaughtExceptionHandler()!!.uncaughtException(Thread("worker"), fixedException())
 
         assertEquals(listOf("sink", "previous"), order)
-        assertEquals("worker", attrs(sunk[0]).getString("crash_thread"))
-        assertFalse(attrs(sunk[0]).getBoolean("crash_is_main_thread"))
+        assertEquals("worker", attrs(sunk[0]).getString("error.thread"))
+        assertFalse(attrs(sunk[0]).getBoolean("error.is_main_thread"))
     }
 
     @Test fun failingSinkStillChains() {
@@ -137,7 +137,7 @@ class CrashTest {
     @Test fun breadcrumbRingKeepsLastFifty() {
         crash.mirror(payload(40, "/a"))
         crash.mirror(payload(30, null))
-        val crumbs = JSONArray(attrs(crash.jvm(main, fixedException())).getString("crash.breadcrumbs"))
+        val crumbs = JSONArray(attrs(crash.jvm(main, fixedException())).getString("error.breadcrumbs"))
         assertEquals(Crash.BREADCRUMBS, crumbs.length())
         assertEquals("crumb 20", crumbs.getJSONObject(0).getString("message"))
         assertEquals("crumb 29", crumbs.getJSONObject(49).getString("message"))
@@ -146,7 +146,7 @@ class CrashTest {
     @Test fun setLastScreenOverridesMirroredScreen() {
         crash.mirror(payload(0, "/a"))
         crash.screen("/b")
-        assertEquals("/b", attrs(crash.jvm(main, fixedException())).getString("screen_name"))
+        assertEquals("/b", attrs(crash.jvm(main, fixedException())).getString("screen.name"))
     }
 
     @Test fun ndkCrashReplaysNextLaunchUnderTheCrashedBuildsIdentityWithStaleRoot() {
@@ -174,9 +174,10 @@ class CrashTest {
 
     @Test fun ndkFrameNamesAndMainThread() {
         val a = attrs(Crash.ndk(NDK_REPORT.replace("tid 4242", "tid 4300"), JSONObject()))
-        assertEquals("libgame.so+0x1a2c", a.getString("error_context"))
-        assertFalse(a.getBoolean("crash_is_main_thread"))
-        assertTrue(a.getString("stacktrace").startsWith("#00 pc 0000000000001a2c  /data/app/"))
+        assertEquals("native_crash", a.getString("error.cause"))
+        assertEquals("SIGSEGV", a.getString("error.type"))
+        assertFalse(a.getBoolean("error.is_main_thread"))
+        assertTrue(a.getString("error.stacktrace").startsWith("#00 pc 0000000000001a2c  /data/app/"))
         assertFalse("no root, no trace keys", a.has("trace.id"))
     }
 
@@ -188,8 +189,8 @@ class CrashTest {
         crash.clear()
         assertNull(crash.takeNdk())
         val a = attrs(crash.jvm(main, fixedException()))
-        assertEquals("[]", a.getString("crash.breadcrumbs"))
-        assertFalse(a.has("screen_name"))
+        assertEquals("[]", a.getString("error.breadcrumbs"))
+        assertFalse(a.has("screen.name"))
         assertFalse(a.has("trace.id"))
     }
 

@@ -96,6 +96,16 @@ func json(_ text: String) -> [String: Any] {
     (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
 }
 
+/// `UPDATE_GOLDEN=1`: writes `body` over the golden file (compact; re-indent it afterwards) and
+/// returns true, so the caller skips its comparison.
+func updatedGolden(_ name: String, _ body: String) -> Bool {
+    guard ProcessInfo.processInfo.environment["UPDATE_GOLDEN"] == "1" else { return false }
+    let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("../golden/\(name)").standardized
+    try? Data(body.utf8).write(to: url)
+    return true
+}
+
 /// Golden file with whitespace outside strings removed: the envelope is written compact and in a
 /// fixed key order, so the snapshot is compared byte for byte.
 func golden(_ name: String) -> String {

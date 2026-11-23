@@ -24,7 +24,7 @@ class SenderTest {
             """"platform":"android","version":"1.4.2","build_number":"142"},"device_id":"device_1700000000000_0123456789abcdef_android"}"""
         val EVENTS = listOf(
             """{"type":"event","eventName":"navigation","timestamp":"2026-10-26T10:00:00.000Z","attributes":{"navigation.to_screen":"/home"}}""",
-            """{"type":"metric","metricName":"LCP","value":812.5,"timestamp":"2026-10-26T10:00:01.000Z","attributes":{}}""",
+            """{"type":"metric","metricName":"perf.lcp","value":812.5,"timestamp":"2026-10-26T10:00:01.000Z","attributes":{}}""",
         )
 
         fun gunzip(req: RecordedRequest): String =
@@ -33,9 +33,17 @@ class SenderTest {
         fun golden(name: String): JSONObject =
             JSONObject(SenderTest::class.java.getResourceAsStream("/golden/$name")!!.use { it.readBytes().toString(Charsets.UTF_8) })
 
-        /** Key order is part of the snapshot: the envelope is written in a fixed order. */
-        fun assertGolden(name: String, body: String) =
+        /**
+         * Key order is part of the snapshot: the envelope is written in a fixed order.
+         * `UPDATE_GOLDEN=1` rewrites the file instead (gradle runs in `core-test`).
+         */
+        fun assertGolden(name: String, body: String) {
+            if (System.getenv("UPDATE_GOLDEN") == "1") {
+                java.io.File("../src/test/resources/golden/$name").writeText(JSONObject(body).toString(2) + "\n")
+                return
+            }
             assertEquals("$name drifted", golden(name).toString(2), JSONObject(body).toString(2))
+        }
     }
 
     @get:Rule val tmp = TemporaryFolder()

@@ -40,7 +40,7 @@ class SessionTest {
         fun repeat(e: JSONObject, n: Int) = List(n) { e }
 
         fun crash(type: String, stack: String) =
-            event("app.crash", "is_fatal" to false, "handled" to true, "exception_type" to type, "stacktrace" to stack)
+            event("app.error", "error.type" to type, "error.stacktrace" to stack)
     }
 
     @Test fun firstBeginStartsFirstSession() {
@@ -66,13 +66,13 @@ class SessionTest {
     @Test fun idleTimeoutRotatesWithBackdatedFinalizeAndFreshCounters() {
         val s = session(1.0)
         s.begin()
-        s.admit(listOf(event("navigation", "navigation.to_screen" to "/home"), metric("LCP")))
+        s.admit(listOf(event("navigation", "navigation.to_screen" to "/home"), metric("perf.lcp")))
         now += 60_000
         s.admit(listOf(event("navigation", "navigation.to_screen" to "/cart")))
         now += Session.IDLE_MS + 1
 
-        val out = s.admit(listOf(event("custom_event")))
-        assertEquals(listOf("session.finalized", "session.started", "custom_event"), names(out))
+        val out = s.admit(listOf(event("custom.event")))
+        assertEquals(listOf("session.finalized", "session.started", "custom.event"), names(out))
         val fin = attrs(out[0])
         assertEquals("session_1", fin.getString("session.id"))
         assertEquals(60_000, fin.getLong("session.duration_ms"))
@@ -86,6 +86,28 @@ class SessionTest {
         assertEquals(2, started.getInt("session.total_sessions"))
         assertEquals("session_2", attrs(out[2]).getString("session.id"))
         assertEquals("session_2", s.id())
+    }
+
+    @Test fun activeSessionEndsAtFourHoursWithMaxDuration() {
+        val s = session(1.0)
+        s.begin()
+        val start = now
+        while (now - start < Session.MAX_DURATION_MS - 60_000) {
+            now += 60_000
+            assertEquals(listOf("custom.event"), names(s.admit(listOf(event("custom.event")))))
+        }
+        now += 60_000
+        val out = s.admit(listOf(event("custom.event")))
+        assertEquals(listOf("session.finalized", "session.started", "custom.event"), names(out))
+        assertEquals("max_duration", attrs(out[0]).getString("session.reason"))
+        assertEquals("session_2", attrs(out[2]).getString("session.id"))
+    }
+
+    @Test fun idleRotationSaysTimeout() {
+        val s = session(1.0)
+        s.begin()
+        now += Session.IDLE_MS + 1
+        assertEquals("timeout", attrs(s.rotateIfIdle()[0]).getString("session.reason"))
     }
 
     @Test fun rotateIfIdleOnlyRotatesPastTheTimeout() {
@@ -129,9 +151,9 @@ class SessionTest {
         assertFalse(attrs(s.begin()[0]).getBoolean("session.sampled"))
 
         val kept = s.admit(listOf(
-            event("navigation"), metric("LCP"), event("app.hang"), event("user.profile.update"),
-            event("app.crash", "is_fatal" to false),
-            event("app.crash", "is_fatal" to true), event("app.crash", "cause" to "WebViewTerminated"),
+            event("navigation"), metric("perf.lcp"), event("app.hang"), event("user.profile.update"),
+            event("app.error"),
+            event("app.crash"), event("app.crash", "error.cause" to "webview_terminated"),
             event("app.anr"), event("app.exit"), event("app.start"), event("sdk.health"),
         ))
         assertEquals(listOf("app.crash", "app.crash", "app.anr", "app.exit", "app.start", "sdk.health"), names(kept))
@@ -170,11 +192,11 @@ class SessionTest {
     @Test fun customCapIsCombinedAcrossCustomHostMetricsAndTasks() {
         val s = session(1.0)
         s.begin()
-        assertEquals(500, s.admit(repeat(event("custom_event"), 300)).size +
+        assertEquals(500, s.admit(repeat(event("custom.event"), 300)).size +
             s.admit(repeat(metric("checkout_ms"), 150)).size +
             s.admit(repeat(event("task.complete"), 50)).size)
-        assertEquals(0, s.admit(listOf(event("custom_event"), metric("cart"), event("task.complete"))).size)
-        assertEquals(1, s.admit(listOf(metric("LCP"))).size)
+        assertEquals(0, s.admit(listOf(event("custom.event"), metric("cart"), event("task.complete"))).size)
+        assertEquals(1, s.admit(listOf(metric("perf.lcp"))).size)
         assertEquals(mapOf("events_dropped.cap.custom" to 3L), health.snapshot())
     }
 
@@ -186,7 +208,7 @@ class SessionTest {
         assertEquals(5, s.admit(repeat(crash("TypeError", "TypeError: x\n    at g (app:///main.js:9:9)"), 5)).size)
         for (i in 0 until 8) s.admit(repeat(crash("E$i", ""), 5))
         assertEquals("50 total", 0, s.admit(listOf(crash("New", ""))).size)
-        assertEquals("fatal never capped", 1, s.admit(listOf(event("app.crash", "is_fatal" to true))).size)
+        assertEquals("app.crash never capped", 1, s.admit(listOf(event("app.crash"))).size)
         assertEquals(mapOf("events_dropped.cap.error" to 2L), health.snapshot())
     }
 

@@ -13,7 +13,8 @@ import org.json.JSONObject
 
 /**
  * Spec A3, E12–E15, X10, Y3 (= Cordova `Crash`): the native breadcrumb mirror, the last trace root,
- * and the `app.crash` / `app.anr` / `app.hang` records built from them. JVM crashes are written
+ * and the `app.crash` / `app.anr` / `app.hang` records built from them, on the event catalogue's
+ * `error.*` keys (processor #30, #149). JVM crashes are written
  * in-process; an NDK crash leaves a plain-text report (`native-crash.c`) that [takeNdk] turns into
  * an event next launch, under the identity, session, breadcrumbs and root saved by [saveContext].
  */
@@ -90,17 +91,17 @@ class Crash(dir: File, private val main: Thread, private val clock: () -> Long) 
         }
     }
 
-    /** Y3: raw Throwable stack, N1 keys, sibling caps. */
+    /** Y3: raw Throwable stack, sibling caps. */
     fun jvm(thread: Thread, e: Throwable): JSONObject {
         val stack = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString()
         val a = JSONObject()
-            .put("message", cap(e.javaClass.name + ": " + (e.message ?: ""), MAX_MESSAGE))
-            .put("stacktrace", cap(stack, MAX_STACK))
-            .put("exception_type", cap(e.javaClass.simpleName, MAX_CAUSE))
-            .put("cause", cap(e.cause?.message ?: "unknown", MAX_CAUSE))
-            .put("error_context", cap(jvmContext(stack), MAX_CONTEXT))
-            .put("crash_thread", thread.name)
-            .put("crash_is_main_thread", thread === main)
+            .put("error.message", cap(e.javaClass.name + ": " + (e.message ?: ""), MAX_MESSAGE))
+            .put("error.stacktrace", cap(stack, MAX_STACK))
+            .put("error.type", cap(e.javaClass.simpleName, MAX_TYPE))
+            // As the Android SDK: an uncaught JVM exception; `native_crash` is a signal (NDK).
+            .put("error.cause", "unhandled_exception")
+            .put("error.thread", thread.name)
+            .put("error.is_main_thread", thread === main)
         val at = clock()
         return event("app.crash", at, fatal(a, at))
     }
@@ -111,28 +112,31 @@ class Crash(dir: File, private val main: Thread, private val clock: () -> Long) 
      */
     fun webViewTerminated(reason: String): JSONObject {
         val a = JSONObject()
-            .put("message", "WebView renderer process gone ($reason)")
-            .put("exception_type", "WebViewTerminated")
-            .put("cause", "WebViewTerminated")
+            .put("error.message", "WebView renderer process gone ($reason)")
+            .put("error.type", "WebViewTerminated")
+            .put("error.cause", "webview_terminated")
             .put("webview.reason", reason)
             .put("webview.detected_by", "callback")
         val at = clock()
         return event("app.crash", at, fatal(a, at))
     }
 
-    /** E14 / E15: main-thread stall at or past its threshold. Not fatal, not handled; main stack only. */
+    /**
+     * E14 / E15: main-thread stall at or past its threshold; main stack only. Not fatal (the
+     * process lived): `anr.duration_ms` / `hang.duration_ms` (#149, was `anr_duration_ms` / `hang_duration_ms`).
+     */
     fun stall(name: String, durationMs: Long, stack: String): JSONObject {
+        val anr = name == "app.anr"
         val a = JSONObject()
-            .put("message", "Main thread blocked for $durationMs ms")
-            .put("stacktrace", cap(stack, MAX_STACK))
-            .put("crash_thread", main.name)
-            .put("crash_is_main_thread", true)
-            .put("is_fatal", false)
-            .put("handled", false)
-            .put(if (name == "app.anr") "anr_duration_ms" else "hang_duration_ms", durationMs)
+            .put("error.message", "Main thread blocked for $durationMs ms")
+            .put("error.stacktrace", cap(stack, MAX_STACK))
+            .put("error.cause", if (anr) "anr" else "hang")
+            .put("error.thread", main.name)
+            .put("error.is_main_thread", true)
+            .put(if (anr) "anr.duration_ms" else "hang.duration_ms", durationMs)
         val at = clock()
         synchronized(this) {
-            screen?.let { a.put("screen_name", it) }
+            screen?.let { a.put("screen.name", it) }
             // Judged when the main thread blocked, not when the watchdog noticed.
             annotate(a, root, at - durationMs)
         }
@@ -149,8 +153,8 @@ class Crash(dir: File, private val main: Thread, private val clock: () -> Long) 
             val a = JSONObject().put("session.id", sessionId).put("user.id", userId)
             val ctx = JSONObject().put("identity", identity).put("attributes", a)
             synchronized(this) {
-                a.put("crash.breadcrumbs", JSONArray(breadcrumbs).toString())
-                screen?.let { a.put("screen_name", it) }
+                a.put("error.breadcrumbs", JSONArray(breadcrumbs).toString())
+                screen?.let { a.put("screen.name", it) }
                 root?.let { ctx.put("root", JSONObject(it.toString())) }
             }
             tmp.writeText(ctx.toString())
@@ -189,11 +193,11 @@ class Crash(dir: File, private val main: Thread, private val clock: () -> Long) 
 
     private fun fatal(a: JSONObject, at: Long): JSONObject {
         synchronized(this) {
-            a.put("crash.breadcrumbs", JSONArray(breadcrumbs).toString())
-            screen?.let { a.put("screen_name", it) }
+            a.put("error.breadcrumbs", JSONArray(breadcrumbs).toString())
+            screen?.let { a.put("screen.name", it) }
             annotate(a, root, at)
         }
-        return fatalFlags(a)
+        return a
     }
 
     companion object {
@@ -207,8 +211,7 @@ class Crash(dir: File, private val main: Thread, private val clock: () -> Long) 
         /** Sibling `CrashReportingService` caps. */
         private const val MAX_MESSAGE = 1000
         private const val MAX_STACK = 2000
-        private const val MAX_CAUSE = 255
-        private const val MAX_CONTEXT = 500
+        private const val MAX_TYPE = 255
         private val SIGNAL_NAMES = mapOf(4 to "SIGILL", 5 to "SIGTRAP", 6 to "SIGABRT", 7 to "SIGBUS", 8 to "SIGFPE", 11 to "SIGSEGV")
 
         /**
@@ -238,7 +241,6 @@ class Crash(dir: File, private val main: Thread, private val clock: () -> Long) 
             var tid = -2L
             var thread = ""
             val stack = StringBuilder()
-            var top: String? = null
             var n = 0
             for (line in report.split('\n')) {
                 val sp = line.indexOf(' ')
@@ -260,40 +262,29 @@ class Crash(dir: File, private val main: Thread, private val clock: () -> Long) 
                         stack.append(String.format(Locale.US, "#%02d pc %016x  %s", n++, BigInteger(f[0], 16).toLong(), image))
                         if (f[1] != "-") stack.append(" (BuildId: ").append(f[1]).append(')')
                         stack.append('\n')
-                        if (top == null) top = image.substringAfterLast('/') + "+0x" + f[0]
                     }
                 }
             }
             if (signal < 0) throw JSONException("no signal in NDK report")
             val name = SIGNAL_NAMES[signal] ?: "SIG$signal"
             val a = JSONObject()
-                .put("message", String.format(Locale.US, "%s, code %d, fault addr 0x%x", name, code, faultAddr))
-                .put("stacktrace", cap(stack.toString(), MAX_STACK))
-                .put("exception_type", name)
-                .put("cause", "signal $signal")
-                .put("error_context", top ?: "unknown")
-                .put("crash_thread", thread)
-                .put("crash_is_main_thread", pid == tid)
+                .put("error.message", String.format(Locale.US, "%s, code %d, fault addr 0x%x", name, code, faultAddr))
+                .put("error.stacktrace", cap(stack.toString(), MAX_STACK))
+                .put("error.type", name)
+                .put("error.cause", "native_crash")
+                .put("error.thread", thread)
+                .put("error.is_main_thread", pid == tid)
             // org.json `keys()` is a raw Iterator on Android.
             for (k in context.keys()) a.put(k as String, context.get(k))
             annotate(a, root, at)
-            return event("app.crash", at, fatalFlags(a))
+            return event("app.crash", at, a)
         }
-
-        private fun fatalFlags(a: JSONObject) = a.put("is_fatal", true).put("handled", false)
 
         fun event(name: String, at: Long, attrs: JSONObject): JSONObject = JSONObject()
             .put("type", "event")
             .put("eventName", name)
             .put("timestamp", Sender.rfc3339(at))
             .put("attributes", attrs)
-
-        /** Sibling `extractErrorContext`: `Class.method` of the first `at` frame. */
-        private fun jvmContext(stack: String): String {
-            val l = stack.lineSequence().map(String::trim).firstOrNull { it.startsWith("at ") } ?: return "unknown"
-            val parts = l.substring(3).substringBefore('(').split('.')
-            return if (parts.size >= 2) parts[parts.size - 2] + "." + parts.last() else parts[0]
-        }
 
         private fun cap(s: String, max: Int) = if (s.length <= max) s else s.substring(0, max)
     }

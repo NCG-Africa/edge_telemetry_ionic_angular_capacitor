@@ -13,7 +13,7 @@ function enqueue({ events }) {
   if (!window.__native.post) return Promise.resolve();
   const batch = {
     type: 'telemetry_batch',
-    contract_version: '4.0.0',
+    contract_version: '4.3.0',
     timestamp: new Date().toISOString(),
     batch_size: events.length,
     device_id: 'harness-device',

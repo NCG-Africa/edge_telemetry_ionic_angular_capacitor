@@ -76,6 +76,7 @@ final class CrashTests: XCTestCase {
     }
 
     func assertGolden(_ name: String, _ body: String, file: StaticString = #filePath, line: UInt = #line) {
+        if updatedGolden(name, body) { return }
         // Event dictionaries are unordered: compare parsed, not byte for byte.
         XCTAssertEqual(json(body) as NSDictionary, json(golden(name)) as NSDictionary, file: file, line: line)
     }
@@ -132,10 +133,10 @@ final class CrashTests: XCTestCase {
     func testUnknownSignalAndNoThread() {
         let r = Crash.Report(at: 0, signal: "SIGSYS", signalCode: "0")
         let a = attrs(Crash.native(r, [:]))
-        XCTAssertEqual(a["cause"] as? String, "signal SIGSYS")
-        XCTAssertEqual(a["error_context"] as? String, "unknown")
-        XCTAssertNil(a["crash_thread"])
-        XCTAssertNil(a["stacktrace"])
+        XCTAssertEqual(a["error.cause"] as? String, "native_crash")
+        XCTAssertEqual(a["error.type"] as? String, "SIGSYS")
+        XCTAssertNil(a["error.thread"])
+        XCTAssertNil(a["error.stacktrace"])
     }
 
     // MARK: - X10 root annotation
@@ -194,19 +195,19 @@ final class CrashTests: XCTestCase {
         crash.mirror(Self.payload(30, nil))
         crash.saveContext(identity: Self.crashedIdentity, sessionId: "session_1", userId: nil)
         let a = attrs(json(try XCTUnwrap(crash.replay(Self.signal)).event))
-        let crumbs = try JSONSerialization.jsonObject(with: Data((a["crash.breadcrumbs"] as? String ?? "").utf8)) as? [[String: Any]]
+        let crumbs = try JSONSerialization.jsonObject(with: Data((a["error.breadcrumbs"] as? String ?? "").utf8)) as? [[String: Any]]
         XCTAssertEqual(crumbs?.count, Crash.breadcrumbs)
         XCTAssertEqual(crumbs?.first?["message"] as? String, "crumb 20")
         XCTAssertEqual(crumbs?.last?["message"] as? String, "crumb 29")
-        XCTAssertEqual(a["screen_name"] as? String, "/a")
+        XCTAssertEqual(a["screen.name"] as? String, "/a")
     }
 
     func testSetScreenOverridesAndEmptyClears() {
         crash.mirror(Self.payload(0, "/a"))
         crash.setScreen("/b")
-        XCTAssertEqual(attrs(crash.hang(durationMs: 2_000, frames: []))["screen_name"] as? String, "/b")
+        XCTAssertEqual(attrs(crash.hang(durationMs: 2_000, frames: []))["screen.name"] as? String, "/b")
         crash.setScreen("")
-        XCTAssertNil(attrs(crash.hang(durationMs: 2_000, frames: []))["screen_name"])
+        XCTAssertNil(attrs(crash.hang(durationMs: 2_000, frames: []))["screen.name"])
     }
 
     func testClearForgetsEverything() {
@@ -215,7 +216,7 @@ final class CrashTests: XCTestCase {
         crash.saveContext(identity: Self.crashedIdentity, sessionId: nil, userId: nil)
         crash.clear()
         let a = attrs(crash.hang(durationMs: 2_000, frames: []))
-        XCTAssertNil(a["screen_name"])
+        XCTAssertNil(a["screen.name"])
         XCTAssertNil(a["trace.id"])
         XCTAssertNil(crash.replay(Self.signal), "saved context gone")
     }
@@ -231,7 +232,7 @@ final class CrashTests: XCTestCase {
     func testStackKeepsWholeFramesUnderTheCap() {
         let many = Array(repeating: Self.frames[0], count: 200)
         let a = attrs(crash.hang(durationMs: 2_000, frames: many))
-        let stack = a["stacktrace"] as? String ?? ""
+        let stack = a["error.stacktrace"] as? String ?? ""
         XCTAssertLessThanOrEqual(stack.utf8.count, 2000)
         XCTAssertTrue(stack.hasSuffix("Fixture +0x1a2c"), "no torn frame")
     }

@@ -4,7 +4,7 @@ Real User Monitoring for **Ionic Angular Capacitor** apps on Android and iOS: cr
 launch time, screens, requests, taps, Web Vitals, smoothness and native plugin call timings, sent to
 Edge RUM.
 
-**Version 5.0** · wire contract 4.0.0 · upgrading from 4.x: [migration guide](./docs/migration-5.md)
+**Version 5.0** · wire contract 4.3.0 · upgrading from 4.x: [migration guide](./docs/migration-5.md)
 
 | Package | |
 |---|---|
@@ -84,7 +84,7 @@ EdgeRum.completeTask('checkout');      // or failTask('checkout', 'card_declined
 
 EdgeRum.trackScreen('/settings');      // only without Angular Router
 EdgeRum.captureError(err, { order_id: 'o_1' });
-EdgeRum.markReady();                   // first screen usable: ends app.start
+EdgeRum.markReady();                   // first screen usable: app.start.mark_ready_ms
 
 EdgeRum.setAttribute('plan', 'pro');   // added to every WebView row
 EdgeRum.removeAttribute('plan');

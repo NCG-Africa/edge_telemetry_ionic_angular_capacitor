@@ -6,6 +6,8 @@ import org.json.JSONObject
  * Spec A5, E3 (= Cordova `Launch` with Capacitor phases): the one `app.start` per cold launch,
  * assembled from the native process start + WebView created marks and the JS `markPhase` phases.
  * `bridgeReady` stands where Cordova had `deviceready`; there is no ready timeout (E17 not emitted).
+ * Processor #32 / #149: `app.start.duration_ms` ends at bridge ready; `markReady()` is a phase
+ * (`app.start.mark_ready_ms`) and no longer extends it. The plugin keeps one per process.
  */
 class Launch(private val processStart: Long, private val webViewCreated: Long) {
     private val marks = HashMap<String, Long>()
@@ -30,8 +32,7 @@ class Launch(private val processStart: Long, private val webViewCreated: Long) {
 
     private fun emit(): JSONObject {
         emitted = true
-        val ready = marks.getValue(BRIDGE_READY)
-        val end = marks[MARK_READY]?.let { maxOf(it, ready) } ?: ready
+        val end = marks.getValue(BRIDGE_READY)
         val a = JSONObject()
             .put("app.start.type", "cold")
             .put("app.start.duration_ms", maxOf(0, end - processStart))

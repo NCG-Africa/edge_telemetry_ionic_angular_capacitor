@@ -53,7 +53,6 @@ export function registerPerfObserver(deps: PerfObserverDeps): PerfObserverHandle
           try {
             deps.recordMetric('perf.long_task', entry.duration, {
               'metric.unit': 'ms',
-              'metric.name': entry.name || 'self',
               'screen.name': deps.getCurrentRoute(),
             });
             healthMonitor.reportSuccess('perf-observer.longtask.emit');

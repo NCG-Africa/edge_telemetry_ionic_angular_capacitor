@@ -1,6 +1,6 @@
 {
   "type": "telemetry_batch",
-  "contract_version": "4.0.0",
+  "contract_version": "4.3.0",
   "timestamp": "2026-10-26T10:00:03.000Z",
   "batch_size": 1,
   "device_id": "device_1700000000000_0123456789abcdef_ios",
@@ -17,24 +17,22 @@
   },
   "events": [
     {
-      "type": "event",
       "eventName": "app.crash",
       "timestamp": "2026-10-26T10:00:02.000Z",
       "attributes": {
-        "message": "WebView content process terminated",
-        "exception_type": "WebViewTerminated",
-        "cause": "WebViewTerminated",
-        "webview.reason": "unknown",
-        "webview.detected_by": "inference",
-        "is_fatal": true,
-        "handled": false,
-        "crash.breadcrumbs": "[{\"category\":\"navigation\",\"message\":\"crumb 0\"}]",
-        "screen_name": "/checkout",
-        "trace.id": "4bf92f3577b34da6a3ce929d0e0e4736",
         "rum.action.id": "00f067aa0ba902b7",
+        "error.type": "WebViewTerminated",
+        "error.breadcrumbs": "[{\"category\":\"navigation\",\"message\":\"crumb 0\"}]",
+        "trace.id": "4bf92f3577b34da6a3ce929d0e0e4736",
         "trace.root_type": "interaction",
-        "session.id": "session_1"
-      }
+        "screen.name": "/checkout",
+        "webview.detected_by": "inference",
+        "error.message": "WebView content process terminated",
+        "error.cause": "webview_terminated",
+        "session.id": "session_1",
+        "webview.reason": "unknown"
+      },
+      "type": "event"
     }
   ]
 }

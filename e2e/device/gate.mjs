@@ -98,7 +98,7 @@ try {
     const b = r.parsed;
     assert.deepEqual(Object.keys(b).sort(), ['app', 'batch_size', 'contract_version', 'device_id', 'events', 'sdk', 'timestamp', 'type']);
     assert.equal(b.type, 'telemetry_batch');
-    assert.equal(b.contract_version, '4.0.0');
+    assert.equal(b.contract_version, '4.3.0');
     assert.match(b.timestamp, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/);
     assert.equal(b.batch_size, b.events.length);
     assert.ok(b.device_id);

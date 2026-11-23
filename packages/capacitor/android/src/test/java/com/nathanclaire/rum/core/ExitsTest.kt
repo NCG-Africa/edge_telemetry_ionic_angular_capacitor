@@ -33,7 +33,7 @@ class ExitsTest {
         val big = "frame\n".repeat(1000)
         val a = Exits.harvest(listOf(Exits.Record(99, 7, 0, null, 0, 0, 1, big)), store, now)[0].getJSONObject("attributes")
         assertEquals("unknown_99", a.getString("exit.reason"))
-        assertEquals("unknown_7", a.getString("exit.importance"))
+        assertEquals(7, a.getInt("exit.importance"))
         assertFalse("R15: null omitted", a.has("exit.description"))
         assertTrue(a.getString("exit.trace").endsWith("…[trace truncated]"))
     }

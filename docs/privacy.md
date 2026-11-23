@@ -50,7 +50,7 @@ messages, or remove it in `beforeSend`. Breadcrumbs reuse the URL and tap rules 
 ```ts
 EdgeRum.init({
   beforeSend: (event) => {
-    if (event.type === 'event' && event.eventName === 'custom_event' && event.attributes['event.name'] === 'debug') return null;
+    if (event.type === 'event' && event.eventName === 'custom.event' && event.attributes['event.name'] === 'debug') return null;
     delete event.attributes['user_note'];
     return event;
   },

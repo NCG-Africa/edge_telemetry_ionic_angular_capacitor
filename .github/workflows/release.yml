@@ -2,8 +2,7 @@ name: Release
 
 # Spec V2 (= Cordova V2, for all three packages). Push a `vX.Y.Z` tag on main whose version
 # equals every package.json (`node scripts/set-version.mjs X.Y.Z` in the release PR). CI re-runs
-# on the tag and must pass. Native fixtures, iOS core tests and device e2e are local only: run
-# `scripts/fixture-build.sh android` and `scripts/fixture-build.sh ios` before tagging. Then all three
+# on the tag and must pass. Native fixtures and iOS core tests are local only. Then all three
 # packages publish together. `-rc.N` goes to the npm `next` dist-tag. Nothing publishes on a
 # branch push.
 on:
@@ -59,9 +58,6 @@ jobs:
       # `pnpm publish` rewrites `workspace:*` to the real version. Prereleases go to `next`, so
       # `npm install` never picks them up.
       - name: Publish to npm
-        # verbose: npm logs why an OIDC trusted-publishing exchange was rejected (it silently falls back otherwise)
-        env:
-          NPM_CONFIG_LOGLEVEL: verbose
         run: |
           case "$GITHUB_REF_NAME" in *-*) DIST_TAG=next ;; *) DIST_TAG=latest ;; esac
           pnpm -r --filter './packages/*' publish --access public --provenance --no-git-checks --tag "$DIST_TAG"

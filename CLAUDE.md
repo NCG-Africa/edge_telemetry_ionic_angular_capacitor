@@ -228,7 +228,7 @@ pnpm lint && pnpm type-check && pnpm test && pnpm build
 pnpm terminology-check && pnpm attribute-flatness-check && pnpm pack-audit && pnpm size
 pnpm test:integration        # Playwright: bridge spec + L3 bench
 pnpm test:android / test:ios # native core suites
-pnpm e2e:device android|ios  # Q3 device gate (emulator / simulator booted); local only, before a release
+pnpm e2e:device android|ios  # Q3 device e2e (emulator / simulator booted); optional, not a release gate
 scripts/conform.sh           # golden dumps vs the catalogue + shape files (needs go + processor access); local only, before a release
 ```
 

@@ -26,6 +26,11 @@ Spec 2026-11-23 stable goldens (AC-7). The pin moves only here, never in a featu
   can't clone it. An intended wire change: `scripts/conform.sh -update`, and commit the shape diff
   with the change.
 
+## Runtime bench (spec L3)
+
+- [ ] `pnpm test:integration` on this commit passes locally, including `L3 runtime ceilings`. CI skips the
+  bench: shared runners are too slow and noisy for its CPU-time ceilings.
+
 ## Device e2e gate (spec Q3)
 
 - [ ] Both local runs on this commit print `[gate] <platform> OK` with an emulator and a simulator booted:

@@ -59,6 +59,9 @@ jobs:
       # `pnpm publish` rewrites `workspace:*` to the real version. Prereleases go to `next`, so
       # `npm install` never picks them up.
       - name: Publish to npm
+        # verbose: npm logs why an OIDC trusted-publishing exchange was rejected (it silently falls back otherwise)
+        env:
+          NPM_CONFIG_LOGLEVEL: verbose
         run: |
           case "$GITHUB_REF_NAME" in *-*) DIST_TAG=next ;; *) DIST_TAG=latest ;; esac
           pnpm -r --filter './packages/*' publish --access public --provenance --no-git-checks --tag "$DIST_TAG"

@@ -1,6 +1,6 @@
 {
   "name": "@nathanclaire/rum-angular",
-  "version": "5.0.0-rc.2",
+  "version": "5.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/NCG-Africa/edge_telemetry_ionic_angular_capacitor.git",

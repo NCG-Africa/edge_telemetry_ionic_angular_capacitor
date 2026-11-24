@@ -5,7 +5,7 @@ Follow the steps below in order. 4.x gets no further fixes once 5.0 is released.
 
 ## 1. Backend first
 
-5.0 sends wire contract 4.3.0 with `sdk.name = "ionic"`, on the backend's event catalogue 4.3. Ship a 5.0 build only once the Edge RUM
+5.0 sends wire contract 4.3.0 with `sdk.name = "ionic"`, on the backend's event catalogue 4.7. Ship a 5.0 build only once the Edge RUM
 backend release that accepts it is live. On an older backend the data is rejected and lost.
 
 App builds still on 4.x keep reporting after the backend update, until users update the app.

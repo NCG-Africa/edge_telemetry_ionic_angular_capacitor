@@ -6,7 +6,7 @@ import zlib
 final class Sender {
     static let contractVersion = "4.3.0"
     /// W1: `sdk.version`. Kept equal to package.json by `SdkVersionTests`.
-    static let packageVersion = "5.0.0-rc.2"
+    static let packageVersion = "5.0.0"
     /// T6: delays before the 3 retries that follow a failed first send.
     static let retryMs: [Int64] = [1_000, 4_000, 16_000]
     /// Backoff of a parked segment; matches the 30 s tick that retries it (T6).
